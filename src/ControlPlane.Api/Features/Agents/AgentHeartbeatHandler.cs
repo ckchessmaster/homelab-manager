@@ -7,13 +7,16 @@ namespace ControlPlane.Api.Features.Agents;
 public class AgentHeartbeatHandler
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly AgentConnectionManager _connectionManager;
     private readonly ILogger<AgentHeartbeatHandler> _logger;
 
     public AgentHeartbeatHandler(
         IServiceScopeFactory scopeFactory,
+        AgentConnectionManager connectionManager,
         ILogger<AgentHeartbeatHandler> logger)
     {
         _scopeFactory = scopeFactory;
+        _connectionManager = connectionManager;
         _logger = logger;
     }
 
@@ -43,6 +46,7 @@ public class AgentHeartbeatHandler
         host.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);
+        _connectionManager.UpdateMetrics(hostId, message.Metrics);
 
         _logger.LogDebug(
             "Processed heartbeat for {Hostname} ({HostId}): RebootNeeded={Reboot}, UpgradablePkgs={Pkgs}",

@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from 'react'
-import { X, Play, Terminal as TerminalIcon, Sparkles } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { X, Play, Terminal as TerminalIcon, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react'
 import type { Host } from '../../api/hosts'
 import { apiClient } from '../../api/client'
 import { Button } from '../../components/ui/button'
@@ -12,6 +12,8 @@ interface HostTerminalDrawerProps {
   host: Host
   isOpen: boolean
   onClose: () => void
+  initialJobId?: string | null
+  autoTriggerDag?: boolean
 }
 
 interface ExecuteCommandResponse {
@@ -26,22 +28,44 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   host,
   isOpen,
   onClose,
+  initialJobId = null,
+  autoTriggerDag = false,
 }) => {
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
-  const [activeCommand, setActiveCommand] = useState<string>('')
+  const [activeJobId, setActiveJobId] = useState<string | null>(initialJobId)
+  const [prevInitialJobId, setPrevInitialJobId] = useState<string | null>(initialJobId)
+  const [activeCommand, setActiveCommand] = useState<string>(initialJobId ? 'DAG Execution Log' : '')
+
+  if (initialJobId !== prevInitialJobId) {
+    setPrevInitialJobId(initialJobId)
+    setActiveJobId(initialJobId)
+    if (initialJobId) {
+      setActiveCommand('DAG Execution Log')
+    }
+  }
   const [customCommand, setCustomCommand] = useState('')
   const [customArgs, setCustomArgs] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
   const [isExecuting, setIsExecuting] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const autoTriggeredRef = useRef(false)
 
   const terminalRef = useRef<TerminalRef>(null)
 
-  const handleLogLine = useCallback((line: string) => {
-    terminalRef.current?.writeln(line)
+  const handleLogLine = useCallback((line: string, streamType?: string) => {
+    if (!line) {
+      terminalRef.current?.writeln('')
+      return
+    }
+    if (streamType === 'stderr' && !line.includes('\x1b[')) {
+      terminalRef.current?.writeln(`\x1b[31m${line}\x1b[0m`)
+    } else if (streamType === 'system' && !line.includes('\x1b[')) {
+      terminalRef.current?.writeln(`\x1b[36m${line}\x1b[0m`)
+    } else {
+      terminalRef.current?.writeln(line)
+    }
   }, [])
 
-  const { status, lineCount } = useJobTerminalStream({
+  const { status, jobState, activeStep, failureReason, lineCount } = useJobTerminalStream({
     jobId: activeJobId,
     onLogLine: handleLogLine,
   })
@@ -50,7 +74,7 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
     setErrorMsg(null)
     setIsExecuting(true)
     setActiveCommand(`${command} ${args.join(' ')}`)
-
+    terminalRef.current?.clear()
     terminalRef.current?.writeln(`\x1b[36m$ ${command} ${args.join(' ')}\x1b[0m`)
 
     try {
@@ -73,6 +97,38 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
       setIsExecuting(false)
     }
   }
+
+  const runDagUpdate = useCallback(async () => {
+    setErrorMsg(null)
+    setIsExecuting(true)
+    setActiveCommand('DAG Upgrade Pipeline')
+    terminalRef.current?.clear()
+    terminalRef.current?.writeln(`\x1b[35m=== Triggering DAG Update Pipeline for ${host.hostname} ===\x1b[0m`)
+
+    try {
+      const res = await apiClient<{ id: string; targetHostId: string; status: string }>('/api/v1/jobs', {
+        method: 'POST',
+        body: JSON.stringify({ targetHostId: host.id }),
+      })
+      setActiveJobId(res.id)
+      terminalRef.current?.writeln(`\x1b[32mJob created (${res.id}). Awaiting DAG execution...\x1b[0m`)
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'DAG update failed'
+        : 'Failed to launch update job'
+      setErrorMsg(msg)
+      terminalRef.current?.writeln(`\x1b[31mError: ${msg}\x1b[0m`)
+    } finally {
+      setIsExecuting(false)
+    }
+  }, [host.id, host.hostname])
+
+  useEffect(() => {
+    if (isOpen && autoTriggerDag && !autoTriggeredRef.current && !initialJobId && host.agent?.installed) {
+      autoTriggeredRef.current = true
+      runDagUpdate()
+    }
+  }, [isOpen, autoTriggerDag, initialJobId, host.agent?.installed, runDagUpdate])
 
   const handleClear = () => {
     terminalRef.current?.clear()
@@ -179,6 +235,17 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
                 dnf check-update
               </Button>
             )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isExecuting || !host.agent?.installed}
+              onClick={runDagUpdate}
+              className="text-xs h-7 border-emerald-700/60 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-400 gap-1 font-medium shadow-sm"
+            >
+              <Sparkles className="w-3 h-3" />
+              Run Update (DAG)
+            </Button>
           </div>
 
           {/* Custom Command Input */}
@@ -211,6 +278,65 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
             <p className="text-xs text-rose-400 font-mono">{errorMsg}</p>
           )}
         </div>
+
+        {/* Active DAG Job & Step Status Banner */}
+        {activeJobId && jobState && (
+          <div className="px-5 py-2.5 bg-zinc-900/90 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-xs font-medium text-zinc-400">DAG Status:</span>
+              {jobState === 'Pending' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  Pending Pre-Flight
+                </span>
+              )}
+              {jobState === 'Running' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
+                  Running Pipeline
+                </span>
+              )}
+              {jobState === 'Verifying' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                  Verifying
+                </span>
+              )}
+              {jobState === 'Completed' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  Completed
+                </span>
+              )}
+              {jobState === 'Failed' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                  Failed
+                </span>
+              )}
+              {jobState === 'RolledBack' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-500/10 text-orange-300 border border-orange-500/20">
+                  <AlertCircle className="w-3.5 h-3.5 text-orange-400" />
+                  Rolled Back
+                </span>
+              )}
+
+              {activeStep && (
+                <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-mono">
+                  <span className="text-zinc-600">|</span>
+                  <span className="text-zinc-400">Step:</span>
+                  <span className="text-sky-400 font-semibold">{activeStep}</span>
+                </div>
+              )}
+            </div>
+
+            {failureReason && (
+              <span className="text-xs text-rose-400 font-mono truncate max-w-sm" title={failureReason}>
+                {failureReason}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Terminal Canvas */}
         <div className="flex-1 min-h-[420px] p-4 flex flex-col bg-zinc-950">

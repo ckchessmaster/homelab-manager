@@ -13,6 +13,8 @@ public class AgentSession
     public WebSocket Socket { get; init; } = null!;
     public DateTimeOffset ConnectedAt { get; init; } = DateTimeOffset.UtcNow;
     public SemaphoreSlim SendLock { get; } = new(1, 1);
+    public AgentMetrics? LatestMetrics { get; set; }
+    public DateTimeOffset? LastHeartbeatAt { get; set; }
 }
 
 public class AgentConnectionManager
@@ -81,6 +83,24 @@ public class AgentConnectionManager
             .Where(s => s.Value.Socket.State == WebSocketState.Open)
             .Select(s => s.Key)
             .ToList();
+    }
+
+    public void UpdateMetrics(Guid hostId, AgentMetrics? metrics)
+    {
+        if (_sessions.TryGetValue(hostId, out var session))
+        {
+            session.LatestMetrics = metrics;
+            session.LastHeartbeatAt = DateTimeOffset.UtcNow;
+        }
+    }
+
+    public AgentMetrics? GetLatestMetrics(Guid hostId)
+    {
+        if (_sessions.TryGetValue(hostId, out var session))
+        {
+            return session.LatestMetrics;
+        }
+        return null;
     }
 
     public async Task<bool> SendCommandAsync(Guid hostId, AgentCommandEnvelope command, CancellationToken ct = default)

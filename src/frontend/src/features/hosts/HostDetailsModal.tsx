@@ -13,7 +13,7 @@ import {
   RebootBadge,
   UpdatesBadge,
 } from './HostStatusBadge'
-import { Server, Shield, Network, Calendar, Copy, Check, Pencil } from 'lucide-react'
+import { Server, Shield, Network, Calendar, Copy, Check, Pencil, Sparkles, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import type { Host } from '../../api/hosts'
 
@@ -23,9 +23,19 @@ interface HostDetailsModalProps {
   onClose: () => void
   onEdit?: (host: Host) => void
   onAdopt?: (host: Host) => void
+  onTriggerUpdate?: (host: Host) => void
+  onReboot?: (host: Host) => void
 }
 
-export function HostDetailsModal({ host, open, onClose, onEdit, onAdopt }: HostDetailsModalProps) {
+export function HostDetailsModal({
+  host,
+  open,
+  onClose,
+  onEdit,
+  onAdopt,
+  onTriggerUpdate,
+  onReboot,
+}: HostDetailsModalProps) {
   const [copied, setCopied] = useState(false)
 
   if (!host) return null
@@ -154,6 +164,34 @@ export function HostDetailsModal({ host, open, onClose, onEdit, onAdopt }: HostD
       </DialogBody>
 
       <DialogFooter>
+        {host.agent.installed && onTriggerUpdate && (
+          <Button
+            variant="primary"
+            size="sm"
+            className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-xs"
+            onClick={() => {
+              onClose()
+              onTriggerUpdate(host)
+            }}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Run DAG Update
+          </Button>
+        )}
+        {host.agent.installed && onReboot && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 border-amber-600/40 text-amber-300 hover:bg-amber-950/40 hover:text-amber-200"
+            onClick={() => {
+              onClose()
+              onReboot(host)
+            }}
+          >
+            <RotateCcw className="h-3.5 w-3.5 text-amber-400" />
+            Reboot Node
+          </Button>
+        )}
         {!host.agent.installed && onAdopt && (
           <Button
             variant="primary"

@@ -1,13 +1,18 @@
 import React from 'react'
 import { cn } from '../../lib/utils'
 
+export interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
+  containerClassName?: string
+}
+
 export function Table({
   className,
+  containerClassName,
   children,
   ...props
-}: React.HTMLAttributes<HTMLTableElement>) {
+}: TableProps) {
   return (
-    <div className="relative w-full overflow-auto rounded-xl border border-zinc-800 bg-zinc-900/40 shadow-sm backdrop-blur-sm">
+    <div className={cn('relative w-full overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/40 shadow-sm backdrop-blur-sm', containerClassName)}>
       <table
         className={cn('w-full caption-bottom text-sm text-left border-collapse', className)}
         {...props}

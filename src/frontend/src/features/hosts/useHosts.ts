@@ -5,12 +5,14 @@ import {
   fetchHostById,
   fetchHosts,
   probeProxmox,
+  rebootHost,
   updateHost,
   type CreateHostPayload,
   type HostFilterParams,
   type ProxmoxProbePayload,
   type UpdateHostPayload,
 } from '../../api/hosts'
+import { JOBS_QUERY_KEY } from '../orchestration/useJobs'
 
 export const HOSTS_QUERY_KEY = ['hosts']
 
@@ -57,6 +59,17 @@ export function useDeleteHost() {
     mutationFn: (id: string) => deleteHost(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    },
+  })
+}
+
+export function useRebootHost() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (hostId: string) => rebootHost(hostId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: JOBS_QUERY_KEY })
     },
   })
 }

@@ -1,7 +1,7 @@
 # Plan 10: DAG Update Orchestration State Machine & Pre-Flight Engine
 
 **Target Milestone:** Milestone 3 (Update Orchestration Engine & Standby Runner)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 07: WebSocket Agent Hub](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-websocket-agent-hub.md), [Plan 08: Real-Time Terminal Pipeline](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-realtime-terminal-pipeline.md)  
 
 ---
@@ -86,6 +86,6 @@ curl http://localhost:5000/api/v1/jobs/<job-uuid> -H "X-ControlPlane-Key: dev-se
 ```
 
 ### Acceptance Criteria
-- [ ] Pre-flight checks fail safely and halt the pipeline if the agent is offline or disk space is < 20%.
-- [ ] Valid pre-flight checks transition the job from `Pending` to `Running`.
-- [ ] All step transitions are recorded in `update_jobs` and reflected live on the UI.
+- [x] Pre-flight checks fail safely and halt the pipeline if the agent is offline or disk space is < 20%.
+- [x] Valid pre-flight checks transition the job from `Pending` to `Running`.
+- [x] All step transitions are recorded in `update_jobs` and reflected live on the UI.

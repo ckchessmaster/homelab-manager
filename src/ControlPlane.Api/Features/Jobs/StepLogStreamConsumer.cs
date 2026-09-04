@@ -1,3 +1,4 @@
+using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Storage;
@@ -11,16 +12,19 @@ public class StepLogStreamConsumer : IStepLogConsumer
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHubContext<JobLogHub, IJobClient> _hubContext;
+    private readonly IAgentCommandExecutor? _commandExecutor;
     private readonly ILogger<StepLogStreamConsumer> _logger;
 
     public StepLogStreamConsumer(
         IServiceScopeFactory scopeFactory,
         IHubContext<JobLogHub, IJobClient> hubContext,
-        ILogger<StepLogStreamConsumer> logger)
+        ILogger<StepLogStreamConsumer> logger,
+        IAgentCommandExecutor? commandExecutor = null)
     {
         _scopeFactory = scopeFactory;
         _hubContext = hubContext;
         _logger = logger;
+        _commandExecutor = commandExecutor;
     }
 
     public async Task ConsumeFrameAsync(Guid hostId, AgentFrameData frame, CancellationToken cancellationToken = default)
@@ -83,6 +87,8 @@ public class StepLogStreamConsumer : IStepLogConsumer
                 frame.LogLine,
                 frame.Timestamp
             );
+
+            _commandExecutor?.NotifyFrame(hostId, frame);
         }
         catch (Exception ex)
         {

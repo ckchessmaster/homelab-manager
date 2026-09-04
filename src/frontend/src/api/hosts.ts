@@ -178,3 +178,16 @@ export async function adoptNode(payload: AdoptNodePayload): Promise<NodeAdoption
   })
 }
 
+export interface RebootHostResponse {
+  jobId: string
+  hostId: string
+  status: string
+  message: string
+}
+
+export async function rebootHost(hostId: string): Promise<RebootHostResponse> {
+  return apiClient<RebootHostResponse>(`/api/v1/hosts/${hostId}/reboot`, {
+    method: 'POST',
+  })
+}
+

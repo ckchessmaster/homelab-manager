@@ -1,3 +1,8 @@
+using ControlPlane.Api.Features.Agents;
+using ControlPlane.Api.Features.Agents.Models;
+using ControlPlane.Api.Storage;
+using ControlPlane.Api.Storage.Entities;
+
 namespace ControlPlane.Api.Features.Hosts;
 
 public static class HostEndpoints
@@ -101,6 +106,66 @@ public static class HostEndpoints
         })
         .WithName("DeleteHost")
         .WithSummary("Remove a managed host from inventory");
+
+        group.MapPost("/{id:guid}/reboot", async (
+            Guid id,
+            ControlPlaneDbContext db,
+            AgentConnectionManager connectionManager,
+            CancellationToken cancellationToken) =>
+        {
+            var host = await db.Hosts.FindAsync(new object[] { id }, cancellationToken);
+            if (host == null)
+            {
+                return Results.NotFound(new { message = $"Host with ID '{id}' was not found." });
+            }
+
+            if (!connectionManager.IsOnline(host.Id))
+            {
+                return Results.BadRequest(new { message = $"Agent for host '{host.Hostname}' is currently offline. Cannot initiate reboot." });
+            }
+
+            var jobId = Guid.NewGuid();
+            var job = new UpdateJob
+            {
+                Id = jobId,
+                TargetHostId = host.Id,
+                InitiatedBy = "Operator",
+                Status = "Running",
+                ActiveStep = "Rebooting node",
+                StartedAt = DateTimeOffset.UtcNow
+            };
+
+            db.UpdateJobs.Add(job);
+            await db.SaveChangesAsync(cancellationToken);
+
+            var cmdEnvelope = new AgentCommandEnvelope
+            {
+                Type = "EXECUTE_COMMAND",
+                JobId = jobId,
+                Command = "systemctl",
+                Args = new[] { "reboot" }
+            };
+
+            var dispatched = await connectionManager.SendCommandAsync(host.Id, cmdEnvelope, cancellationToken);
+            if (!dispatched)
+            {
+                job.Status = "Failed";
+                job.FailureReason = "Failed to dispatch reboot command to connected agent.";
+                job.CompletedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.StatusCode(StatusCodes.Status502BadGateway);
+            }
+
+            return Results.Accepted($"/api/v1/jobs/{jobId}", new
+            {
+                jobId,
+                hostId = host.Id,
+                status = "Running",
+                message = $"Reboot initiated for {host.Hostname}"
+            });
+        })
+        .WithName("RebootHost")
+        .WithSummary("Dispatch a reboot command to a connected host agent");
 
         return group;
     }

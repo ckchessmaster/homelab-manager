@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Table,
   TableBody,
@@ -37,7 +37,22 @@ import {
   HardDrive,
   Terminal,
   Shield,
+  Sparkles,
+  MoreVertical,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '../../components/ui/dropdown-menu'
+import { RebootHostModal } from './RebootHostModal'
+import { createJob } from '../../api/jobs'
 import type { Host, HostFilterParams } from '../../api/hosts'
 
 interface HostTableProps {
@@ -58,6 +73,30 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [adoptHost, setAdoptHost] = useState<Host | null>(null)
   const [isAdoptModalOpen, setIsAdoptModalOpen] = useState(false)
   const [copiedIp, setCopiedIp] = useState<string | null>(null)
+  const [terminalJobId, setTerminalJobId] = useState<string | null>(null)
+  const [autoTriggerUpdate, setAutoTriggerUpdate] = useState(false)
+
+  // Selection & Reboot state
+  const [selectedHostIds, setSelectedHostIds] = useState<Set<string>>(new Set())
+  const [rebootModalHost, setRebootModalHost] = useState<Host | null>(null)
+  const [rebootBulkHosts, setRebootBulkHosts] = useState<Host[] | null>(null)
+
+  // Pagination state
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [prevFilterKey, setPrevFilterKey] = useState('')
+
+  const currentFilterKey = `${searchTerm}|${selectedOs}|${selectedTarget}|${onlyReboot}|${onlyUpdates}|${pageSize}`
+  if (prevFilterKey !== currentFilterKey) {
+    setPrevFilterKey(currentFilterKey)
+    setPage(1)
+  }
+
+  const handleTriggerUpdate = (host: Host) => {
+    setTerminalJobId(null)
+    setAutoTriggerUpdate(true)
+    setTerminalHost(host)
+  }
 
   const filters: HostFilterParams = {
     search: searchTerm || undefined,
@@ -69,6 +108,64 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
 
   const { data: hosts, isLoading, isError, error, refetch, isFetching } = useHosts(filters)
   const deleteMutation = useDeleteHost()
+
+  const totalHosts = hosts?.length ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalHosts / pageSize))
+  const startIndex = (page - 1) * pageSize
+  const endIndex = Math.min(startIndex + pageSize, totalHosts)
+
+  const paginatedHosts = useMemo(() => {
+    if (!hosts) return []
+    return hosts.slice(startIndex, endIndex)
+  }, [hosts, startIndex, endIndex])
+
+  const toggleSelectAll = () => {
+    if (!paginatedHosts || paginatedHosts.length === 0) return
+    const allPageSelected = paginatedHosts.every((h) => selectedHostIds.has(h.id))
+    setSelectedHostIds((prev) => {
+      const next = new Set(prev)
+      if (allPageSelected) {
+        paginatedHosts.forEach((h) => next.delete(h.id))
+      } else {
+        paginatedHosts.forEach((h) => next.add(h.id))
+      }
+      return next
+    })
+  }
+
+  const toggleSelectHost = (id: string) => {
+    setSelectedHostIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const handleBulkReboot = () => {
+    if (!hosts) return
+    const selected = hosts.filter((h) => selectedHostIds.has(h.id))
+    if (selected.length === 0) return
+    setRebootBulkHosts(selected)
+  }
+
+  const handleBulkUpdate = async () => {
+    if (!hosts) return
+    const selected = hosts.filter((h) => selectedHostIds.has(h.id) && h.agent.installed)
+    if (selected.length === 0) return
+    for (const h of selected) {
+      try {
+        await createJob(h.id)
+      } catch {
+        // continue
+      }
+    }
+    setSelectedHostIds(new Set())
+    handleTriggerUpdate(selected[0])
+  }
 
   const handleCopyIp = (ip: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -230,9 +327,19 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           </Button>
         </div>
       ) : (
-        <Table>
+        <div className="space-y-3">
+          <Table containerClassName="min-h-[340px]">
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10 text-center">
+                <input
+                  type="checkbox"
+                  aria-label="Select all hosts"
+                  checked={paginatedHosts.length > 0 && paginatedHosts.every((h) => selectedHostIds.has(h.id))}
+                  onChange={toggleSelectAll}
+                  className="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-emerald-500/20 cursor-pointer h-4 w-4"
+                />
+              </TableHead>
               <TableHead>Host & Platform</TableHead>
               <TableHead>IP & Network</TableHead>
               <TableHead>OS Family</TableHead>
@@ -242,12 +349,23 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {hosts.map((host) => (
+            {paginatedHosts.map((host) => (
               <TableRow
                 key={host.id}
                 className="cursor-pointer"
                 onClick={() => setInspectHost(host)}
               >
+                {/* Select Checkbox */}
+                <TableCell className="w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${host.hostname}`}
+                    checked={selectedHostIds.has(host.id)}
+                    onChange={() => toggleSelectHost(host.id)}
+                    className="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-emerald-500/20 cursor-pointer h-4 w-4"
+                  />
+                </TableCell>
+
                 {/* Host Column */}
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -305,18 +423,41 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                 {/* Vitals */}
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-2">
-                    <RebootBadge pending={host.agent.pendingReboot} />
-                    <UpdatesBadge count={host.agent.upgradablePackagesCount} />
+                    <span
+                      onClick={(e) => {
+                        if (host.agent.pendingReboot) {
+                          e.stopPropagation()
+                          setRebootModalHost(host)
+                        }
+                      }}
+                      className={host.agent.pendingReboot ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
+                      title={host.agent.pendingReboot ? 'Click to Reboot Node' : undefined}
+                    >
+                      <RebootBadge pending={host.agent.pendingReboot} />
+                    </span>
+                    <span
+                      onClick={(e) => {
+                        if (host.agent.installed && host.agent.upgradablePackagesCount > 0) {
+                          e.stopPropagation()
+                          handleTriggerUpdate(host)
+                        }
+                      }}
+                      className={host.agent.installed && host.agent.upgradablePackagesCount > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
+                      title={host.agent.installed ? 'Click to run DAG Update' : undefined}
+                    >
+                      <UpdatesBadge count={host.agent.upgradablePackagesCount} />
+                    </span>
                     {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && (
                       <span className="text-xs text-zinc-500">Clean</span>
                     )}
                   </div>
                 </TableCell>
 
-                {/* Actions */}
+                {/* Consolidated Actions */}
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center justify-end gap-1.5">
-                    {!host.agent.installed && (
+                  <div className="flex items-center justify-end gap-1">
+                    {/* Contextual Quick Action */}
+                    {!host.agent.installed ? (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -329,53 +470,188 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                       >
                         <Shield className="h-4 w-4" />
                       </Button>
-                    )}
+                    ) : host.agent.pendingReboot ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-amber-400 hover:text-amber-300 hover:bg-amber-950/50"
+                        onClick={() => setRebootModalHost(host)}
+                        title="Reboot Node (Kernel Pending)"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                    ) : host.agent.upgradablePackagesCount > 0 ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/50"
+                        onClick={() => handleTriggerUpdate(host)}
+                        title="Run DAG Update Pipeline"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                      </Button>
+                    ) : null}
 
+                    {/* Console button */}
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-zinc-400 hover:text-sky-400"
-                      onClick={() => setTerminalHost(host)}
+                      className="h-8 w-8 text-zinc-400 hover:text-sky-400 hover:bg-zinc-800/60"
+                      onClick={() => {
+                        setTerminalJobId(null)
+                        setAutoTriggerUpdate(false)
+                        setTerminalHost(host)
+                      }}
                       title="Open Terminal Console"
                     >
                       <Terminal className="h-4 w-4" />
                     </Button>
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-zinc-400 hover:text-zinc-100"
-                      onClick={() => setInspectHost(host)}
-                      title="View Details"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
+                    {/* Dropdown Menu */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60"
+                          title="More Actions"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="right" className="w-52">
+                        <DropdownMenuLabel>Operations</DropdownMenuLabel>
+                        <DropdownMenuItem
+                          disabled={!host.agent.installed}
+                          onClick={() => handleTriggerUpdate(host)}
+                          className="text-emerald-400 hover:text-emerald-300"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          <span>Run DAG Update</span>
+                          {host.agent.upgradablePackagesCount > 0 && (
+                            <span className="ml-auto text-[10px] font-mono bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded">
+                              {host.agent.upgradablePackagesCount}
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!host.agent.installed}
+                          onClick={() => setRebootModalHost(host)}
+                          className="text-amber-400 hover:text-amber-300"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          <span>Reboot Node</span>
+                          {host.agent.pendingReboot && (
+                            <span className="ml-auto text-[10px] font-mono bg-amber-950 text-amber-300 px-1.5 py-0.5 rounded">
+                              Pending
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setTerminalJobId(null)
+                            setAutoTriggerUpdate(false)
+                            setTerminalHost(host)
+                          }}
+                        >
+                          <Terminal className="h-3.5 w-3.5" />
+                          <span>Terminal Console</span>
+                        </DropdownMenuItem>
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-zinc-400 hover:text-emerald-400"
-                      onClick={() => setHostToEdit(host)}
-                      title="Edit Host"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                        <DropdownMenuSeparator />
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-zinc-400 hover:text-rose-400"
-                      onClick={() => setHostToDelete(host)}
-                      title="Delete Host"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                        <DropdownMenuLabel>Configuration</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => setInspectHost(host)}>
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>View Details</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setHostToEdit(host)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span>Edit Host</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setAdoptHost(host)
+                            setIsAdoptModalOpen(true)
+                          }}
+                        >
+                          <Shield className="h-3.5 w-3.5" />
+                          <span>Adopt via SSH</span>
+                        </DropdownMenuItem>
+
+                        <DropdownMenuSeparator />
+
+                        <DropdownMenuLabel>Danger Zone</DropdownMenuLabel>
+                        <DropdownMenuItem
+                          destructive
+                          onClick={() => setHostToDelete(host)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete Host</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+
+        {/* Pagination Controls */}
+        {totalHosts > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl text-xs text-zinc-400 backdrop-blur-sm">
+            <div className="flex items-center gap-2">
+              <span>
+                Showing <strong className="text-zinc-200 font-mono">{totalHosts === 0 ? 0 : startIndex + 1}</strong> to{' '}
+                <strong className="text-zinc-200 font-mono">{endIndex}</strong> of{' '}
+                <strong className="text-zinc-200 font-mono">{totalHosts}</strong> hosts
+              </span>
+              <div className="h-3 w-px bg-zinc-800 mx-1 hidden sm:block" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-zinc-500">Rows per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  aria-label="Rows per page"
+                  className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 text-xs focus:ring-1 focus:ring-emerald-500/30 cursor-pointer"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="h-8 px-2.5 text-xs text-zinc-300 disabled:opacity-40 gap-1"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                Previous
+              </Button>
+              <span className="px-2 font-mono text-zinc-300">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="h-8 px-2.5 text-xs text-zinc-300 disabled:opacity-40 gap-1"
+              >
+                Next
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+        </div>
       )}
 
       {/* Host Details Dialog */}
@@ -387,6 +663,24 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         onAdopt={(h) => {
           setAdoptHost(h)
           setIsAdoptModalOpen(true)
+        }}
+        onTriggerUpdate={(h) => handleTriggerUpdate(h)}
+        onReboot={(h) => setRebootModalHost(h)}
+      />
+
+      {/* Reboot Host Modal */}
+      <RebootHostModal
+        host={rebootModalHost}
+        bulkHosts={rebootBulkHosts}
+        open={Boolean(rebootModalHost || rebootBulkHosts)}
+        onClose={() => {
+          setRebootModalHost(null)
+          setRebootBulkHosts(null)
+        }}
+        onRebootSuccess={(jobId, h) => {
+          setTerminalJobId(jobId)
+          setAutoTriggerUpdate(false)
+          setTerminalHost(h)
         }}
       />
 
@@ -402,7 +696,13 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         <HostTerminalDrawer
           host={terminalHost}
           isOpen={Boolean(terminalHost)}
-          onClose={() => setTerminalHost(null)}
+          initialJobId={terminalJobId}
+          autoTriggerDag={autoTriggerUpdate}
+          onClose={() => {
+            setTerminalHost(null)
+            setTerminalJobId(null)
+            setAutoTriggerUpdate(false)
+          }}
         />
       )}
 
@@ -445,6 +745,47 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Bulk Actions Bar */}
+      {selectedHostIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 rounded-2xl bg-zinc-950/95 border border-zinc-700/80 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-center gap-2 pr-3 border-r border-zinc-800">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-semibold text-zinc-200">
+              {selectedHostIds.size} {selectedHostIds.size === 1 ? 'host' : 'hosts'} selected
+            </span>
+          </div>
+
+          <Button
+            size="sm"
+            variant="primary"
+            className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8"
+            onClick={handleBulkUpdate}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Update Selected
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-amber-600/50 text-amber-300 hover:bg-amber-950/50 text-xs h-8"
+            onClick={handleBulkReboot}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reboot Selected
+          </Button>
+
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-xs text-zinc-400 hover:text-zinc-200 h-8"
+            onClick={() => setSelectedHostIds(new Set())}
+          >
+            Deselect
+          </Button>
         </div>
       )}
     </div>

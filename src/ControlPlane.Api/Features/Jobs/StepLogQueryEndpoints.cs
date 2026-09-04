@@ -22,13 +22,14 @@ public static class StepLogQueryEndpoints
 
         group.MapGet("/{id:guid}/logs", async (
             Guid id,
-            [FromQuery] long fromSequenceId,
             ControlPlaneDbContext db,
-            CancellationToken cancellationToken) =>
+            [FromQuery] long? fromSequenceId = null,
+            CancellationToken cancellationToken = default) =>
         {
+            var seq = fromSequenceId ?? 0;
             var logs = await db.StepLogs
                 .AsNoTracking()
-                .Where(l => l.JobId == id && l.SequenceId >= fromSequenceId)
+                .Where(l => l.JobId == id && l.SequenceId >= seq)
                 .OrderBy(l => l.SequenceId)
                 .Select(l => new StepLogDto(
                     l.Id,
@@ -44,33 +45,6 @@ public static class StepLogQueryEndpoints
         })
         .WithName("GetJobLogs")
         .WithSummary("Retrieve sequence-ordered console logs for a job");
-
-        group.MapGet("/{id:guid}", async (
-            Guid id,
-            ControlPlaneDbContext db,
-            CancellationToken cancellationToken) =>
-        {
-            var job = await db.UpdateJobs
-                .AsNoTracking()
-                .FirstOrDefaultAsync(j => j.Id == id, cancellationToken);
-
-            if (job == null)
-            {
-                return Results.NotFound(new { message = $"Job {id} not found." });
-            }
-
-            return Results.Ok(new JobDetailsDto(
-                job.Id,
-                job.TargetHostId,
-                job.Status,
-                job.ActiveStep,
-                job.StartedAt,
-                job.CompletedAt,
-                job.FailureReason
-            ));
-        })
-        .WithName("GetJobDetails")
-        .WithSummary("Retrieve details and status for a specific job");
 
         routes.MapPost("/api/v1/debug/execute-command", async (
             [FromBody] ExecuteDebugCommandRequest request,

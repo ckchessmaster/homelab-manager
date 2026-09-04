@@ -11,7 +11,8 @@ var db = postgres.AddDatabase("PostgresDatabase");
 var api = builder.AddProject<Projects.ControlPlane_Api>("api")
     .WithReference(db)
     .WaitFor(db)
-    .WithExternalHttpEndpoints()
+    .WithHttpEndpoint(port: 5029, targetPort: 5029, isProxied: false)
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:5029")
     .WithEnvironment("ControlPlane__ApiKey", apiKey);
 
 builder.AddViteApp("frontend", "../../frontend")

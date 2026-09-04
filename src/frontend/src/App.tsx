@@ -4,10 +4,10 @@ import type { NavTab } from './components/layout/AppSidebar'
 import { HostTable } from './features/hosts/HostTable'
 import { AddHostModal } from './features/hosts/AddHostModal'
 import { ProxmoxProbeView } from './features/adapters/ProxmoxProbeView'
+import { WorkflowsView } from './features/orchestration/WorkflowsView'
 import { useHosts } from './features/hosts/useHosts'
 import {
   Server,
-  GitFork,
   Database,
   ShieldCheck,
 } from 'lucide-react'
@@ -79,7 +79,7 @@ export default function App() {
           </div>
 
           {/* Host Inventory Table */}
-          <HostTable onOpenAddModal={() => setAddHostOpen(true)} />
+          <HostTable onOpenAddModal={() => setAddHostOpen(false)} />
 
           {/* Add Host Modal */}
           <AddHostModal open={addHostOpen} onClose={() => setAddHostOpen(false)} />
@@ -93,21 +93,7 @@ export default function App() {
       )}
 
       {activeTab === 'workflows' && (
-        <div className="max-w-4xl mx-auto p-8 bg-zinc-900/50 border border-zinc-800 rounded-xl space-y-5 text-center">
-          <div className="h-12 w-12 rounded-2xl bg-zinc-800 border border-zinc-700 mx-auto flex items-center justify-center text-emerald-400">
-            <GitFork className="h-6 w-6" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-zinc-100">DAG Orchestration Engine</h3>
-            <p className="text-xs text-zinc-400 max-w-md mx-auto mt-1">
-              Deterministic update DAGs with automatic pre-flight Proxmox VM snapshots, out-of-band iDRAC health verification, and rollback recovery.
-            </p>
-          </div>
-          <div className="flex items-center justify-center gap-2">
-            <Badge variant="purple">Milestone 3 Preview</Badge>
-            <Badge variant="outline">DAG Engine: Plans 10-13</Badge>
-          </div>
-        </div>
+        <WorkflowsView />
       )}
 
       {activeTab === 'settings' && (
