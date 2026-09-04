@@ -41,8 +41,8 @@ Milestone 4: Out-of-Band Integrations & Zitadel OIDC
 | **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-solution-scaffolding.md)** | Milestone 1 | .NET 10 Aspire host, BFF API, and React 19 SPA scaffolding | ✅ Completed |
 | **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-data-layer-and-storage.md)** | Milestone 1 | EF Core DbContext, entity models, PostgreSQL/SQLite switching | ✅ Completed |
 | **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-dev-auth-and-api-key.md)** | Milestone 1 | API key auth handler (`X-ControlPlane-Key`) & dev bypass | ✅ Completed |
-| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-host-inventory-api.md)** | Milestone 1 | Host CRUD endpoints and Proxmox connection probe | ⏳ Not Started |
-| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-frontend-inventory-dashboard.md)** | Milestone 1 | React 19 UI, TanStack Query, host table, manual host modal | ⏳ Not Started |
+| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-host-inventory-api.md)** | Milestone 1 | Host CRUD endpoints and Proxmox connection probe | ✅ Completed |
+| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-frontend-inventory-dashboard.md)** | Milestone 1 | React 19 UI, TanStack Query, host table, manual host modal | ✅ Completed |
 | **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-compute-node-agent.md)** | Milestone 2 | Go static agent daemon, system metrics, package inspection | ⏳ Not Started |
 | **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-websocket-agent-hub.md)** | Milestone 2 | ASP.NET Core WebSocket hub, heartbeat ingestion, liveness | ⏳ Not Started |
 | **[Plan 08](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-realtime-terminal-pipeline.md)** | Milestone 2 | Monotonic stdout/stderr framing, SignalR, xterm.js UI | ⏳ Not Started |

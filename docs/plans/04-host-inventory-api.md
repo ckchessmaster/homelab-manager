@@ -1,7 +1,7 @@
 # Plan 04: Host Inventory API & Proxmox Connection Probe
 
 **Target Milestone:** Milestone 1 (Foundation, Data Layer & Host Inventory)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 02: Data Layer](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-data-layer-and-storage.md), [Plan 03: Dev Auth](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-dev-auth-and-api-key.md)  
 
 ---
@@ -86,6 +86,6 @@ curl http://localhost:5000/api/v1/hosts -H "X-ControlPlane-Key: dev-secret-key-1
 ```
 
 ### Acceptance Criteria
-- [ ] CRUD operations on `/api/v1/hosts` persist and read accurately from the database.
-- [ ] Duplicate hostnames or invalid IP addresses return HTTP 400 with descriptive error messages.
-- [ ] Proxmox probe endpoint cleanly validates reachability and reports version details or connection error reasons.
+- [x] CRUD operations on `/api/v1/hosts` persist and read accurately from the database.
+- [x] Duplicate hostnames or invalid IP addresses return HTTP 400 with descriptive error messages.
+- [x] Proxmox probe endpoint cleanly validates reachability and reports version details or connection error reasons.

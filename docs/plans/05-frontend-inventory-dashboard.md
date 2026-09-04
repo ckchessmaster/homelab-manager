@@ -1,7 +1,7 @@
 # Plan 05: Frontend Inventory Dashboard (React 19 & Tailwind)
 
 **Target Milestone:** Milestone 1 (Foundation, Data Layer & Host Inventory)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 04: Host Inventory API](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-host-inventory-api.md)  
 
 ---
@@ -86,8 +86,8 @@ cd src/frontend && npm run dev
 ```
 
 ### Acceptance Criteria
-- [ ] Dashboard displays the host table populated with records from the backend API.
-- [ ] Clicking "Add Host" opens the dialog, validates inputs, and inserts the host into the table without full page reload.
-- [ ] Hosts with `pendingReboot: true` visually render a distinct amber/red warning badge.
-- [ ] Responsive layout adapts smoothly between desktop monitor and tablet/mobile viewports.
-- [ ] Milestone 1 deliverables are fully achieved upon completion of this plan.
+- [x] Dashboard displays the host table populated with records from the backend API.
+- [x] Clicking "Add Host" opens the dialog, validates inputs, and inserts the host into the table without full page reload.
+- [x] Hosts with `pendingReboot: true` visually render a distinct amber/red warning badge.
+- [x] Responsive layout adapts smoothly between desktop monitor and tablet/mobile viewports.
+- [x] Milestone 1 deliverables are fully achieved upon completion of this plan.

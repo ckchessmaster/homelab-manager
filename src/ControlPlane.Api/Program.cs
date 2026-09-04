@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using ControlPlane.Api.Features.Adapters.Proxmox;
+using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
 using Microsoft.AspNetCore.OpenApi;
@@ -11,6 +13,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddControlPlaneStorage(builder.Configuration);
 builder.Services.AddControlPlaneSecurity(builder.Configuration);
+
+builder.Services.AddScoped<HostService>();
+builder.Services.AddScoped<ProxmoxProbeService>();
+builder.Services.AddHttpClient(ProxmoxProbeService.StandardHttpClientName);
+builder.Services.AddHttpClient(ProxmoxProbeService.InsecureHttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    });
+
 
 builder.Services.AddOpenApi(options =>
 {
@@ -93,6 +105,9 @@ app.MapGet("/api/v1/admin/ping", (ClaimsPrincipal user) => Results.Ok(new
     user = user.Identity?.Name,
     role = "Admin"
 })).RequireAuthorization("RequireAdmin");
+
+app.MapHostEndpoints();
+app.MapProxmoxEndpoints();
 
 app.Run();
 
