@@ -43,10 +43,10 @@ Milestone 4: Out-of-Band Integrations & Zitadel OIDC
 | **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-dev-auth-and-api-key.md)** | Milestone 1 | API key auth handler (`X-ControlPlane-Key`) & dev bypass | ✅ Completed |
 | **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-host-inventory-api.md)** | Milestone 1 | Host CRUD endpoints and Proxmox connection probe | ✅ Completed |
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-frontend-inventory-dashboard.md)** | Milestone 1 | React 19 UI, TanStack Query, host table, manual host modal | ✅ Completed |
-| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-compute-node-agent.md)** | Milestone 2 | Go static agent daemon, system metrics, package inspection | ⏳ Not Started |
-| **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-websocket-agent-hub.md)** | Milestone 2 | ASP.NET Core WebSocket hub, heartbeat ingestion, liveness | ⏳ Not Started |
-| **[Plan 08](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-realtime-terminal-pipeline.md)** | Milestone 2 | Monotonic stdout/stderr framing, SignalR, xterm.js UI | ⏳ Not Started |
-| **[Plan 09](file:///home/ckingdon/projects/homelab-manager/docs/plans/09-one-click-agent-adoption.md)** | Milestone 2 | SSH bootstrapper, arch detection, systemd provisioning, UI modal | ⏳ Not Started |
+| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-compute-node-agent.md)** | Milestone 2 | Go static agent daemon, system metrics, package inspection | ✅ Completed |
+| **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-websocket-agent-hub.md)** | Milestone 2 | ASP.NET Core WebSocket hub, heartbeat ingestion, liveness | ✅ Completed |
+| **[Plan 08](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-realtime-terminal-pipeline.md)** | Milestone 2 | Monotonic stdout/stderr framing, SignalR, xterm.js UI | ✅ Completed |
+| **[Plan 09](file:///home/ckingdon/projects/homelab-manager/docs/plans/09-one-click-agent-adoption.md)** | Milestone 2 | SSH bootstrapper, arch detection, systemd provisioning, UI modal | ✅ Completed |
 | **[Plan 10](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)** | Milestone 3 | Durable DAG state machine, step transitions, pre-flight checks | ⏳ Not Started |
 | **[Plan 11](file:///home/ckingdon/projects/homelab-manager/docs/plans/11-proxmox-snapshot-and-rollback.md)** | Milestone 3 | Proxmox REST API snapshot trigger and automated rollback | ⏳ Not Started |
 | **[Plan 12](file:///home/ckingdon/projects/homelab-manager/docs/plans/12-deterministic-reboot-handler.md)** | Milestone 3 | Reboot coordination protocol, reconnection, health probe | ⏳ Not Started |

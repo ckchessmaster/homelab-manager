@@ -141,3 +141,40 @@ export async function probeProxmox(payload: ProxmoxProbePayload): Promise<Proxmo
     body: JSON.stringify(payload),
   })
 }
+
+export type AdoptionStepStatus = 'Pending' | 'Running' | 'Completed' | 'Failed'
+
+export interface AdoptionStepEvent {
+  stepKey: string
+  stepTitle: string
+  status: AdoptionStepStatus
+  message?: string | null
+  timestamp: string
+}
+
+export interface AdoptNodePayload {
+  hostId?: string | null
+  hostname?: string | null
+  targetHost: string
+  port?: number
+  username?: string
+  password?: string | null
+  privateKey?: string | null
+  hubUrl?: string | null
+}
+
+export interface NodeAdoptionResponse {
+  hostId: string
+  success: boolean
+  message: string
+  steps: AdoptionStepEvent[]
+}
+
+export async function adoptNode(payload: AdoptNodePayload): Promise<NodeAdoptionResponse> {
+  const endpoint = payload.hostId ? `/api/v1/hosts/${payload.hostId}/adopt` : '/api/v1/hosts/adopt'
+  return apiClient<NodeAdoptionResponse>(endpoint, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+

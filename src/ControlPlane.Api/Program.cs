@@ -1,6 +1,11 @@
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 using ControlPlane.Api.Features.Adapters.Proxmox;
+using ControlPlane.Api.Features.Adoption;
+using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Hosts;
+using ControlPlane.Api.Features.Jobs;
+using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
 using Microsoft.AspNetCore.OpenApi;
@@ -11,9 +16,18 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 builder.Services.AddControlPlaneStorage(builder.Configuration);
 builder.Services.AddControlPlaneSecurity(builder.Configuration);
+builder.Services.AddSignalR();
+builder.Services.AddAgentHubServices();
+builder.Services.AddSingleton<IStepLogConsumer, StepLogStreamConsumer>();
 
+builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
+builder.Services.AddScoped<NodeAdoptionService>();
 builder.Services.AddScoped<HostService>();
 builder.Services.AddScoped<ProxmoxProbeService>();
 builder.Services.AddHttpClient(ProxmoxProbeService.StandardHttpClientName);
@@ -54,6 +68,7 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 app.UseControlPlaneSecurity();
+app.UseAgentHub();
 
 await app.InitializeDatabaseAsync();
 
@@ -108,6 +123,9 @@ app.MapGet("/api/v1/admin/ping", (ClaimsPrincipal user) => Results.Ok(new
 
 app.MapHostEndpoints();
 app.MapProxmoxEndpoints();
+app.MapNodeAdoptionEndpoints();
+app.MapJobLogEndpoints();
+app.MapHub<JobLogHub>("/hubs/jobs");
 
 app.Run();
 

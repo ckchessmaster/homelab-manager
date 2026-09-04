@@ -1,7 +1,7 @@
 # Plan 06: Compute Node Agent Daemon (Go)
 
 **Target Milestone:** Milestone 2 (Agent Architecture & Real-Time Console)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 02: Data Layer](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-data-layer-and-storage.md)  
 
 ---
@@ -108,7 +108,7 @@ ls -lh dist/
 ```
 
 ### Acceptance Criteria
-- [ ] Statically linked binaries compile for both `amd64` and `arm64` without external libc dependencies.
-- [ ] Binary size is < 15MB and idle memory usage is < 10MB RSS.
-- [ ] Running in test mode accurately detects CPU, memory, disk free percentage, and pending reboot status on Linux.
-- [ ] Command runner captures and frames `stdout`/`stderr` with strictly monotonic sequence numbers.
+- [x] Statically linked binaries compile for both `amd64` and `arm64` without external libc dependencies.
+- [x] Binary size is < 15MB and idle memory usage is < 10MB RSS.
+- [x] Running in test mode accurately detects CPU, memory, disk free percentage, and pending reboot status on Linux.
+- [x] Command runner captures and frames `stdout`/`stderr` with strictly monotonic sequence numbers.

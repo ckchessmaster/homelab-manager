@@ -1,7 +1,7 @@
 # Plan 07: Outbound WebSocket Agent Hub & Heartbeat Ingestion
 
 **Target Milestone:** Milestone 2 (Agent Architecture & Real-Time Console)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 04: Host Inventory API](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-host-inventory-api.md), [Plan 06: Compute Node Agent](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-compute-node-agent.md)  
 
 ---
@@ -88,7 +88,7 @@ dotnet run --project src/ControlPlane.Api
 ```
 
 ### Acceptance Criteria
-- [ ] Agent successfully establishes WebSocket handshake with `/agent-hub`.
-- [ ] Every 10 seconds, backend receives heartbeat and updates `hosts` table.
-- [ ] Host status in UI changes from "Offline" to "Active" with CPU, memory, and reboot status displayed.
-- [ ] Terminating the agent triggers "Offline" state within 30 seconds.
+- [x] Agent successfully establishes WebSocket handshake with `/agent-hub`.
+- [x] Every 10 seconds, backend receives heartbeat and updates `hosts` table.
+- [x] Host status in UI changes from "Offline" to "Active" with CPU, memory, and reboot status displayed.
+- [x] Terminating the agent triggers "Offline" state within 30 seconds.

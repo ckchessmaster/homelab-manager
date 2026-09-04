@@ -22,9 +22,10 @@ interface HostDetailsModalProps {
   open: boolean
   onClose: () => void
   onEdit?: (host: Host) => void
+  onAdopt?: (host: Host) => void
 }
 
-export function HostDetailsModal({ host, open, onClose, onEdit }: HostDetailsModalProps) {
+export function HostDetailsModal({ host, open, onClose, onEdit, onAdopt }: HostDetailsModalProps) {
   const [copied, setCopied] = useState(false)
 
   if (!host) return null
@@ -153,6 +154,20 @@ export function HostDetailsModal({ host, open, onClose, onEdit }: HostDetailsMod
       </DialogBody>
 
       <DialogFooter>
+        {!host.agent.installed && onAdopt && (
+          <Button
+            variant="primary"
+            size="sm"
+            className="gap-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold"
+            onClick={() => {
+              onClose()
+              onAdopt(host)
+            }}
+          >
+            <Shield className="h-3.5 w-3.5" />
+            Adopt Agent
+          </Button>
+        )}
         {onEdit && (
           <Button
             variant="outline"

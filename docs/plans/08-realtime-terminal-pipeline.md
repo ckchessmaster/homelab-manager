@@ -1,7 +1,7 @@
 # Plan 08: Real-Time Terminal Streaming Pipeline (SignalR & xterm.js)
 
 **Target Milestone:** Milestone 2 (Agent Architecture & Real-Time Console)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 05: Frontend Dashboard](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-frontend-inventory-dashboard.md), [Plan 07: WebSocket Agent Hub](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-websocket-agent-hub.md)  
 
 ---
@@ -83,7 +83,7 @@ curl -X POST http://localhost:5000/api/v1/debug/execute-command \
 ```
 
 ### Acceptance Criteria
-- [ ] Command output is received in real-time on the browser with zero perceptible delay.
-- [ ] ANSI escape codes (colors, bold text, progress bars) render cleanly without garbled characters.
-- [ ] Terminal auto-scrolls down as new lines arrive, and pauses when the operator scrolls back up.
-- [ ] Reloading the page or switching tabs replays previous output up to the current sequence ID.
+- [x] Command output is received in real-time on the browser with zero perceptible delay.
+- [x] ANSI escape codes (colors, bold text, progress bars) render cleanly without garbled characters.
+- [x] Terminal auto-scrolls down as new lines arrive, and pauses when the operator scrolls back up.
+- [x] Reloading the page or switching tabs replays previous output up to the current sequence ID.

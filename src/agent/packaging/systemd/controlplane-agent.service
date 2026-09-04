@@ -1,0 +1,15 @@
+[Unit]
+Description=ControlPlane Compute Node Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/controlplane-agent --hub-url {{HUB_URL}} --token {{NODE_TOKEN}} --node-id {{NODE_ID}}
+Restart=always
+RestartSec=5
+KillMode=process
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 # Plan 09: One-Click Agent Adoption Workflow (SSH.NET Bootstrapper)
 
 **Target Milestone:** Milestone 2 (Agent Architecture & Real-Time Console)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 06: Compute Node Agent](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-compute-node-agent.md), [Plan 07: WebSocket Agent Hub](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-websocket-agent-hub.md), [Plan 08: Real-Time Terminal Pipeline](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-realtime-terminal-pipeline.md)  
 
 ---
@@ -76,16 +76,16 @@ curl -X POST http://localhost:5000/api/v1/hosts/adopt \
   -H "Content-Type: application/json" \
   -H "X-ControlPlane-Key: dev-secret-key-123" \
   -d '{
-    "host": "192.168.1.55",
-    "sshPort": 22,
+    "targetHost": "192.168.1.55",
+    "port": 22,
     "username": "ubuntu",
     "password": "sample-password"
   }'
 ```
 
 ### Acceptance Criteria
-- [ ] SSH connection establishes and correctly identifies host architecture.
-- [ ] Appropriate Go agent binary is streamed and placed at `/usr/local/bin/controlplane-agent`.
-- [ ] Systemd service starts cleanly and registers an outbound connection to `/agent-hub`.
-- [ ] SSH session is cleanly disconnected immediately after handshake.
-- [ ] Milestone 2 is fully achieved upon completion of this plan.
+- [x] SSH connection establishes and correctly identifies host architecture.
+- [x] Appropriate Go agent binary is streamed and placed at `/usr/local/bin/controlplane-agent`.
+- [x] Systemd service starts cleanly and registers an outbound connection to `/agent-hub`.
+- [x] SSH session is cleanly disconnected immediately after handshake.
+- [x] Milestone 2 is fully achieved upon completion of this plan.

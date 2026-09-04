@@ -19,6 +19,8 @@ import {
 } from './HostStatusBadge'
 import { HostDetailsModal } from './HostDetailsModal'
 import { EditHostModal } from './EditHostModal'
+import { HostTerminalDrawer } from './HostTerminalDrawer'
+import { AdoptNodeModal } from './AdoptNodeModal'
 import { useDeleteHost, useHosts } from './useHosts'
 import {
   Search,
@@ -33,6 +35,8 @@ import {
   AlertTriangle,
   ArrowUpCircle,
   HardDrive,
+  Terminal,
+  Shield,
 } from 'lucide-react'
 import type { Host, HostFilterParams } from '../../api/hosts'
 
@@ -50,6 +54,9 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [inspectHost, setInspectHost] = useState<Host | null>(null)
   const [hostToEdit, setHostToEdit] = useState<Host | null>(null)
   const [hostToDelete, setHostToDelete] = useState<Host | null>(null)
+  const [terminalHost, setTerminalHost] = useState<Host | null>(null)
+  const [adoptHost, setAdoptHost] = useState<Host | null>(null)
+  const [isAdoptModalOpen, setIsAdoptModalOpen] = useState(false)
   const [copiedIp, setCopiedIp] = useState<string | null>(null)
 
   const filters: HostFilterParams = {
@@ -165,6 +172,19 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             title="Refresh hosts list"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setAdoptHost(null)
+              setIsAdoptModalOpen(true)
+            }}
+            className="gap-1.5 border-sky-800/80 bg-sky-950/40 text-sky-300 hover:bg-sky-900/60"
+          >
+            <Shield className="h-4 w-4" />
+            Adopt Server
           </Button>
 
           <Button
@@ -296,6 +316,31 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                 {/* Actions */}
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1.5">
+                    {!host.agent.installed && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-sky-400 hover:text-sky-300 hover:bg-sky-950/50"
+                        onClick={() => {
+                          setAdoptHost(host)
+                          setIsAdoptModalOpen(true)
+                        }}
+                        title="Adopt Server via SSH"
+                      >
+                        <Shield className="h-4 w-4" />
+                      </Button>
+                    )}
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-zinc-400 hover:text-sky-400"
+                      onClick={() => setTerminalHost(host)}
+                      title="Open Terminal Console"
+                    >
+                      <Terminal className="h-4 w-4" />
+                    </Button>
+
                     <Button
                       variant="ghost"
                       size="icon"
@@ -339,6 +384,10 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         open={Boolean(inspectHost)}
         onClose={() => setInspectHost(null)}
         onEdit={(h) => setHostToEdit(h)}
+        onAdopt={(h) => {
+          setAdoptHost(h)
+          setIsAdoptModalOpen(true)
+        }}
       />
 
       {/* Edit Host Dialog */}
@@ -347,6 +396,28 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         open={Boolean(hostToEdit)}
         onClose={() => setHostToEdit(null)}
       />
+
+      {/* Host Terminal Drawer */}
+      {terminalHost && (
+        <HostTerminalDrawer
+          host={terminalHost}
+          isOpen={Boolean(terminalHost)}
+          onClose={() => setTerminalHost(null)}
+        />
+      )}
+
+      {/* Adopt Node Modal */}
+      {isAdoptModalOpen && (
+        <AdoptNodeModal
+          key={adoptHost?.id ?? 'new-adoption'}
+          isOpen={isAdoptModalOpen}
+          onClose={() => {
+            setIsAdoptModalOpen(false)
+            setAdoptHost(null)
+          }}
+          host={adoptHost}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       {hostToDelete && (
