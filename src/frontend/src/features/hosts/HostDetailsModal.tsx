@@ -13,7 +13,7 @@ import {
   RebootBadge,
   UpdatesBadge,
 } from './HostStatusBadge'
-import { Server, Shield, Network, Calendar, Copy, Check } from 'lucide-react'
+import { Server, Shield, Network, Calendar, Copy, Check, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import type { Host } from '../../api/hosts'
 
@@ -21,9 +21,10 @@ interface HostDetailsModalProps {
   host: Host | null
   open: boolean
   onClose: () => void
+  onEdit?: (host: Host) => void
 }
 
-export function HostDetailsModal({ host, open, onClose }: HostDetailsModalProps) {
+export function HostDetailsModal({ host, open, onClose, onEdit }: HostDetailsModalProps) {
   const [copied, setCopied] = useState(false)
 
   if (!host) return null
@@ -152,6 +153,20 @@ export function HostDetailsModal({ host, open, onClose }: HostDetailsModalProps)
       </DialogBody>
 
       <DialogFooter>
+        {onEdit && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              onClose()
+              onEdit(host)
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit Host
+          </Button>
+        )}
         <Button variant="secondary" size="sm" onClick={onClose}>
           Close
         </Button>

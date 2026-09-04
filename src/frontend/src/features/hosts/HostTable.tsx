@@ -18,6 +18,7 @@ import {
   UpdatesBadge,
 } from './HostStatusBadge'
 import { HostDetailsModal } from './HostDetailsModal'
+import { EditHostModal } from './EditHostModal'
 import { useDeleteHost, useHosts } from './useHosts'
 import {
   Search,
@@ -25,6 +26,7 @@ import {
   RefreshCw,
   Trash2,
   Eye,
+  Pencil,
   Copy,
   Check,
   Server,
@@ -46,6 +48,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [onlyUpdates, setOnlyUpdates] = useState(false)
 
   const [inspectHost, setInspectHost] = useState<Host | null>(null)
+  const [hostToEdit, setHostToEdit] = useState<Host | null>(null)
   const [hostToDelete, setHostToDelete] = useState<Host | null>(null)
   const [copiedIp, setCopiedIp] = useState<string | null>(null)
 
@@ -306,6 +309,16 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                     <Button
                       variant="ghost"
                       size="icon"
+                      className="h-8 w-8 text-zinc-400 hover:text-emerald-400"
+                      onClick={() => setHostToEdit(host)}
+                      title="Edit Host"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       className="h-8 w-8 text-zinc-400 hover:text-rose-400"
                       onClick={() => setHostToDelete(host)}
                       title="Delete Host"
@@ -325,6 +338,14 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         host={inspectHost}
         open={Boolean(inspectHost)}
         onClose={() => setInspectHost(null)}
+        onEdit={(h) => setHostToEdit(h)}
+      />
+
+      {/* Edit Host Dialog */}
+      <EditHostModal
+        host={hostToEdit}
+        open={Boolean(hostToEdit)}
+        onClose={() => setHostToEdit(null)}
       />
 
       {/* Delete Confirmation Dialog */}
