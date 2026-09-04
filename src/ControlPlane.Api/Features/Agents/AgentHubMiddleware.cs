@@ -233,6 +233,15 @@ public class AgentHubMiddleware
                     await _logConsumer.ConsumeFrameAsync(hostId, frameEnvelope.Frame, ct);
                 }
             }
+            else if (string.Equals(type, "REBOOT_COMMENCING", StringComparison.OrdinalIgnoreCase))
+            {
+                string? jobId = null;
+                if (doc.RootElement.TryGetProperty("jobId", out var jProp))
+                {
+                    jobId = jProp.GetString();
+                }
+                _connectionManager.NotifyRebootCommencing(hostId, jobId);
+            }
         }
         catch (Exception ex)
         {

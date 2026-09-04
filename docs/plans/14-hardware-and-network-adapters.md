@@ -1,7 +1,7 @@
 # Plan 14: Out-of-Band Hardware Adapters (Dell iDRAC & Ubiquiti UniFi)
 
 **Target Milestone:** Milestone 4 (Out-of-Band Integrations & Zitadel OIDC)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 04: Host Inventory API](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-host-inventory-api.md), [Plan 10: DAG Orchestration Engine](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)  
 
 ---
@@ -82,6 +82,6 @@ curl -X POST http://localhost:5000/api/v1/adapters/unifi/bounce-poe \
 ```
 
 ### Acceptance Criteria
-- [ ] Redfish client successfully reads power state and thermal vitals from Dell iDRAC.
-- [ ] UniFi client successfully authenticates and triggers PoE bounce on configured switch ports.
-- [ ] UI displays hardware vitals for bare-metal hosts with linked BMC credentials.
+- [x] Redfish client successfully reads power state and thermal vitals from Dell iDRAC.
+- [x] UniFi client successfully authenticates and triggers PoE bounce on configured switch ports.
+- [x] UI displays hardware vitals for bare-metal hosts with linked BMC credentials.

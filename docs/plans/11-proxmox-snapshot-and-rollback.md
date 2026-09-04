@@ -1,7 +1,7 @@
 # Plan 11: Hypervisor Safety Snapshots & Automated Rollback (Proxmox VE)
 
 **Target Milestone:** Milestone 3 (Update Orchestration Engine & Standby Runner)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 10: DAG Orchestration Engine](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)  
 
 ---
@@ -69,7 +69,7 @@ dotnet test --filter Category=ProxmoxIntegration
 ```
 
 ### Acceptance Criteria
-- [ ] Snapshot is created on Proxmox VE prior to executing any destructive update command.
-- [ ] Snapshot identifier is recorded in `update_jobs` table.
-- [ ] Simulating an update failure triggers an automated rollback to the exact pre-update snapshot.
-- [ ] Task completion polling respects timeout limits and avoids hanging threads.
+- [x] Snapshot is created on Proxmox VE prior to executing any destructive update command.
+- [x] Snapshot identifier is recorded in `update_jobs` table.
+- [x] Simulating an update failure triggers an automated rollback to the exact pre-update snapshot.
+- [x] Task completion polling respects timeout limits and avoids hanging threads.

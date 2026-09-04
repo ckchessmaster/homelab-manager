@@ -87,7 +87,10 @@ public class DagExecutionPipeline
                     }
                 }
 
-                await context.UpdateJobStatusAsync(UpdateJobState.Failed, null, failureReason: failureMsg, ct: ct);
+                var finalState = context.Job.Status == UpdateJobState.RolledBack
+                    ? UpdateJobState.RolledBack
+                    : UpdateJobState.Failed;
+                await context.UpdateJobStatusAsync(finalState, null, failureReason: failureMsg, ct: ct);
                 return false;
             }
         }

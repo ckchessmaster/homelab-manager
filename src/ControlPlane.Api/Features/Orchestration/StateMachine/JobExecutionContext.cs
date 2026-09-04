@@ -118,6 +118,7 @@ public class JobExecutionContext
                 trackedJob.ActiveStep = Job.ActiveStep;
                 trackedJob.FailureReason = Job.FailureReason;
                 trackedJob.CompletedAt = Job.CompletedAt;
+                trackedJob.SnapshotIdentifier = Job.SnapshotIdentifier;
                 await db.SaveChangesAsync(ct);
             }
 
@@ -130,6 +131,31 @@ public class JobExecutionContext
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to update job status for {JobId} to {Status}", JobId, status);
+        }
+    }
+
+    /// <summary>
+    /// Sets the snapshot identifier on the job and persists it to the database immediately.
+    /// </summary>
+    public async Task SetSnapshotIdentifierAsync(string snapshotIdentifier, CancellationToken ct = default)
+    {
+        Job.SnapshotIdentifier = snapshotIdentifier;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+
+            var trackedJob = await db.UpdateJobs.FirstOrDefaultAsync(j => j.Id == JobId, ct);
+            if (trackedJob != null)
+            {
+                trackedJob.SnapshotIdentifier = snapshotIdentifier;
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to persist snapshot identifier for job {JobId}", JobId);
         }
     }
 }

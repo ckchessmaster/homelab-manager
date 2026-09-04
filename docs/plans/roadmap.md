@@ -48,11 +48,11 @@ Milestone 4: Out-of-Band Integrations & Zitadel OIDC
 | **[Plan 08](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-realtime-terminal-pipeline.md)** | Milestone 2 | Monotonic stdout/stderr framing, SignalR, xterm.js UI | ✅ Completed |
 | **[Plan 09](file:///home/ckingdon/projects/homelab-manager/docs/plans/09-one-click-agent-adoption.md)** | Milestone 2 | SSH bootstrapper, arch detection, systemd provisioning, UI modal | ✅ Completed |
 | **[Plan 10](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)** | Milestone 3 | Durable DAG state machine, step transitions, pre-flight checks | ✅ Completed |
-| **[Plan 11](file:///home/ckingdon/projects/homelab-manager/docs/plans/11-proxmox-snapshot-and-rollback.md)** | Milestone 3 | Proxmox REST API snapshot trigger and automated rollback | ⏳ Not Started |
-| **[Plan 12](file:///home/ckingdon/projects/homelab-manager/docs/plans/12-deterministic-reboot-handler.md)** | Milestone 3 | Reboot coordination protocol, reconnection, health probe | ⏳ Not Started |
-| **[Plan 13](file:///home/ckingdon/projects/homelab-manager/docs/plans/13-standby-cli-and-lease-protocol.md)** | Milestone 3 | Single-binary CLI, embedded wwwroot, SQLite sync, lease protocol | ⏳ Not Started |
-| **[Plan 14](file:///home/ckingdon/projects/homelab-manager/docs/plans/14-hardware-and-network-adapters.md)** | Milestone 4 | Dell iDRAC / Redfish REST & Ubiquiti UniFi PoE control | ⏳ Not Started |
-| **[Plan 15](file:///home/ckingdon/projects/homelab-manager/docs/plans/15-kubernetes-drain-adapter.md)** | Milestone 4 | Kubernetes Core API cordon, drain (PDB eviction), uncordon | ⏳ Not Started |
+| **[Plan 11](file:///home/ckingdon/projects/homelab-manager/docs/plans/11-proxmox-snapshot-and-rollback.md)** | Milestone 3 | Proxmox REST API snapshot trigger and automated rollback | ✅ Completed |
+| **[Plan 12](file:///home/ckingdon/projects/homelab-manager/docs/plans/12-deterministic-reboot-handler.md)** | Milestone 3 | Reboot coordination protocol, reconnection, health probe | ✅ Completed |
+| **[Plan 13](file:///home/ckingdon/projects/homelab-manager/docs/plans/13-standby-cli-and-lease-protocol.md)** | Milestone 3 | Single-binary CLI, embedded wwwroot, SQLite sync, lease protocol | ✅ Completed |
+| **[Plan 14](file:///home/ckingdon/projects/homelab-manager/docs/plans/14-hardware-and-network-adapters.md)** | Milestone 4 | Dell iDRAC / Redfish REST & Ubiquiti UniFi PoE control | ✅ Completed |
+| **[Plan 15](file:///home/ckingdon/projects/homelab-manager/docs/plans/15-kubernetes-drain-adapter.md)** | Milestone 4 | Kubernetes Core API cordon, drain (PDB eviction), uncordon | ✅ Completed |
 | **[Plan 16](file:///home/ckingdon/projects/homelab-manager/docs/plans/16-zitadel-oidc-production-auth.md)** | Milestone 4 | Zitadel IDP, PKCE code flow in SPA, JWT Bearer in API | ⏳ Not Started |
 
 ---

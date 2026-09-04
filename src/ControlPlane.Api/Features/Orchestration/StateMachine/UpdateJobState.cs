@@ -7,6 +7,7 @@ public static class UpdateJobState
 {
     public const string Pending = "Pending";
     public const string Running = "Running";
+    public const string AwaitingReconnect = "AwaitingReconnect";
     public const string Verifying = "Verifying";
     public const string Completed = "Completed";
     public const string Failed = "Failed";

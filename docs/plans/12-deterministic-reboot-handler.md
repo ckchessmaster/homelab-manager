@@ -1,7 +1,7 @@
 # Plan 12: Deterministic Reboot Protocol & Post-Flight Health Probes
 
 **Target Milestone:** Milestone 3 (Update Orchestration Engine & Standby Runner)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 10: DAG Orchestration Engine](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)  
 
 ---
@@ -80,7 +80,7 @@ curl -X POST http://localhost:5000/api/v1/debug/test-reboot \
 ```
 
 ### Acceptance Criteria
-- [ ] Agent emits `REBOOT_COMMENCING` before terminating.
-- [ ] Backend detects connection drop as expected reboot, not an unexpected failure.
-- [ ] Post-boot agent reconnection is automatically matched to the in-flight job.
-- [ ] Health probes correctly verify systemd status and endpoint reachability before marking the job `Completed`.
+- [x] Agent emits `REBOOT_COMMENCING` before terminating.
+- [x] Backend detects connection drop as expected reboot, not an unexpected failure.
+- [x] Post-boot agent reconnection is automatically matched to the in-flight job.
+- [x] Health probes correctly verify systemd status and endpoint reachability before marking the job `Completed`.

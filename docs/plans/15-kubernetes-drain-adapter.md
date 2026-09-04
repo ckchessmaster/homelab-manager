@@ -1,7 +1,7 @@
 # Plan 15: Kubernetes Cordon & Drain Workload Adapter
 
 **Target Milestone:** Milestone 4 (Out-of-Band Integrations & Zitadel OIDC)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 10: DAG Orchestration Engine](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)  
 
 ---
@@ -82,6 +82,6 @@ curl -X POST http://localhost:5000/api/v1/adapters/k8s/cordon \
 ```
 
 ### Acceptance Criteria
-- [ ] Node is successfully marked unschedulable in Kubernetes.
-- [ ] Eviction API respects PodDisruptionBudgets and safely evicts non-DaemonSet pods.
-- [ ] Post-flight uncordon step reliably restores scheduling to the updated node.
+- [x] Node is successfully marked unschedulable in Kubernetes.
+- [x] Eviction API respects PodDisruptionBudgets and safely evicts non-DaemonSet pods.
+- [x] Post-flight uncordon step reliably restores scheduling to the updated node.

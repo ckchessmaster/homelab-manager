@@ -44,6 +44,8 @@ src/ControlPlane.Cli/wwwroot/
 ## Go (Compute Node Agent)
 agent/bin/
 agent/dist/
+src/agent/bin/
+src/agent/dist/
 *.exe
 *.exe~
 *.dll

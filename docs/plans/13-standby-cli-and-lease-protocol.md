@@ -1,7 +1,7 @@
 # Plan 13: Standby CLI Runner & Lease Synchronization Protocol
 
 **Target Milestone:** Milestone 3 (Update Orchestration Engine & Standby Runner)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 02: Data Layer](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-data-layer-and-storage.md), [Plan 05: Frontend Dashboard](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-frontend-inventory-dashboard.md), [Plan 10: DAG Orchestration Engine](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)  
 
 ---
@@ -99,8 +99,8 @@ dotnet publish src/ControlPlane.Cli -c Release -r linux-x64 -o ./bin/dist
 ```
 
 ### Acceptance Criteria
-- [ ] Single executable starts and automatically serves the embedded React dashboard at `http://localhost:5200`.
-- [ ] CLI runs with zero dependencies on PostgreSQL, using local SQLite cleanly.
-- [ ] Takeover protocol successfully pulls cluster snapshot and locks primary in-cluster scheduler.
-- [ ] Post-maintenance delta sync flushes execution history back to PostgreSQL and releases the lease.
-- [ ] Milestone 3 is fully achieved upon completion of this plan.
+- [x] Single executable starts and automatically serves the embedded React dashboard at `http://localhost:5200`.
+- [x] CLI runs with zero dependencies on PostgreSQL, using local SQLite cleanly.
+- [x] Takeover protocol successfully pulls cluster snapshot and locks primary in-cluster scheduler.
+- [x] Post-maintenance delta sync flushes execution history back to PostgreSQL and releases the lease.
+- [x] Milestone 3 is fully achieved upon completion of this plan.

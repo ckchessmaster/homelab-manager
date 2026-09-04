@@ -112,7 +112,11 @@ public class JobOrchestratorService
             new PreflightHeartbeatCheckStep(),
             new PreflightDiskHeadroomCheckStep(),
             new PreflightPackageLockCheckStep(),
-            new PackageUpgradeStep()
+            new ProxmoxSnapshotStep(),
+            new PackageUpgradeStep(),
+            new DeterministicRebootStep(),
+            new AwaitReconnectionStep(),
+            new PostFlightHealthProbeStep()
         };
 
         return new DagExecutionPipeline(steps);

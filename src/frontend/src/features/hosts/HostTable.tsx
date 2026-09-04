@@ -21,7 +21,9 @@ import { HostDetailsModal } from './HostDetailsModal'
 import { EditHostModal } from './EditHostModal'
 import { HostTerminalDrawer } from './HostTerminalDrawer'
 import { AdoptNodeModal } from './AdoptNodeModal'
+import { MassAgentUpdateModal } from './MassAgentUpdateModal'
 import { useDeleteHost, useHosts } from './useHosts'
+import { useAgentVersionInfo } from './useAgentUpdates'
 import {
   Search,
   Plus,
@@ -75,6 +77,9 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [copiedIp, setCopiedIp] = useState<string | null>(null)
   const [terminalJobId, setTerminalJobId] = useState<string | null>(null)
   const [autoTriggerUpdate, setAutoTriggerUpdate] = useState(false)
+  const [isMassUpdateModalOpen, setIsMassUpdateModalOpen] = useState(false)
+
+  const { data: agentVersionInfo } = useAgentVersionInfo()
 
   // Selection & Reboot state
   const [selectedHostIds, setSelectedHostIds] = useState<Set<string>>(new Set())
@@ -274,6 +279,25 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setIsMassUpdateModalOpen(true)}
+            className={`gap-1.5 transition-colors ${
+              (agentVersionInfo?.outdatedAgentsCount ?? 0) > 0
+                ? 'border-amber-700/80 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60 shadow-xs shadow-amber-900/20'
+                : 'border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60'
+            }`}
+          >
+            <ArrowUpCircle className={`h-4 w-4 ${(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 ? 'text-amber-400' : 'text-zinc-400'}`} />
+            <span>Agent Updates</span>
+            {(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {agentVersionInfo?.outdatedAgentsCount}
+              </span>
+            )}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setAdoptHost(null)
               setIsAdoptModalOpen(true)
@@ -295,6 +319,39 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           </Button>
         </div>
       </div>
+
+      {/* Outdated Agents Banner */}
+      {(agentVersionInfo?.onlineOutdatedCount ?? 0) > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-amber-950/50 via-zinc-900/70 to-zinc-900/50 border border-amber-800/50 rounded-xl backdrop-blur-md shadow-lg shadow-amber-950/10 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0">
+              <ArrowUpCircle className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-zinc-200">
+                  {agentVersionInfo?.onlineOutdatedCount} Agent Daemon{agentVersionInfo?.onlineOutdatedCount === 1 ? '' : 's'} Ready for In-Band Upgrade
+                </span>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                  Target v{agentVersionInfo?.serverVersion}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                Dispatch atomic self-update commands over active WebSocket connections with zero service downtime.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => setIsMassUpdateModalOpen(true)}
+            className="gap-1.5 bg-amber-600 hover:bg-amber-500 text-white border-amber-500 text-xs shrink-0 self-start sm:self-auto"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Update All ({agentVersionInfo?.onlineOutdatedCount})
+          </Button>
+        </div>
+      )}
 
       {/* Main Table */}
       {isLoading ? (
@@ -417,7 +474,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
 
                 {/* Agent Status */}
                 <TableCell>
-                  <AgentStatusBadge agent={host.agent} />
+                  <AgentStatusBadge agent={host.agent} targetVersion={agentVersionInfo?.serverVersion} />
                 </TableCell>
 
                 {/* Vitals */}
@@ -689,6 +746,13 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         host={hostToEdit}
         open={Boolean(hostToEdit)}
         onClose={() => setHostToEdit(null)}
+      />
+
+      {/* Mass Agent Update Modal */}
+      <MassAgentUpdateModal
+        open={isMassUpdateModalOpen}
+        onClose={() => setIsMassUpdateModalOpen(false)}
+        onSuccess={() => refetch()}
       />
 
       {/* Host Terminal Drawer */}

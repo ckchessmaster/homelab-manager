@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"controlplane-agent/internal/config"
+	"controlplane-agent/internal/lifecycle"
 	"controlplane-agent/internal/metrics"
 	"controlplane-agent/internal/packages"
 	"controlplane-agent/internal/runner"
@@ -22,7 +23,7 @@ import (
 )
 
 var (
-	Version = "1.0.0"
+	Version = "1.1.0"
 )
 
 type HeartbeatPayload struct {
@@ -42,6 +43,13 @@ type CommandEnvelope struct {
 	JobID   string   `json:"jobId"`
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+}
+
+type UpdateEnvelope struct {
+	Type          string `json:"type"`
+	JobID         string `json:"jobId"`
+	DownloadURL   string `json:"downloadUrl"`
+	TargetVersion string `json:"targetVersion"`
 }
 
 type FrameEnvelope struct {
@@ -192,7 +200,23 @@ func runAgentSession(
 				continue
 			}
 
-			if base.Type == "EXECUTE_COMMAND" {
+			if base.Type == "CMD_REBOOT" {
+				var cmd CommandEnvelope
+				if err := json.Unmarshal(message, &cmd); err == nil {
+					go func(envelope CommandEnvelope) {
+						log.Printf("[Agent] Handling CMD_REBOOT for Job %s", envelope.JobID)
+						_ = lifecycle.TriggerReboot(ctx, envelope.JobID, cfg.NodeID, writeJSON)
+					}(cmd)
+				}
+			} else if base.Type == "CMD_SELF_UPDATE" {
+				var updateEnv UpdateEnvelope
+				if err := json.Unmarshal(message, &updateEnv); err == nil {
+					go func(envelope UpdateEnvelope) {
+						log.Printf("[Agent] Handling CMD_SELF_UPDATE for Job %s (Target: %s)", envelope.JobID, envelope.TargetVersion)
+						_ = lifecycle.PerformSelfUpdate(ctx, envelope.JobID, cfg.NodeID, envelope.DownloadURL, envelope.TargetVersion, cfg.Token, writeJSON)
+					}(updateEnv)
+				}
+			} else if base.Type == "EXECUTE_COMMAND" {
 				var cmd CommandEnvelope
 				if err := json.Unmarshal(message, &cmd); err == nil {
 					go func(envelope CommandEnvelope) {

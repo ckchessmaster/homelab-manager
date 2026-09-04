@@ -15,13 +15,18 @@ public class AgentSession
     public SemaphoreSlim SendLock { get; } = new(1, 1);
     public AgentMetrics? LatestMetrics { get; set; }
     public DateTimeOffset? LastHeartbeatAt { get; set; }
+    public string? KernelVersion { get; set; }
 }
 
 public class AgentConnectionManager
 {
     private readonly ConcurrentDictionary<Guid, AgentSession> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentSession>> _reconnectWaiters = new();
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<string>> _rebootCommencingWaiters = new();
     private readonly ILogger<AgentConnectionManager> _logger;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public event Action<Guid, string?>? OnRebootCommencing;
 
     public AgentConnectionManager(ILogger<AgentConnectionManager> logger)
     {
@@ -55,6 +60,13 @@ public class AgentConnectionManager
         });
 
         _logger.LogInformation("Registered agent session for host {HostId} (Node: {NodeId})", hostId, nodeId);
+
+        // Resolve any waiters awaiting reconnection for this host
+        if (_reconnectWaiters.TryRemove(hostId, out var waiter))
+        {
+            waiter.TrySetResult(session);
+        }
+
         return session;
     }
 
@@ -92,6 +104,28 @@ public class AgentConnectionManager
             session.LatestMetrics = metrics;
             session.LastHeartbeatAt = DateTimeOffset.UtcNow;
         }
+    }
+
+    public void UpdateHeartbeat(Guid hostId, AgentHeartbeatMessage heartbeat)
+    {
+        if (_sessions.TryGetValue(hostId, out var session))
+        {
+            session.LatestMetrics = heartbeat.Metrics;
+            session.LastHeartbeatAt = DateTimeOffset.UtcNow;
+            if (!string.IsNullOrWhiteSpace(heartbeat.KernelVersion))
+            {
+                session.KernelVersion = heartbeat.KernelVersion;
+            }
+        }
+    }
+
+    public string? GetKernelVersion(Guid hostId)
+    {
+        if (_sessions.TryGetValue(hostId, out var session))
+        {
+            return session.KernelVersion;
+        }
+        return null;
     }
 
     public AgentMetrics? GetLatestMetrics(Guid hostId)
@@ -138,6 +172,70 @@ public class AgentConnectionManager
         finally
         {
             session.SendLock.Release();
+        }
+    }
+
+    public async Task<AgentSession> WaitForReconnectAsync(Guid hostId, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var tcs = _reconnectWaiters.GetOrAdd(hostId, _ => new TaskCompletionSource<AgentSession>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linkedCts.CancelAfter(timeout);
+
+        using var registration = linkedCts.Token.Register(() =>
+        {
+            if (ct.IsCancellationRequested)
+            {
+                tcs.TrySetCanceled(ct);
+            }
+            else
+            {
+                tcs.TrySetException(new TimeoutException($"Agent for host {hostId} did not reconnect within {timeout.TotalSeconds} seconds."));
+            }
+            _reconnectWaiters.TryRemove(hostId, out _);
+        });
+
+        try
+        {
+            return await tcs.Task;
+        }
+        finally
+        {
+            _reconnectWaiters.TryRemove(hostId, out _);
+        }
+    }
+
+    public void NotifyRebootCommencing(Guid hostId, string? jobId)
+    {
+        _logger.LogInformation("Agent acknowledged reboot commencing for host {HostId} (Job: {JobId})", hostId, jobId);
+        if (_rebootCommencingWaiters.TryRemove(hostId, out var waiter))
+        {
+            waiter.TrySetResult(jobId ?? string.Empty);
+        }
+        OnRebootCommencing?.Invoke(hostId, jobId);
+    }
+
+    public async Task<bool> WaitForRebootCommencingAsync(Guid hostId, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var tcs = _rebootCommencingWaiters.GetOrAdd(hostId, _ => new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linkedCts.CancelAfter(timeout);
+
+        using var registration = linkedCts.Token.Register(() =>
+        {
+            tcs.TrySetResult(string.Empty);
+            _rebootCommencingWaiters.TryRemove(hostId, out _);
+        });
+
+        try
+        {
+            var result = await tcs.Task;
+            return !string.IsNullOrEmpty(result) || tcs.Task.IsCompletedSuccessfully;
+        }
+        finally
+        {
+            _rebootCommencingWaiters.TryRemove(hostId, out _);
         }
     }
 }

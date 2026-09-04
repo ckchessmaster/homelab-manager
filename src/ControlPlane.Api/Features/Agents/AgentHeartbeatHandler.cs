@@ -46,7 +46,7 @@ public class AgentHeartbeatHandler
         host.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);
-        _connectionManager.UpdateMetrics(hostId, message.Metrics);
+        _connectionManager.UpdateHeartbeat(hostId, message);
 
         _logger.LogDebug(
             "Processed heartbeat for {Hostname} ({HostId}): RebootNeeded={Reboot}, UpgradablePkgs={Pkgs}",

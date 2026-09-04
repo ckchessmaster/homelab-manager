@@ -56,7 +56,13 @@ function checkIsOnline(lastSeenAt?: string | null): boolean {
   return Date.now() - new Date(lastSeenAt).getTime() < 5 * 60 * 1000
 }
 
-export function AgentStatusBadge({ agent }: { agent: AgentState }) {
+export function AgentStatusBadge({
+  agent,
+  targetVersion,
+}: {
+  agent: AgentState
+  targetVersion?: string
+}) {
   if (!agent.installed) {
     return (
       <Badge variant="outline" className="text-zinc-500 border-dashed border-zinc-700">
@@ -66,12 +72,25 @@ export function AgentStatusBadge({ agent }: { agent: AgentState }) {
   }
 
   const isOnline = checkIsOnline(agent.lastSeenAt)
+  const isOutdated = Boolean(
+    targetVersion &&
+    agent.version &&
+    agent.version.replace(/^v/, '') !== targetVersion.replace(/^v/, '')
+  )
 
   if (isOnline) {
     return (
-      <Badge variant="success" dot pulse>
-        Online {agent.version ? `(${agent.version})` : ''}
-      </Badge>
+      <div className="inline-flex items-center gap-1.5 flex-wrap">
+        <Badge variant="success" dot pulse>
+          Online {agent.version ? `(v${agent.version.replace(/^v/, '')})` : ''}
+        </Badge>
+        {isOutdated && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded-md border border-amber-700/50">
+            <ArrowUpCircle className="w-2.5 h-2.5 text-amber-400" />
+            v{targetVersion?.replace(/^v/, '')} avail
+          </span>
+        )}
+      </div>
     )
   }
 
