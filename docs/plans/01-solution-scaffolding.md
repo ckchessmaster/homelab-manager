@@ -1,7 +1,7 @@
 # Plan 01: Solution Scaffolding (.NET 10, Aspire & React 19)
 
 **Target Milestone:** Milestone 1 (Foundation, Data Layer & Host Inventory)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** None  
 
 ---
@@ -93,7 +93,7 @@ cd src/frontend && npm install && npm run build
 ```
 
 ### Acceptance Criteria
-- [ ] `ControlPlane.sln` compiles with 0 errors and 0 warnings.
-- [ ] Aspire AppHost launches and displays dashboard with `api` and `frontend` services visible.
-- [ ] Requesting `http://localhost:<api-port>/alive` returns HTTP 200.
-- [ ] Frontend loads with Tailwind styles applied and displays a welcome status header.
+- [x] `ControlPlane.sln` compiles with 0 errors and 0 warnings.
+- [x] Aspire AppHost launches and displays dashboard with `api` and `frontend` services visible.
+- [x] Requesting `http://localhost:<api-port>/alive` returns HTTP 200.
+- [x] Frontend loads with Tailwind styles applied and displays a welcome status header.

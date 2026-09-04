@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "ControlPlane.AppHost.csproj"
+  }
+}
