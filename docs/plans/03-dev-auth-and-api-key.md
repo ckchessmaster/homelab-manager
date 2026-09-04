@@ -1,7 +1,7 @@
 # Plan 03: Dev Auth & Static API Key Authentication
 
 **Target Milestone:** Milestone 1 (Foundation, Data Layer & Host Inventory)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 01: Solution Scaffolding](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-solution-scaffolding.md)  
 
 ---
@@ -72,6 +72,6 @@ AUTH_BYPASS=true curl -i http://localhost:5000/api/v1/hosts
 ```
 
 ### Acceptance Criteria
-- [ ] Endpoints protected with `[Authorize]` reject requests without a valid header when `AUTH_BYPASS=false`.
-- [ ] Requests bearing a matching `X-ControlPlane-Key` header succeed and receive `Admin` claims.
-- [ ] With `AUTH_BYPASS=true`, all endpoints succeed transparently as `DevAdmin`.
+- [x] Endpoints protected with `[Authorize]` reject requests without a valid header when `AUTH_BYPASS=false`.
+- [x] Requests bearing a matching `X-ControlPlane-Key` header succeed and receive `Admin` claims.
+- [x] With `AUTH_BYPASS=true`, all endpoints succeed transparently as `DevAdmin`.

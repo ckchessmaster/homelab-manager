@@ -33,7 +33,7 @@ public static class DependencyInjection
             else
             {
                 var connectionString = config.GetConnectionString("PostgresDatabase")
-                    ?? "Host=localhost;Port=5432;Database=controlplane;Username=postgres;Password=postgres";
+                    ?? throw new InvalidOperationException("Connection string 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:PostgresDatabase.");
 
                 options.UseNpgsql(connectionString, npgsql =>
                 {
