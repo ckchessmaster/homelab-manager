@@ -1,7 +1,7 @@
 # Plan 02: Data Layer & Dual-Provider Storage (PostgreSQL & SQLite)
 
 **Target Milestone:** Milestone 1 (Foundation, Data Layer & Host Inventory)  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 01: Solution Scaffolding](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-solution-scaffolding.md)  
 
 ---
@@ -104,7 +104,7 @@ STANDBY_MODE=true dotnet run --project src/ControlPlane.Api
 ```
 
 ### Acceptance Criteria
-- [ ] `ControlPlaneDbContext` compiles and applies migrations cleanly.
-- [ ] Running with `STANDBY_MODE=true` creates and seeds `~/.controlplane/standby-state.db`.
-- [ ] Running in standard mode connects successfully to PostgreSQL.
-- [ ] Basic unit/integration tests verify inserting and querying `Host` and `UpdateJob` entities on both SQLite and PostgreSQL.
+- [x] `ControlPlaneDbContext` compiles and applies migrations cleanly.
+- [x] Running with `STANDBY_MODE=true` creates and seeds `~/.controlplane/standby-state.db`.
+- [x] Running in standard mode connects successfully to PostgreSQL.
+- [x] Basic unit/integration tests verify inserting and querying `Host` and `UpdateJob` entities on both SQLite and PostgreSQL.

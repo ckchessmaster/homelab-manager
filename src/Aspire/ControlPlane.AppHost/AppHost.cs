@@ -1,6 +1,14 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var api = builder.AddProject<Projects.ControlPlane_Api>("api");
+var postgres = builder.AddPostgres("postgres")
+    .WithDataVolume()
+    .WithPgAdmin();
+
+var db = postgres.AddDatabase("PostgresDatabase");
+
+var api = builder.AddProject<Projects.ControlPlane_Api>("api")
+    .WithReference(db)
+    .WaitFor(db);
 
 builder.AddViteApp("frontend", "../../frontend")
     .WithNpm(install: false)
