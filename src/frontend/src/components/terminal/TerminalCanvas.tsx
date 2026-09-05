@@ -9,35 +9,51 @@ export interface TerminalRef {
   clear: () => void
   focus: () => void
   getSelection: () => string
+  scrollToBottom: () => void
 }
 
 interface TerminalCanvasProps {
   autoScroll?: boolean
   className?: string
   onData?: (data: string) => void
+  onScrollPositionChange?: (isAtBottom: boolean) => void
 }
 
 export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
-  ({ autoScroll = true, className = '', onData }, ref) => {
+  ({ autoScroll = true, className = '', onData, onScrollPositionChange }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const terminalRef = useRef<Terminal | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
+    const autoScrollRef = useRef(autoScroll)
+
+    useEffect(() => {
+      autoScrollRef.current = autoScroll
+      if (autoScroll && terminalRef.current) {
+        terminalRef.current.scrollToBottom()
+      }
+    }, [autoScroll])
 
     useImperativeHandle(ref, () => ({
       write: (data: string) => {
         if (terminalRef.current) {
-          terminalRef.current.write(data)
-          if (autoScroll) {
-            terminalRef.current.scrollToBottom()
-          }
+          terminalRef.current.write(data, () => {
+            if (autoScrollRef.current) {
+              requestAnimationFrame(() => {
+                terminalRef.current?.scrollToBottom()
+              })
+            }
+          })
         }
       },
       writeln: (data: string) => {
         if (terminalRef.current) {
-          terminalRef.current.writeln(data)
-          if (autoScroll) {
-            terminalRef.current.scrollToBottom()
-          }
+          terminalRef.current.writeln(data, () => {
+            if (autoScrollRef.current) {
+              requestAnimationFrame(() => {
+                terminalRef.current?.scrollToBottom()
+              })
+            }
+          })
         }
       },
       clear: () => {
@@ -48,6 +64,9 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
       },
       getSelection: () => {
         return terminalRef.current?.getSelection() ?? ''
+      },
+      scrollToBottom: () => {
+        terminalRef.current?.scrollToBottom()
       },
     }))
 
@@ -83,13 +102,23 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
           brightWhite: '#ffffff',
         },
         convertEol: true,
-        scrollback: 5000,
+        scrollback: 10000,
+        smoothScrollDuration: 0,
       })
 
       const fitAddon = new FitAddon()
       term.loadAddon(fitAddon)
       term.open(containerRef.current)
-      fitAddon.fit()
+
+      // Fit after DOM render
+      requestAnimationFrame(() => {
+        try {
+          fitAddon.fit()
+          if (autoScrollRef.current) {
+            term.scrollToBottom()
+          }
+        } catch {}
+      })
 
       terminalRef.current = term
       fitAddonRef.current = fitAddon
@@ -98,28 +127,41 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
         term.onData(onData)
       }
 
+      // Detect user scrolling to pause or resume auto-scroll
+      const scrollDisposable = term.onScroll(() => {
+        const buffer = term.buffer.active
+        const isAtBottom = buffer.viewportY >= buffer.baseY - 1
+        onScrollPositionChange?.(isAtBottom)
+      })
+
       const resizeObserver = new ResizeObserver(() => {
-        try {
-          fitAddon.fit()
-        } catch {
-          // container might be hidden
-        }
+        requestAnimationFrame(() => {
+          try {
+            fitAddon.fit()
+            if (autoScrollRef.current) {
+              term.scrollToBottom()
+            }
+          } catch {
+            // container might be hidden
+          }
+        })
       })
 
       resizeObserver.observe(containerRef.current)
 
       return () => {
+        scrollDisposable.dispose()
         resizeObserver.disconnect()
         term.dispose()
         terminalRef.current = null
         fitAddonRef.current = null
       }
-    }, [onData])
+    }, [onData, onScrollPositionChange])
 
     return (
       <div
         ref={containerRef}
-        className={`w-full h-full min-h-[300px] overflow-hidden rounded-lg bg-zinc-950 p-2 border border-zinc-800 ${className}`}
+        className={`w-full h-full overflow-hidden bg-zinc-950 ${className}`}
       />
     )
   }

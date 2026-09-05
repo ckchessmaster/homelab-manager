@@ -1,4 +1,7 @@
+using ControlPlane.Api.Features.Adapters.Kubernetes;
+using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Orchestration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ControlPlane.Api.Features.Orchestration.Pipelines;
 
@@ -48,7 +51,7 @@ public class PipelineCatalog : IPipelineCatalog
                 Id = "standard-os-upgrade",
                 Name = "Standard OS Upgrade",
                 Description = "Full host upgrade workflow: preflight safety checks, hypervisor snapshot, non-interactive package upgrades, deterministic reboot, reconnection monitoring, and health probes.",
-                Icon = "ArrowUpCircle",
+                Icon = "Terminal",
                 CompatibleTargetTypes = new[] { "all", "proxmox_vm", "baremetal" },
                 Steps = new[]
                 {
@@ -61,12 +64,12 @@ public class PipelineCatalog : IPipelineCatalog
                     new PipelineStepSummary("Await Reconnection", "Monitors WebSocket reconnection window following host reboot."),
                     new PipelineStepSummary("Post-Flight Health Probes", "Runs automated post-boot sanity checks on network and key services.")
                 },
-                StepFactory = _ => new IJobStep[]
+                StepFactory = sp => new IJobStep[]
                 {
                     new PreflightHeartbeatCheckStep(),
                     new PreflightDiskHeadroomCheckStep(),
                     new PreflightPackageLockCheckStep(),
-                    new ProxmoxSnapshotStep(),
+                    new ProxmoxSnapshotStep(sp.GetService<IProxmoxClient>()),
                     new PackageUpgradeStep(),
                     new DeterministicRebootStep(),
                     new AwaitReconnectionStep(),
@@ -94,19 +97,19 @@ public class PipelineCatalog : IPipelineCatalog
                     new PipelineStepSummary("Post-Flight Health Probes", "Runs automated post-boot sanity checks on network and key services."),
                     new PipelineStepSummary("Kubernetes Node Uncordon", "Marks node as Schedulable again to resume workload processing.")
                 },
-                StepFactory = _ => new IJobStep[]
+                StepFactory = sp => new IJobStep[]
                 {
                     new PreflightHeartbeatCheckStep(),
                     new PreflightDiskHeadroomCheckStep(),
                     new PreflightPackageLockCheckStep(),
-                    new ProxmoxSnapshotStep(),
-                    new KubernetesCordonStep(),
-                    new KubernetesDrainStep(),
+                    new ProxmoxSnapshotStep(sp.GetService<IProxmoxClient>()),
+                    new KubernetesCordonStep(sp.GetService<IKubernetesAdapter>()),
+                    new KubernetesDrainStep(sp.GetService<IKubernetesAdapter>()),
                     new PackageUpgradeStep(),
                     new DeterministicRebootStep(),
                     new AwaitReconnectionStep(),
                     new PostFlightHealthProbeStep(),
-                    new KubernetesUncordonStep()
+                    new KubernetesUncordonStep(sp.GetService<IKubernetesAdapter>())
                 }
             },
             new()
@@ -163,10 +166,10 @@ public class PipelineCatalog : IPipelineCatalog
                     new PipelineStepSummary("Preflight: Heartbeat Freshness", "Verifies agent is alive prior to snapshot."),
                     new PipelineStepSummary("Proxmox Safety Snapshot", "Dispatches Proxmox VE snapshot API call.")
                 },
-                StepFactory = _ => new IJobStep[]
+                StepFactory = sp => new IJobStep[]
                 {
                     new PreflightHeartbeatCheckStep(),
-                    new ProxmoxSnapshotStep()
+                    new ProxmoxSnapshotStep(sp.GetService<IProxmoxClient>())
                 }
             }
         };

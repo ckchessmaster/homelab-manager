@@ -86,5 +86,9 @@ public interface IProxmoxClient
     /// Checks whether the active API token has VM.Audit or broader permissions to inspect VMs/LXCs.
     /// </summary>
     Task<bool> HasVmAuditPermissionAsync(CancellationToken ct = default);
-}
 
+    /// <summary>
+    /// Checks whether the VM or container's storage backend supports snapshots.
+    /// </summary>
+    Task<bool> HasSnapshotFeatureAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default);
+}

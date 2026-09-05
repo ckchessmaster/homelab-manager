@@ -42,7 +42,11 @@ public class ProxmoxSnapshotStep : IJobStep
             return JobStepResult.Failed(msg);
         }
 
-        var client = ResolveClient(context);
+        using var scope = _proxmoxClient == null && context.ScopeFactory != null
+            ? context.ScopeFactory.CreateScope()
+            : null;
+
+        var client = _proxmoxClient ?? scope?.ServiceProvider.GetService<IProxmoxClient>();
         if (client == null)
         {
             var msg = "Proxmox REST client is not available or registered in the service container.";
@@ -50,15 +54,24 @@ public class ProxmoxSnapshotStep : IJobStep
             return JobStepResult.Failed(msg);
         }
 
-        var snapName = $"cp-pre-update-{DateTime.UtcNow:yyyyMMddHHmmss}";
-        var description = $"ControlPlane pre-update safety snapshot. Expires: {DateTimeOffset.UtcNow.AddHours(24):O}";
-
-        // Persist snapshot identifier in DB immediately
-        await context.SetSnapshotIdentifierAsync(snapName, ct);
-
         var isLxc = targetType == "proxmox_lxc";
         var node = proxmoxTarget.Node;
         var vmid = proxmoxTarget.Vmid;
+
+        // Check if VM storage backend supports snapshots
+        var hasSnapshotSupport = await client.HasSnapshotFeatureAsync(node, vmid, isLxc, ct);
+        if (!hasSnapshotSupport)
+        {
+            await context.EmitLogAsync(
+                "system",
+                $"[SNAPSHOT] Notice: {(isLxc ? "LXC" : "VM")} {vmid} on Proxmox node '{node}' is backed by storage that does not support snapshots ('snapshot feature is not available'). Skipping safety snapshot and continuing update pipeline.",
+                ct
+            );
+            return JobStepResult.Succeeded("Skipped: Proxmox storage does not support snapshots.");
+        }
+
+        var snapName = $"cp-pre-update-{DateTime.UtcNow:yyyyMMddHHmmss}";
+        var description = $"ControlPlane pre-update safety snapshot. Expires: {DateTimeOffset.UtcNow.AddHours(24):O}";
 
         await context.EmitLogAsync(
             "system",
@@ -74,10 +87,23 @@ public class ProxmoxSnapshotStep : IJobStep
             var taskStatus = await client.PollTaskCompletionAsync(node, upid, ct: ct);
             if (!taskStatus.IsSuccess)
             {
+                if (taskStatus.ExitStatus != null && taskStatus.ExitStatus.Contains("snapshot feature is not available", StringComparison.OrdinalIgnoreCase))
+                {
+                    await context.EmitLogAsync(
+                        "system",
+                        $"[SNAPSHOT] Notice: Proxmox reported 'snapshot feature is not available' for VM {vmid}. Skipping safety snapshot and continuing update pipeline.",
+                        ct
+                    );
+                    return JobStepResult.Succeeded("Skipped: Proxmox storage does not support snapshots.");
+                }
+
                 var errorMsg = $"Snapshot task failed with exit status: {taskStatus.ExitStatus ?? "unknown error"}";
                 await context.EmitLogAsync("system", $"[SNAPSHOT] Error: {errorMsg}", ct);
                 return JobStepResult.Failed(errorMsg);
             }
+
+            // Persist snapshot identifier in DB now that snapshot is confirmed
+            await context.SetSnapshotIdentifierAsync(snapName, ct);
 
             await context.EmitLogAsync("system", $"[SNAPSHOT] Snapshot '{snapName}' created and verified successfully.", ct);
             return JobStepResult.Succeeded($"Snapshot '{snapName}' created successfully.");
@@ -112,7 +138,11 @@ public class ProxmoxSnapshotStep : IJobStep
             return;
         }
 
-        var client = ResolveClient(context);
+        using var scope = _proxmoxClient == null && context.ScopeFactory != null
+            ? context.ScopeFactory.CreateScope()
+            : null;
+
+        var client = _proxmoxClient ?? scope?.ServiceProvider.GetService<IProxmoxClient>();
         if (client == null)
         {
             await context.EmitLogAsync("system", "[ROLLBACK] Error: Proxmox REST client not available to perform rollback.", ct);
@@ -149,16 +179,5 @@ public class ProxmoxSnapshotStep : IJobStep
             context.Logger.LogError(ex, "Failed to rollback Proxmox snapshot {SnapName} on node {Node} for {Vmid}", snapName, node, vmid);
             await context.EmitLogAsync("system", $"[ROLLBACK] Error during automated rollback: {ex.Message}", ct);
         }
-    }
-
-    private IProxmoxClient? ResolveClient(JobExecutionContext context)
-    {
-        if (_proxmoxClient != null)
-        {
-            return _proxmoxClient;
-        }
-
-        using var scope = context.ScopeFactory.CreateScope();
-        return scope.ServiceProvider.GetService<IProxmoxClient>();
     }
 }

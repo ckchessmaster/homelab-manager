@@ -30,7 +30,11 @@ public class KubernetesDrainStep : IJobStep
             return JobStepResult.Succeeded("Skipped: Host is not a Kubernetes node.");
         }
 
-        var adapter = ResolveAdapter(context);
+        using var scope = _adapter == null && context.ScopeFactory != null
+            ? context.ScopeFactory.CreateScope()
+            : null;
+
+        var adapter = _adapter ?? scope?.ServiceProvider.GetService<IKubernetesAdapter>();
         if (adapter == null)
         {
             await context.EmitLogAsync("system", "[K8S] Kubernetes adapter unavailable; skipping drain step.", ct);
@@ -60,16 +64,5 @@ public class KubernetesDrainStep : IJobStep
     {
         // Drain cannot re-schedule evicted pods back to the node; scheduling restoration is handled by CordonStep rollback
         return Task.CompletedTask;
-    }
-
-    private IKubernetesAdapter? ResolveAdapter(JobExecutionContext context)
-    {
-        if (_adapter != null) return _adapter;
-        if (context.ScopeFactory != null)
-        {
-            using var scope = context.ScopeFactory.CreateScope();
-            return scope.ServiceProvider.GetService<IKubernetesAdapter>();
-        }
-        return null;
     }
 }

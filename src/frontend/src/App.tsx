@@ -31,7 +31,7 @@ export default function App() {
       rebootPendingCount={rebootPendingCount}
     >
       {activeTab === 'hosts' && (
-        <div className="space-y-6 max-w-7xl mx-auto">
+        <div className="space-y-6 w-full max-w-[1700px] mx-auto">
           {/* Quick Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">

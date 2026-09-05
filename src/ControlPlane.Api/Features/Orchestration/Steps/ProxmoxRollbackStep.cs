@@ -43,7 +43,11 @@ public class ProxmoxRollbackStep : IJobStep
             return JobStepResult.Failed(msg);
         }
 
-        var client = ResolveClient(context);
+        using var scope = _proxmoxClient == null && context.ScopeFactory != null
+            ? context.ScopeFactory.CreateScope()
+            : null;
+
+        var client = _proxmoxClient ?? scope?.ServiceProvider.GetService<IProxmoxClient>();
         if (client == null)
         {
             var msg = "Proxmox REST client is not available or registered.";
@@ -96,16 +100,5 @@ public class ProxmoxRollbackStep : IJobStep
     {
         // Rollback step itself does not have a further rollback
         return Task.CompletedTask;
-    }
-
-    private IProxmoxClient? ResolveClient(JobExecutionContext context)
-    {
-        if (_proxmoxClient != null)
-        {
-            return _proxmoxClient;
-        }
-
-        using var scope = context.ScopeFactory.CreateScope();
-        return scope.ServiceProvider.GetService<IProxmoxClient>();
     }
 }

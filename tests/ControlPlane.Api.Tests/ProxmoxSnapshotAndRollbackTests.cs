@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
@@ -128,6 +129,10 @@ public class ProxmoxSnapshotAndRollbackTests
 
         public Task<bool> HasVmAuditPermissionAsync(CancellationToken ct = default) =>
             Task.FromResult(true);
+
+        public Func<string, int, bool, bool>? OnHasSnapshotFeature { get; set; }
+        public Task<bool> HasSnapshotFeatureAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
+            Task.FromResult(OnHasSnapshotFeature?.Invoke(node, vmid, isLxc) ?? true);
     }
 
     private class ProxmoxTestAppFactory : WebApplicationFactory<Program>
@@ -765,5 +770,256 @@ public class ProxmoxSnapshotAndRollbackTests
         Assert.Equal(mockProxmox.CreatedSnapshots[0], dbJob.SnapshotIdentifier);
 
         await ws.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+    }
+
+    [Fact]
+    [Trait("Category", "ProxmoxIntegration")]
+    public async Task ProxmoxSnapshotStep_Parameterless_ResolvesFromScopeFactory_WithoutDisposingDbContext()
+    {
+        var tempDb = Path.Combine(Path.GetTempPath(), $"cp-test-scope-{Guid.NewGuid():N}.db");
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddDbContext<ControlPlaneDbContext>(options =>
+            {
+                options.UseSqlite($"Data Source={tempDb}")
+                    .UseSnakeCaseNamingConvention();
+            });
+
+            // Configure default options with EMPTY BaseUrl (just like production appsettings)
+            services.Configure<ProxmoxOptions>(opts =>
+            {
+                opts.BaseUrl = "";
+                opts.ApiTokenId = "";
+                opts.ApiTokenSecret = "";
+            });
+
+            var handler = new MockHttpMessageHandler(req =>
+            {
+                if (req.RequestUri!.PathAndQuery.Contains("/feature"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = JsonContent.Create(new { data = new { hasFeature = 1 } })
+                    };
+                }
+                if (req.RequestUri.PathAndQuery.Contains("/snapshot"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = JsonContent.Create(new ProxmoxTaskResponse("UPID:pve-01:0001:snap:test"))
+                    };
+                }
+                if (req.RequestUri.PathAndQuery.Contains("/tasks/"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = JsonContent.Create(new { data = new { status = "stopped", exitstatus = "OK" } })
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            });
+
+            var client = new HttpClient(handler);
+            var mockFactory = new MockHttpClientFactory(client);
+            services.AddSingleton<IHttpClientFactory>(mockFactory);
+            services.AddScoped<IAdapterConfigService, AdapterConfigService>();
+            services.AddScoped<ProxmoxTaskPoller>();
+            services.AddScoped<IProxmoxClient, ProxmoxClient>();
+            services.AddSignalR();
+            services.AddSingleton<AgentConnectionManager>();
+
+            var sp = services.BuildServiceProvider();
+            using (var initScope = sp.CreateScope())
+            {
+                var dbInit = initScope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+                await dbInit.Database.EnsureCreatedAsync();
+
+                // Save Proxmox configuration into SystemSettings table in DB
+                var configJson = JsonSerializer.Serialize(new
+                {
+                    baseUrl = "https://proxmox.local.chriskingdon.com",
+                    apiTokenId = "user@pam!token",
+                    apiTokenSecret = "secret-key",
+                    allowSelfSignedCert = true,
+                    taskPollTimeoutSeconds = 300,
+                    taskPollIntervalMilliseconds = 1000
+                });
+                dbInit.SystemSettings.Add(new SystemSetting
+                {
+                    Key = "adapter:proxmox",
+                    ValueJson = configJson,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+
+                var host = new HostEntity
+                {
+                    Id = Guid.NewGuid(),
+                    Hostname = "game-host-linux",
+                    IpAddress = "192.168.1.150",
+                    OsFamily = "linux_debian",
+                    TargetType = "proxmox_vm",
+                    Proxmox = new ProxmoxTarget
+                    {
+                        Node = "proxmox",
+                        Vmid = 109
+                    }
+                };
+                var job = new UpdateJob
+                {
+                    Id = Guid.NewGuid(),
+                    TargetHostId = host.Id,
+                    TargetHost = host,
+                    PipelineId = "standard-os-upgrade",
+                    Status = UpdateJobState.Running,
+                    ActiveStep = "Proxmox Safety Snapshot"
+                };
+                dbInit.Hosts.Add(host);
+                dbInit.UpdateJobs.Add(job);
+                await dbInit.SaveChangesAsync();
+
+                var scopeFactory = initScope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+                var hubContext = initScope.ServiceProvider.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+                var connMgr = initScope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+
+                var context = new JobExecutionContext(
+                    job,
+                    host,
+                    scopeFactory,
+                    hubContext,
+                    new MockCommandExecutor(),
+                    connMgr,
+                    NullLogger.Instance
+                );
+
+                // Instantiate parameterless ProxmoxSnapshotStep (relying on ScopeFactory dynamic resolution)
+                var step = new ProxmoxSnapshotStep();
+                var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+                Assert.True(result.Success, $"Expected step to succeed, but failed: {result.Message}");
+                Assert.NotNull(job.SnapshotIdentifier);
+                Assert.StartsWith("cp-pre-update-", job.SnapshotIdentifier);
+
+                // Also test PipelineCatalog builds pipeline with injected scoped ProxmoxClient
+                var catalog = new ControlPlane.Api.Features.Orchestration.Pipelines.PipelineCatalog();
+                var pipeline = catalog.BuildPipeline("standard-os-upgrade", initScope.ServiceProvider);
+                Assert.NotNull(pipeline);
+                var snapStep = pipeline.Steps.OfType<ProxmoxSnapshotStep>().FirstOrDefault();
+                Assert.NotNull(snapStep);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempDb))
+            {
+                try { File.Delete(tempDb); } catch { }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ProxmoxClient_HasSnapshotFeatureAsync_ReturnsTrue_WhenFeatureIs1()
+    {
+        var mockHandler = new MockHttpMessageHandler(req =>
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{ "data": { "hasFeature": 1 } }""")
+            };
+        });
+
+        var client = new HttpClient(mockHandler);
+        var factory = new MockHttpClientFactory(client);
+        var options = Options.Create(new ProxmoxOptions
+        {
+            BaseUrl = "https://pve.homelab.local:8006",
+            ApiTokenId = "root@pam!token1",
+            ApiTokenSecret = "secret-123"
+        });
+
+        var poller = new ProxmoxTaskPoller(NullLogger<ProxmoxTaskPoller>.Instance);
+        var proxmoxClient = new ProxmoxClient(factory, options, poller, NullLogger<ProxmoxClient>.Instance);
+
+        var result = await proxmoxClient.HasSnapshotFeatureAsync("pve-01", 100, isLxc: false);
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ProxmoxClient_HasSnapshotFeatureAsync_ReturnsFalse_WhenFeatureIs0()
+    {
+        var mockHandler = new MockHttpMessageHandler(req =>
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{ "data": { "hasFeature": 0 } }""")
+            };
+        });
+
+        var client = new HttpClient(mockHandler);
+        var factory = new MockHttpClientFactory(client);
+        var options = Options.Create(new ProxmoxOptions
+        {
+            BaseUrl = "https://pve.homelab.local:8006",
+            ApiTokenId = "root@pam!token1",
+            ApiTokenSecret = "secret-123"
+        });
+
+        var poller = new ProxmoxTaskPoller(NullLogger<ProxmoxTaskPoller>.Instance);
+        var proxmoxClient = new ProxmoxClient(factory, options, poller, NullLogger<ProxmoxClient>.Instance);
+
+        var result = await proxmoxClient.HasSnapshotFeatureAsync("pve-01", 100, isLxc: false);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ProxmoxSnapshotStep_SkipsGracefully_WhenFeatureIsUnsupported()
+    {
+        var mockClient = new MockProxmoxClient
+        {
+            OnHasSnapshotFeature = (_, _, _) => false
+        };
+
+        var host = new HostEntity
+        {
+            Id = Guid.NewGuid(),
+            Hostname = "game-host-linux",
+            IpAddress = "192.168.1.150",
+            OsFamily = "linux_debian",
+            TargetType = "proxmox_vm",
+            Proxmox = new ProxmoxTarget { Node = "proxmox", Vmid = 109 }
+        };
+        var job = new UpdateJob
+        {
+            Id = Guid.NewGuid(),
+            TargetHostId = host.Id,
+            TargetHost = host,
+            Status = UpdateJobState.Running
+        };
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSignalR();
+        var sp = services.BuildServiceProvider();
+        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+        var hubContext = sp.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+
+        var context = new JobExecutionContext(
+            job,
+            host,
+            scopeFactory,
+            hubContext,
+            new MockCommandExecutor(),
+            new AgentConnectionManager(NullLogger<AgentConnectionManager>.Instance),
+            NullLogger.Instance
+        );
+
+        var step = new ProxmoxSnapshotStep(mockClient);
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains("Skipped", result.Message);
+        Assert.Null(job.SnapshotIdentifier);
+        Assert.Empty(mockClient.CreatedSnapshots);
     }
 }

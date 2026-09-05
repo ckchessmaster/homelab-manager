@@ -26,7 +26,11 @@ public class KubernetesUncordonStep : IJobStep
         }
 
         var nodeName = n.ToString()!;
-        var adapter = ResolveAdapter(context);
+        using var scope = _adapter == null && context.ScopeFactory != null
+            ? context.ScopeFactory.CreateScope()
+            : null;
+
+        var adapter = _adapter ?? scope?.ServiceProvider.GetService<IKubernetesAdapter>();
         if (adapter == null)
         {
             await context.EmitLogAsync("system", "[K8S] Kubernetes adapter unavailable; skipping uncordon step.", ct);
@@ -50,16 +54,5 @@ public class KubernetesUncordonStep : IJobStep
     public Task RollbackAsync(JobExecutionContext context, CancellationToken ct)
     {
         return Task.CompletedTask;
-    }
-
-    private IKubernetesAdapter? ResolveAdapter(JobExecutionContext context)
-    {
-        if (_adapter != null) return _adapter;
-        if (context.ScopeFactory != null)
-        {
-            using var scope = context.ScopeFactory.CreateScope();
-            return scope.ServiceProvider.GetService<IKubernetesAdapter>();
-        }
-        return null;
     }
 }

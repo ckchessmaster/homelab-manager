@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { X, Play, Terminal as TerminalIcon, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react'
+import { X, Play, Terminal as TerminalIcon, Sparkles, CheckCircle2, AlertCircle, Maximize2, Minimize2 } from 'lucide-react'
 import type { Host } from '../../api/hosts'
 import { apiClient } from '../../api/client'
 import { Button } from '../../components/ui/button'
@@ -45,6 +45,7 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   const [customCommand, setCustomCommand] = useState('')
   const [customArgs, setCustomArgs] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
+  const [isMaximized, setIsMaximized] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const autoTriggeredRef = useRef(false)
@@ -145,16 +146,22 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-zinc-950 border border-zinc-800 rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div
+        className={`bg-zinc-950 border border-zinc-800 rounded-xl flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${
+          isMaximized
+            ? 'w-[96vw] h-[94vh] max-w-none max-h-none'
+            : 'w-full max-w-5xl 2xl:max-w-6xl h-[85vh] max-h-[920px] min-h-[580px]'
+        }`}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-zinc-900/60">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-zinc-900/60 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 shrink-0">
               <TerminalIcon className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-zinc-100">{host.hostname}</h2>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-semibold text-zinc-100 truncate">{host.hostname}</h2>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 font-mono">
                   {host.ipAddress}
                 </span>
@@ -171,9 +178,26 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
               <p className="text-xs text-zinc-400 mt-0.5">Live Agent Terminal & Remote Diagnostics Console</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-zinc-400 hover:text-zinc-100">
-            <X className="w-5 h-5" />
-          </Button>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsMaximized(!isMaximized)}
+              className="text-zinc-400 hover:text-zinc-100 h-8 w-8 p-0"
+              title={isMaximized ? 'Restore window size' : 'Maximize console view'}
+            >
+              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="text-zinc-400 hover:text-zinc-100 h-8 w-8 p-0"
+              title="Close console"
+            >
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
         </div>
 
         {/* Action Presets & Command Bar */}
@@ -338,19 +362,37 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
           </div>
         )}
 
-        {/* Terminal Canvas */}
-        <div className="flex-1 min-h-[420px] p-4 flex flex-col bg-zinc-950">
+        {/* Terminal Canvas Section */}
+        <div className="flex-1 min-h-0 p-4 flex flex-col bg-zinc-950">
           <TerminalToolbar
             status={status}
             title={activeCommand ? `$ ${activeCommand}` : 'Terminal Ready'}
             lineCount={lineCount}
             autoScroll={autoScroll}
-            onToggleAutoScroll={() => setAutoScroll(!autoScroll)}
+            onToggleAutoScroll={() => {
+              const next = !autoScroll
+              setAutoScroll(next)
+              if (next) {
+                terminalRef.current?.scrollToBottom()
+              }
+            }}
             onClear={handleClear}
             onCopy={handleCopy}
           />
-          <div className="flex-1 min-h-[360px] relative">
-            <TerminalCanvas ref={terminalRef} autoScroll={autoScroll} />
+          <div className="flex-1 min-h-0 relative rounded-b-lg border-x border-b border-zinc-800 bg-zinc-950 overflow-hidden">
+            <div className="absolute inset-0">
+              <TerminalCanvas
+                ref={terminalRef}
+                autoScroll={autoScroll}
+                onScrollPositionChange={(isAtBottom) => {
+                  if (!isAtBottom && autoScroll) {
+                    setAutoScroll(false)
+                  } else if (isAtBottom && !autoScroll) {
+                    setAutoScroll(true)
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>

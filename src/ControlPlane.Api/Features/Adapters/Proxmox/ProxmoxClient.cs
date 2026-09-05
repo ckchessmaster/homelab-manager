@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using ControlPlane.Api.Features.Adapters.Config;
 using Microsoft.Extensions.Logging;
@@ -57,7 +58,10 @@ public class ProxmoxClient : IProxmoxClient
         _logger.LogInformation("Requesting snapshot '{SnapName}' on node '{Node}' for {VmType} {Vmid}", snapName, node, vmType, vmid);
 
         var body = new ProxmoxSnapshotRequest(snapName, description);
-        using var request = CreateRequest(options, HttpMethod.Post, endpoint, JsonContent.Create(body));
+        var json = JsonSerializer.Serialize(body);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var request = CreateRequest(options, HttpMethod.Post, endpoint, content);
         using var response = await SendAsync(options, request, ct);
 
         return await ExtractTaskUpidAsync(response, ct);
@@ -557,6 +561,46 @@ public class ProxmoxClient : IProxmoxClient
         return false;
     }
 
+    public async Task<bool> HasSnapshotFeatureAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)
+    {
+        var options = await GetOptionsAsync(ct);
+        ValidateConfiguration(options);
+
+        var vmType = isLxc ? "lxc" : "qemu";
+        var endpoint = $"/nodes/{Uri.EscapeDataString(node)}/{vmType}/{vmid}/feature?feature=snapshot";
+
+        using var request = CreateRequest(options, HttpMethod.Get, endpoint);
+        using var response = await SendAsync(options, request, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Proxmox feature check for {VmType} {Vmid} on node {Node} returned status code {StatusCode}", vmType, vmid, node, response.StatusCode);
+            return true;
+        }
+
+        var root = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        if (root.TryGetProperty("data", out var dataProp) && dataProp.ValueKind == JsonValueKind.Object)
+        {
+            if (dataProp.TryGetProperty("hasFeature", out var featureProp))
+            {
+                if (featureProp.ValueKind == JsonValueKind.Number)
+                {
+                    return featureProp.GetInt32() == 1;
+                }
+                if (featureProp.ValueKind == JsonValueKind.True)
+                {
+                    return true;
+                }
+                if (featureProp.ValueKind == JsonValueKind.False)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     private static void ValidateConfiguration(ProxmoxOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.BaseUrl))
@@ -584,6 +628,12 @@ public class ProxmoxClient : IProxmoxClient
         {
             request.Content = content;
         }
+        else if (method == HttpMethod.Post || method == HttpMethod.Put)
+        {
+            // Proxmox API requires Content-Length header on POST/PUT requests; empty form content ensures Content-Length: 0 without chunked transfer encoding
+            request.Content = new ByteArrayContent(Array.Empty<byte>());
+            request.Content.Headers.ContentLength = 0;
+        }
 
         var tokenHeaderValue = options.ApiTokenId.StartsWith("PVEAPIToken=", StringComparison.OrdinalIgnoreCase)
             ? $"{options.ApiTokenId}={options.ApiTokenSecret}"
@@ -600,6 +650,14 @@ public class ProxmoxClient : IProxmoxClient
             : ProxmoxProbeService.StandardHttpClientName;
 
         var client = _httpClientFactory.CreateClient(clientName);
+
+        // Proxmox VE AnyEvent/pveproxy rejects requests with Transfer-Encoding: chunked with HTTP 501.
+        // Ensure request content is buffered so Content-Length header is always set and Transfer-Encoding chunked is avoided.
+        if (request.Content != null && request.Content.Headers.ContentLength == null)
+        {
+            await request.Content.LoadIntoBufferAsync();
+        }
+
         var response = await client.SendAsync(request, ct);
 
         if (!response.IsSuccessStatusCode)

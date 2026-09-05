@@ -164,7 +164,7 @@ export function WorkflowsView() {
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 w-full max-w-[1700px] mx-auto">
       {/* Header Banner */}
       <div className="p-6 bg-gradient-to-r from-zinc-900/90 via-zinc-900/70 to-emerald-950/30 border border-zinc-800 rounded-xl backdrop-blur-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-start gap-4">
@@ -297,18 +297,17 @@ export function WorkflowsView() {
       </div>
 
       {/* Jobs Table */}
-      {/* Jobs Table */}
       <Table>
         <TableHeader>
           <TableRow className="border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900/60">
-            <TableHead className="min-w-[140px] text-zinc-400 font-medium text-xs">Target Host</TableHead>
-            <TableHead className="min-w-[130px] text-zinc-400 font-medium text-xs">Pipeline</TableHead>
-            <TableHead className="min-w-[90px] text-zinc-400 font-medium text-xs">Status</TableHead>
-            <TableHead className="min-w-[140px] text-zinc-400 font-medium text-xs">Active / Last Step</TableHead>
-            <TableHead className="hidden xl:table-cell w-[90px] text-zinc-400 font-medium text-xs">Operator</TableHead>
-            <TableHead className="min-w-[90px] text-zinc-400 font-medium text-xs">Started</TableHead>
-            <TableHead className="w-[80px] text-zinc-400 font-medium text-xs">Duration</TableHead>
-            <TableHead className="w-[80px] text-right text-zinc-400 font-medium text-xs">Action</TableHead>
+            <TableHead className="min-w-[150px] text-zinc-400 font-medium text-xs whitespace-nowrap">Target Host</TableHead>
+            <TableHead className="min-w-[140px] text-zinc-400 font-medium text-xs whitespace-nowrap">Pipeline</TableHead>
+            <TableHead className="min-w-[110px] text-zinc-400 font-medium text-xs whitespace-nowrap">Status</TableHead>
+            <TableHead className="min-w-[200px] text-zinc-400 font-medium text-xs">Active / Last Step</TableHead>
+            <TableHead className="hidden xl:table-cell min-w-[100px] text-zinc-400 font-medium text-xs whitespace-nowrap">Operator</TableHead>
+            <TableHead className="min-w-[100px] text-zinc-400 font-medium text-xs whitespace-nowrap">Started</TableHead>
+            <TableHead className="min-w-[90px] text-zinc-400 font-medium text-xs whitespace-nowrap">Duration</TableHead>
+            <TableHead className="w-[110px] min-w-[110px] text-right text-zinc-400 font-medium text-xs whitespace-nowrap">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -397,15 +396,15 @@ export function WorkflowsView() {
                   </TableCell>
 
                   {/* Actions */}
-                  <TableCell className="text-right">
+                  <TableCell className="text-right whitespace-nowrap">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleOpenTerminalForJob(job)}
-                      className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-sky-400 hover:text-sky-300"
+                      className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-sky-400 hover:text-sky-300 inline-flex items-center shrink-0"
                       title="Open streaming terminal console"
                     >
-                      <Terminal className="w-3.5 h-3.5" />
+                      <Terminal className="w-3.5 h-3.5 shrink-0" />
                       Console
                     </Button>
                   </TableCell>

@@ -137,7 +137,7 @@ public class JobExecutionContext
     /// <summary>
     /// Sets the snapshot identifier on the job and persists it to the database immediately.
     /// </summary>
-    public async Task SetSnapshotIdentifierAsync(string snapshotIdentifier, CancellationToken ct = default)
+    public async Task SetSnapshotIdentifierAsync(string? snapshotIdentifier, CancellationToken ct = default)
     {
         Job.SnapshotIdentifier = snapshotIdentifier;
 

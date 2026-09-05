@@ -79,6 +79,9 @@ public class DeterministicRebootTests
         public Task<string?> TryGetGuestIpAddressAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
             Task.FromResult<string?>(null);
 
+        public Task<bool> HasSnapshotFeatureAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
+            Task.FromResult(true);
+
         public Task<bool> HasVmAuditPermissionAsync(CancellationToken ct = default) =>
             Task.FromResult(true);
     }

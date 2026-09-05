@@ -67,7 +67,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 w-full max-w-[1700px] mx-auto">
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-zinc-900/60 border border-zinc-800 rounded-xl backdrop-blur-md">
         <div className="flex items-center gap-3">
