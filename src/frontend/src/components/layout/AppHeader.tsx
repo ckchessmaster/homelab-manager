@@ -39,6 +39,10 @@ export function AppHeader({
       title: 'Host Inventory',
       desc: 'Managed physical servers, virtual machines, and Proxmox containers.',
     },
+    discovery: {
+      title: 'Service Discovery & Adoption',
+      desc: 'Discover hypervisor VMs, LXC containers, and Kubernetes cluster nodes with 1-click import.',
+    },
     workflows: {
       title: 'Update Workflows & DAGs',
       desc: 'Directed acyclic graph orchestration with pre-flight checks and rollback.',

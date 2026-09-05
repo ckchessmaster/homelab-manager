@@ -61,11 +61,26 @@ public class DeterministicRebootTests
         public Task<string> DeleteVmSnapshotAsync(string node, int vmid, string snapName, bool isLxc = false, CancellationToken ct = default) =>
             Task.FromResult($"UPID:{node}:del:{snapName}");
 
+        public Task<List<ProxmoxSnapshotItem>> ListVmSnapshotsAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
+            Task.FromResult(new List<ProxmoxSnapshotItem>());
+
         public Task<ProxmoxTaskStatus> GetTaskStatusAsync(string node, string upid, CancellationToken ct = default) =>
             Task.FromResult(new ProxmoxTaskStatus("stopped", "OK", "100", node, "qmsnapshot"));
 
         public Task<ProxmoxTaskStatus> PollTaskCompletionAsync(string node, string upid, TimeSpan? timeout = null, CancellationToken ct = default) =>
             Task.FromResult(new ProxmoxTaskStatus("stopped", "OK", "100", node, "qmsnapshot"));
+
+        public Task<List<ProxmoxClusterResourceDto>> DiscoverClusterResourcesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<ProxmoxClusterResourceDto>());
+
+        public Task<List<ProxmoxNodeDto>> ListNodesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<ProxmoxNodeDto>());
+
+        public Task<string?> TryGetGuestIpAddressAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
+            Task.FromResult<string?>(null);
+
+        public Task<bool> HasVmAuditPermissionAsync(CancellationToken ct = default) =>
+            Task.FromResult(true);
     }
 
     private class RebootAppFactory : WebApplicationFactory<Program>
@@ -533,7 +548,17 @@ public class DeterministicRebootTests
 
         var mockExecutor = new MockCommandExecutor
         {
-            OnExecute = (hId, jId, cmd, args) => new AgentCommandResult(true, 0, null)
+            OnExecute = (hId, jId, cmd, args) =>
+            {
+                if (cmd.Contains("reboot"))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "rebooting", CancellationToken.None); } catch { }
+                    });
+                }
+                return new AgentCommandResult(true, 0, null);
+            }
         };
 
         var mockProxmox = new MockProxmoxClient();
@@ -551,13 +576,6 @@ public class DeterministicRebootTests
             new DeterministicRebootStep(alwaysReboot: true, handshakeTimeout: TimeSpan.FromMilliseconds(50)),
             new AwaitReconnectionStep(timeout: TimeSpan.FromMilliseconds(100)),
             new PostFlightHealthProbeStep()
-        });
-
-        // Close websocket to simulate reboot dropping connection and remaining down
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(50);
-            await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "rebooting", CancellationToken.None);
         });
 
         var success = await pipeline.ExecuteAsync(context, CancellationToken.None);

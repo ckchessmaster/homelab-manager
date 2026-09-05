@@ -1,13 +1,26 @@
 using System.Security.Claims;
+using ControlPlane.Api.Features.Orchestration.Pipelines;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ControlPlane.Api.Features.Orchestration;
 
-public record CreateJobRequest(Guid TargetHostId);
+public record PipelineStepInfoDto(string Name, string Description);
+
+public record PipelineProfileDto(
+    string Id,
+    string Name,
+    string Description,
+    string Icon,
+    IReadOnlyList<string> CompatibleTargetTypes,
+    IReadOnlyList<PipelineStepInfoDto> Steps
+);
+
+public record CreateJobRequest(Guid TargetHostId, string? PipelineId = null);
 
 public record JobSummaryDto(
     Guid Id,
     Guid TargetHostId,
+    string PipelineId,
     string Status,
     string? ActiveStep,
     string InitiatedBy,
@@ -20,6 +33,24 @@ public static class JobEndpoints
 {
     public static IEndpointRouteBuilder MapJobEndpoints(this IEndpointRouteBuilder routes)
     {
+        // Pipeline catalog endpoints
+        routes.MapGet("/api/v1/pipelines", (IPipelineCatalog catalog) =>
+        {
+            var profiles = catalog.GetProfiles().Select(p => new PipelineProfileDto(
+                p.Id,
+                p.Name,
+                p.Description,
+                p.Icon,
+                p.CompatibleTargetTypes,
+                p.Steps.Select(s => new PipelineStepInfoDto(s.Name, s.Description)).ToList()
+            ));
+            return Results.Ok(profiles);
+        })
+        .WithTags("Jobs & Orchestration")
+        .RequireAuthorization()
+        .WithName("ListPipelines")
+        .WithSummary("List all available modular upgrade and maintenance pipeline profiles");
+
         var group = routes.MapGroup("/api/v1/jobs")
             .WithTags("Jobs & Orchestration")
             .RequireAuthorization();
@@ -36,7 +67,7 @@ public static class JobEndpoints
             }
 
             var initiatedBy = user.Identity?.Name ?? "Operator";
-            var (job, error) = await orchestrator.CreateAndStartJobAsync(request.TargetHostId, initiatedBy, ct);
+            var (job, error) = await orchestrator.CreateAndStartJobAsync(request.TargetHostId, request.PipelineId, initiatedBy, ct);
 
             if (job == null)
             {
@@ -46,6 +77,7 @@ public static class JobEndpoints
             return Results.Accepted($"/api/v1/jobs/{job.Id}", new JobSummaryDto(
                 job.Id,
                 job.TargetHostId,
+                job.PipelineId,
                 job.Status,
                 job.ActiveStep,
                 job.InitiatedBy,
@@ -69,6 +101,7 @@ public static class JobEndpoints
             var dtos = jobs.Select(j => new JobSummaryDto(
                 j.Id,
                 j.TargetHostId,
+                j.PipelineId,
                 j.Status,
                 j.ActiveStep,
                 j.InitiatedBy,
@@ -96,6 +129,7 @@ public static class JobEndpoints
             return Results.Ok(new JobSummaryDto(
                 job.Id,
                 job.TargetHostId,
+                job.PipelineId,
                 job.Status,
                 job.ActiveStep,
                 job.InitiatedBy,

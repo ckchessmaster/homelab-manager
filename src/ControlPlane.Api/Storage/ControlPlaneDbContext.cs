@@ -19,6 +19,8 @@ public class ControlPlaneDbContext : DbContext
 
     public DbSet<ClusterLease> ClusterLeases => Set<ClusterLease>();
 
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

@@ -20,6 +20,10 @@ public class UpdateJobConfiguration : IEntityTypeConfiguration<UpdateJob>
             .HasMaxLength(50)
             .IsRequired();
 
+        builder.Property(j => j.PipelineId)
+            .HasMaxLength(100)
+            .IsRequired();
+
         builder.Property(j => j.ActiveStep)
             .HasMaxLength(100);
 

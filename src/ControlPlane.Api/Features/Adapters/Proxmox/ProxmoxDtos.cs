@@ -1,9 +1,9 @@
 namespace ControlPlane.Api.Features.Adapters.Proxmox;
 
 public record ProxmoxProbeRequest(
-    string BaseUrl,
-    string ApiTokenId,
-    string ApiTokenSecret,
+    string? BaseUrl = null,
+    string? ApiTokenId = null,
+    string? ApiTokenSecret = null,
     bool AllowSelfSignedCert = true
 );
 

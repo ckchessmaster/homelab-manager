@@ -148,6 +148,28 @@ namespace ControlPlane.Api.Migrations
                     b.ToTable("step_logs", (string)null);
                 });
 
+            modelBuilder.Entity("ControlPlane.Api.Storage.Entities.SystemSetting", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("ValueJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("value_json");
+
+                    b.HasKey("Key")
+                        .HasName("pk_system_settings");
+
+                    b.ToTable("system_settings", (string)null);
+                });
+
             modelBuilder.Entity("ControlPlane.Api.Storage.Entities.UpdateJob", b =>
                 {
                     b.Property<Guid>("Id")
@@ -173,6 +195,12 @@ namespace ControlPlane.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("initiated_by");
+
+                    b.Property<string>("PipelineId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("pipeline_id");
 
                     b.Property<string>("SnapshotIdentifier")
                         .HasMaxLength(255)

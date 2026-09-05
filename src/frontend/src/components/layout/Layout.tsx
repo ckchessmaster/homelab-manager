@@ -43,7 +43,7 @@ export function Layout({
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <AppHeader
           activeTab={activeTab}
           onOpenSettings={() => setApiKeyModalOpen(true)}
@@ -51,7 +51,7 @@ export function Layout({
           rebootPendingCount={rebootPendingCount}
         />
 
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="flex-1 p-6 overflow-y-auto overflow-x-hidden">
           {children}
         </main>
       </div>

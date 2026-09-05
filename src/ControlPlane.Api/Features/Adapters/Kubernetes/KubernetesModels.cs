@@ -30,3 +30,15 @@ public record K8sDrainResult(
     int RemainingPods,
     string? ErrorMessage
 );
+
+public record K8sDiscoveredNodeDto(
+    string Name,
+    string? InternalIp,
+    List<string> Roles,
+    bool IsReady,
+    bool Unschedulable,
+    string? OsImage,
+    string? KernelVersion,
+    string? ContainerRuntimeVersion,
+    Dictionary<string, string> Labels
+);

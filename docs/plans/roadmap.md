@@ -1,67 +1,53 @@
-# ControlPlane Master Implementation Roadmap
+# ControlPlane Implementation Roadmap: Phase 2
 
-This document defines the sequential implementation plan for the **Homelab Orchestration & Management Plane (ControlPlane)**, decomposed from the [Technical Design Document](file:///home/ckingdon/projects/homelab-manager/docs/initial-overview.md).
+This document defines the sequential implementation plan for **Phase 2** of the **Homelab Orchestration & Management Plane (ControlPlane)**, building upon the foundations in [initial-overview.md](file:///home/ckingdon/projects/homelab-manager/docs/initial-overview.md).
+
+*(Historical Phase 1 MVP plans are preserved in [docs/plans/archive/phase1-mvp/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase1-mvp/)).*
 
 ---
 
-## 🧭 Milestone & Plan Dependency Graph
+## 🧭 Phase 2 Milestone & Plan Dependency Graph
 
 ```
-Milestone 1: Foundation, Data Layer & Host Inventory (MVP Core)
-├── [01-solution-scaffolding.md]
-│   └── [02-data-layer-and-storage.md]
-│       ├── [03-dev-auth-and-api-key.md]
-│       │   └── [04-host-inventory-api.md]
-│       │       └── [05-frontend-inventory-dashboard.md]
+Phase 2: Service Discovery, Modular Pipelines & Enterprise Hardening
+├── [01-service-discovery-proxmox-and-k8s.md]
+│   └── Auto-discover Proxmox VMs/LXCs & Kubernetes cluster nodes with 1-click import
 │
-Milestone 2: Agent Architecture & Real-Time Console
-├── [06-compute-node-agent.md] (Go daemon)
-│   └── [07-websocket-agent-hub.md]
-│       ├── [08-realtime-terminal-pipeline.md]
-│       └── [09-one-click-agent-adoption.md]
+├── [02-modular-pipeline-profiles.md]
+│   └── Flexible pipeline catalog, pre-built DAG profiles, and interactive workflow launcher
 │
-Milestone 3: Update Orchestration Engine & Standby Runner
-├── [10-dag-orchestration-engine.md]
-│   ├── [11-proxmox-snapshot-and-rollback.md]
-│   ├── [12-deterministic-reboot-handler.md]
-│   └── [13-standby-cli-and-lease-protocol.md]
+├── [03-snapshot-retention-worker.md]
+│   └── Proxmox 24-hour snapshot retention background worker & pruning
 │
-Milestone 4: Out-of-Band Integrations & Zitadel OIDC
-├── [14-hardware-and-network-adapters.md] (iDRAC & UniFi)
-├── [15-kubernetes-drain-adapter.md]
-└── [16-zitadel-oidc-production-auth.md]
+├── [04-secrets-encryption-at-rest.md]
+│   └── Application-layer AES-256-GCM envelope encryption for adapter credentials & sensitive settings
+│
+├── [05-standby-cli-distribution.md]
+│   └── Release packaging scripts & cross-platform Standby CLI distribution
+│
+└── [06-zitadel-oidc-production-auth.md]
+    └── Zitadel OIDC PKCE code flow in SPA & JWT Bearer RBAC in API
 ```
 
 ---
 
-## 📊 Plan Execution Status
+## 📊 Phase 2 Plan Execution Status
 
-| Phase / Plan | Target Milestone | Description | Status |
-| :--- | :--- | :--- | :--- |
-| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-solution-scaffolding.md)** | Milestone 1 | .NET 10 Aspire host, BFF API, and React 19 SPA scaffolding | ✅ Completed |
-| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-data-layer-and-storage.md)** | Milestone 1 | EF Core DbContext, entity models, PostgreSQL/SQLite switching | ✅ Completed |
-| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-dev-auth-and-api-key.md)** | Milestone 1 | API key auth handler (`X-ControlPlane-Key`) & dev bypass | ✅ Completed |
-| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-host-inventory-api.md)** | Milestone 1 | Host CRUD endpoints and Proxmox connection probe | ✅ Completed |
-| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-frontend-inventory-dashboard.md)** | Milestone 1 | React 19 UI, TanStack Query, host table, manual host modal | ✅ Completed |
-| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-compute-node-agent.md)** | Milestone 2 | Go static agent daemon, system metrics, package inspection | ✅ Completed |
-| **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-websocket-agent-hub.md)** | Milestone 2 | ASP.NET Core WebSocket hub, heartbeat ingestion, liveness | ✅ Completed |
-| **[Plan 08](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-realtime-terminal-pipeline.md)** | Milestone 2 | Monotonic stdout/stderr framing, SignalR, xterm.js UI | ✅ Completed |
-| **[Plan 09](file:///home/ckingdon/projects/homelab-manager/docs/plans/09-one-click-agent-adoption.md)** | Milestone 2 | SSH bootstrapper, arch detection, systemd provisioning, UI modal | ✅ Completed |
-| **[Plan 10](file:///home/ckingdon/projects/homelab-manager/docs/plans/10-dag-orchestration-engine.md)** | Milestone 3 | Durable DAG state machine, step transitions, pre-flight checks | ✅ Completed |
-| **[Plan 11](file:///home/ckingdon/projects/homelab-manager/docs/plans/11-proxmox-snapshot-and-rollback.md)** | Milestone 3 | Proxmox REST API snapshot trigger and automated rollback | ✅ Completed |
-| **[Plan 12](file:///home/ckingdon/projects/homelab-manager/docs/plans/12-deterministic-reboot-handler.md)** | Milestone 3 | Reboot coordination protocol, reconnection, health probe | ✅ Completed |
-| **[Plan 13](file:///home/ckingdon/projects/homelab-manager/docs/plans/13-standby-cli-and-lease-protocol.md)** | Milestone 3 | Single-binary CLI, embedded wwwroot, SQLite sync, lease protocol | ✅ Completed |
-| **[Plan 14](file:///home/ckingdon/projects/homelab-manager/docs/plans/14-hardware-and-network-adapters.md)** | Milestone 4 | Dell iDRAC / Redfish REST & Ubiquiti UniFi PoE control | ✅ Completed |
-| **[Plan 15](file:///home/ckingdon/projects/homelab-manager/docs/plans/15-kubernetes-drain-adapter.md)** | Milestone 4 | Kubernetes Core API cordon, drain (PDB eviction), uncordon | ✅ Completed |
-| **[Plan 16](file:///home/ckingdon/projects/homelab-manager/docs/plans/16-zitadel-oidc-production-auth.md)** | Milestone 4 | Zitadel IDP, PKCE code flow in SPA, JWT Bearer in API | ⏳ Not Started |
+| Phase / Plan | Description | Status |
+| :--- | :--- | :--- |
+| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-service-discovery-proxmox-and-k8s.md)** | Unified Service Discovery: Proxmox VMs/LXCs & Kubernetes nodes with 1-click inventory import | ✅ Completed |
+| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-modular-pipeline-profiles.md)** | Modular Pipeline Profiles: Selectable DAG workflows, step preview visualizer, and launch modal | ✅ Completed |
+| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-snapshot-retention-worker.md)** | Proxmox Snapshot 24-Hour Retention Worker & Automated Pruning | ✅ Completed |
+| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-secrets-encryption-at-rest.md)** | Secrets Management & AES-256-GCM Encryption at Rest for Adapter Credentials | ⏳ Not Started |
+| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-standby-cli-distribution.md)** | Standby CLI Release Packaging & Cross-Platform Distribution Scripts | ⏳ Not Started |
+| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-zitadel-oidc-production-auth.md)** | Production Zitadel OIDC Authentication & Role-Based Access Control | ⏳ Not Started |
 
 ---
 
 ## 🛠️ Iteration Process
 
-When selecting a plan for execution:
+When executing:
 1. Open the target plan file in `docs/plans/`.
-2. Ensure its prerequisites are satisfied.
-3. Follow the target file edits, execution steps, and verification instructions.
-4. Verify all acceptance criteria.
-5. Update the plan file status and the table above from `⏳ Not Started` to `✅ Completed`.
+2. Follow the target file edits, execution steps, and verification instructions.
+3. Verify all acceptance criteria and automated tests.
+4. Update the plan file status and the table above to `✅ Completed`.

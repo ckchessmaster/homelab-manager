@@ -113,6 +113,21 @@ public class ProxmoxSnapshotAndRollbackTests
             }
             return Task.FromResult(status);
         }
+
+        public Task<List<ProxmoxClusterResourceDto>> DiscoverClusterResourcesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<ProxmoxClusterResourceDto>());
+
+        public Task<List<ProxmoxNodeDto>> ListNodesAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<ProxmoxNodeDto>());
+
+        public Task<string?> TryGetGuestIpAddressAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
+            Task.FromResult<string?>(null);
+
+        public Task<List<ProxmoxSnapshotItem>> ListVmSnapshotsAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
+            Task.FromResult(new List<ProxmoxSnapshotItem>());
+
+        public Task<bool> HasVmAuditPermissionAsync(CancellationToken ct = default) =>
+            Task.FromResult(true);
     }
 
     private class ProxmoxTestAppFactory : WebApplicationFactory<Program>

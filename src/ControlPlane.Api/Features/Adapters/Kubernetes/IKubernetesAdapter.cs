@@ -6,4 +6,5 @@ public interface IKubernetesAdapter
     Task<bool> UncordonNodeAsync(string nodeName, CancellationToken ct = default);
     Task<K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default);
     Task<K8sNodeStatus?> GetNodeStatusAsync(string nodeName, CancellationToken ct = default);
+    Task<List<K8sDiscoveredNodeDto>> ListNodesAsync(CancellationToken ct = default);
 }

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -140,23 +141,101 @@ public class ProxmoxProbeTests
     [Fact]
     public async Task Endpoint_MissingRequiredFields_ReturnsBadRequest()
     {
-        using var factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
+        var tempDb = Path.Combine(Path.GetTempPath(), $"standby-{Guid.NewGuid()}.db");
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>()
+                .WithWebHostBuilder(builder =>
+                {
+                    builder.UseSetting("STANDBY_MODE", "true");
+                    builder.UseSetting("STANDBY_DB_PATH", tempDb);
+                    builder.UseSetting("AUTH_BYPASS", "true");
+                    builder.UseSetting("ConnectionStrings:PostgresDatabase", "");
+                });
+
+            var client = factory.CreateClient();
+
+            var request = new ProxmoxProbeRequest(
+                BaseUrl: "",
+                ApiTokenId: "",
+                ApiTokenSecret: ""
+            );
+
+            var response = await client.PostAsJsonAsync("/api/v1/adapters/proxmox/test-connection", request);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+        finally
+        {
+            if (File.Exists(tempDb))
             {
-                builder.UseSetting("STANDBY_MODE", "true");
-                builder.UseSetting("AUTH_BYPASS", "true");
-                builder.UseSetting("ConnectionStrings:PostgresDatabase", "");
-            });
+                try { File.Delete(tempDb); } catch { }
+            }
+        }
+    }
 
-        var client = factory.CreateClient();
+    [Fact]
+    public async Task ConfigEndpoints_GetAndSave_PersistsConfigurationAndMasksSecret()
+    {
+        var tempDb = Path.Combine(Path.GetTempPath(), $"standby-{Guid.NewGuid()}.db");
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>()
+                .WithWebHostBuilder(builder =>
+                {
+                    builder.UseSetting("STANDBY_MODE", "true");
+                    builder.UseSetting("STANDBY_DB_PATH", tempDb);
+                    builder.UseSetting("AUTH_BYPASS", "true");
+                    builder.UseSetting("ConnectionStrings:PostgresDatabase", "");
+                });
 
-        var request = new ProxmoxProbeRequest(
-            BaseUrl: "",
-            ApiTokenId: "",
-            ApiTokenSecret: ""
-        );
+            var client = factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/api/v1/adapters/proxmox/test-connection", request);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            // 1. Initial GET - should return defaults or empty
+            var getResp = await client.GetAsync("/api/v1/adapters/proxmox/config");
+            Assert.Equal(HttpStatusCode.OK, getResp.StatusCode);
+            var initial = await getResp.Content.ReadFromJsonAsync<ProxmoxConfigDto>();
+            Assert.NotNull(initial);
+
+            // 2. Save new configuration with secret
+            var saveRequest = new SaveProxmoxConfigRequest(
+                BaseUrl: "https://192.168.1.50:8006",
+                ApiTokenId: "admin@pam!testtoken",
+                ApiTokenSecret: "super-secret-key-12345",
+                AllowSelfSignedCert: true
+            );
+
+            var saveResp = await client.PostAsJsonAsync("/api/v1/adapters/proxmox/config", saveRequest);
+            Assert.Equal(HttpStatusCode.OK, saveResp.StatusCode);
+            var saved = await saveResp.Content.ReadFromJsonAsync<ProxmoxConfigDto>();
+            Assert.NotNull(saved);
+            Assert.Equal("https://192.168.1.50:8006", saved.BaseUrl);
+            Assert.Equal("admin@pam!testtoken", saved.ApiTokenId);
+            Assert.True(saved.HasSecret);
+            Assert.Equal(AdapterConfigService.MaskedPlaceholder, saved.ApiTokenSecretMasked);
+
+            // 3. Save again with masked placeholder - secret should be preserved!
+            var updateRequest = new SaveProxmoxConfigRequest(
+                BaseUrl: "https://192.168.1.51:8006",
+                ApiTokenId: "admin@pam!testtoken",
+                ApiTokenSecret: AdapterConfigService.MaskedPlaceholder,
+                AllowSelfSignedCert: false
+            );
+
+            var updateResp = await client.PostAsJsonAsync("/api/v1/adapters/proxmox/config", updateRequest);
+            Assert.Equal(HttpStatusCode.OK, updateResp.StatusCode);
+            var updated = await updateResp.Content.ReadFromJsonAsync<ProxmoxConfigDto>();
+            Assert.NotNull(updated);
+            Assert.Equal("https://192.168.1.51:8006", updated.BaseUrl);
+            Assert.False(updated.AllowSelfSignedCert);
+            Assert.True(updated.HasSecret);
+            Assert.Equal(AdapterConfigService.MaskedPlaceholder, updated.ApiTokenSecretMasked);
+        }
+        finally
+        {
+            if (File.Exists(tempDb))
+            {
+                try { File.Delete(tempDb); } catch { }
+            }
+        }
     }
 }

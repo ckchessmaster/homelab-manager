@@ -244,4 +244,69 @@ public class KubernetesAdapter : IKubernetesAdapter
 
         return false;
     }
+
+    public async Task<List<K8sDiscoveredNodeDto>> ListNodesAsync(CancellationToken ct = default)
+    {
+        _logger.LogInformation("Listing Kubernetes cluster nodes for discovery...");
+        var discovered = new List<K8sDiscoveredNodeDto>();
+
+        try
+        {
+            var nodes = await _client.CoreV1.ListNodeAsync(cancellationToken: ct);
+            if (nodes?.Items == null) return discovered;
+
+            foreach (var node in nodes.Items)
+            {
+                var name = node.Metadata?.Name ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(name)) continue;
+
+                var internalIp = node.Status?.Addresses?
+                    .FirstOrDefault(a => string.Equals(a.Type, "InternalIP", StringComparison.OrdinalIgnoreCase))?
+                    .Address;
+
+                var roles = new List<string>();
+                if (node.Metadata?.Labels != null)
+                {
+                    foreach (var (k, v) in node.Metadata.Labels)
+                    {
+                        if (k.StartsWith("node-role.kubernetes.io/"))
+                        {
+                            var role = k["node-role.kubernetes.io/".Length..];
+                            if (!string.IsNullOrWhiteSpace(role)) roles.Add(role);
+                        }
+                    }
+                }
+                if (roles.Count == 0) roles.Add("worker");
+
+                var isReady = node.Status?.Conditions?
+                    .Any(c => string.Equals(c.Type, "Ready", StringComparison.OrdinalIgnoreCase) && string.Equals(c.Status, "True", StringComparison.OrdinalIgnoreCase)) ?? false;
+
+                var unschedulable = node.Spec?.Unschedulable ?? false;
+                var osImage = node.Status?.NodeInfo?.OsImage;
+                var kernelVersion = node.Status?.NodeInfo?.KernelVersion;
+                var containerRuntime = node.Status?.NodeInfo?.ContainerRuntimeVersion;
+                var labels = node.Metadata?.Labels != null
+                    ? new Dictionary<string, string>(node.Metadata.Labels)
+                    : new Dictionary<string, string>();
+
+                discovered.Add(new K8sDiscoveredNodeDto(
+                    Name: name,
+                    InternalIp: internalIp,
+                    Roles: roles,
+                    IsReady: isReady,
+                    Unschedulable: unschedulable,
+                    OsImage: osImage,
+                    KernelVersion: kernelVersion,
+                    ContainerRuntimeVersion: containerRuntime,
+                    Labels: labels
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list Kubernetes nodes for discovery");
+        }
+
+        return discovered;
+    }
 }

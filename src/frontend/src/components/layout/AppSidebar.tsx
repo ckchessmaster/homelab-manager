@@ -1,5 +1,6 @@
 import {
   Server,
+  Compass,
   GitFork,
   Radio,
   Settings,
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '../ui/badge'
 
-export type NavTab = 'hosts' | 'workflows' | 'adapters' | 'settings'
+export type NavTab = 'hosts' | 'discovery' | 'workflows' | 'adapters' | 'settings'
 
 interface AppSidebarProps {
   activeTab: NavTab
@@ -38,6 +39,13 @@ export function AppSidebar({
       badge: totalHosts > 0 ? String(totalHosts) : undefined,
       badgeVariant: rebootPendingCount > 0 ? 'warning' : 'default',
       badgeDot: rebootPendingCount > 0,
+    },
+    {
+      id: 'discovery',
+      label: 'Service Discovery',
+      icon: Compass,
+      badge: 'Auto',
+      badgeVariant: 'default',
     },
     {
       id: 'workflows',

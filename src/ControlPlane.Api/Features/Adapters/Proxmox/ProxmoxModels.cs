@@ -64,3 +64,55 @@ public record ProxmoxSnapshotRequest(
     [property: JsonPropertyName("description")] string? Description = null,
     [property: JsonPropertyName("vmstate")] bool? VmState = null
 );
+
+/// <summary>
+/// Proxmox cluster resource descriptor returned by /cluster/resources.
+/// </summary>
+public record ProxmoxClusterResourceDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("node")] string Node,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("vmid")] int? Vmid = null,
+    [property: JsonPropertyName("name")] string? Name = null,
+    [property: JsonPropertyName("status")] string? Status = null,
+    [property: JsonPropertyName("maxmem")] long? MaxMem = null,
+    [property: JsonPropertyName("mem")] long? Mem = null,
+    [property: JsonPropertyName("maxdisk")] long? MaxDisk = null,
+    [property: JsonPropertyName("disk")] long? Disk = null,
+    [property: JsonPropertyName("uptime")] long? Uptime = null,
+    [property: JsonPropertyName("tags")] string? Tags = null
+);
+
+public record ProxmoxClusterResourcesResponse(
+    [property: JsonPropertyName("data")] List<ProxmoxClusterResourceDto> Data
+);
+
+public record ProxmoxAgentIpAddress(
+    [property: JsonPropertyName("ip-address")] string IpAddress,
+    [property: JsonPropertyName("ip-address-type")] string IpAddressType
+);
+
+public record ProxmoxAgentNetworkInterface(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("ip-addresses")] List<ProxmoxAgentIpAddress>? IpAddresses = null
+);
+
+public record ProxmoxAgentNetworkData(
+    [property: JsonPropertyName("result")] List<ProxmoxAgentNetworkInterface>? Result = null
+);
+
+public record ProxmoxAgentNetworkResponse(
+    [property: JsonPropertyName("data")] ProxmoxAgentNetworkData? Data = null
+);
+
+public record ProxmoxSnapshotItem(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("snaptime")] long? SnapTime = null,
+    [property: JsonPropertyName("description")] string? Description = null,
+    [property: JsonPropertyName("vmstate")] int? VmState = null,
+    [property: JsonPropertyName("parent")] string? Parent = null
+);
+
+public record ProxmoxSnapshotListResponse(
+    [property: JsonPropertyName("data")] List<ProxmoxSnapshotItem> Data
+);

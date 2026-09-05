@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Adapters.Redfish;
@@ -8,9 +9,11 @@ using ControlPlane.Api.Features.Adoption;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Cluster;
+using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Jobs;
 using ControlPlane.Api.Features.Orchestration;
+using ControlPlane.Api.Features.Orchestration.Pipelines;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
@@ -36,6 +39,7 @@ builder.Services.AddAgentHubServices();
 builder.Services.AddSingleton<ClusterState>();
 builder.Services.AddSingleton<IAgentCommandExecutor, AgentCommandExecutor>();
 builder.Services.AddSingleton<IStepLogConsumer, StepLogStreamConsumer>();
+builder.Services.AddSingleton<IPipelineCatalog, PipelineCatalog>();
 builder.Services.AddSingleton<JobOrchestratorService>();
 
 builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
@@ -45,10 +49,15 @@ builder.Services.AddSingleton<AgentBinaryService>();
 builder.Services.AddScoped<MassAgentUpdateService>();
 builder.Services.AddScoped<ProxmoxProbeService>();
 builder.Services.Configure<ProxmoxOptions>(builder.Configuration.GetSection(ProxmoxOptions.SectionName));
+builder.Services.Configure<SnapshotRetentionOptions>(builder.Configuration.GetSection(SnapshotRetentionOptions.SectionName));
+builder.Services.AddScoped<IAdapterConfigService, AdapterConfigService>();
 builder.Services.AddScoped<ProxmoxTaskPoller>();
 builder.Services.AddScoped<IProxmoxClient, ProxmoxClient>();
+builder.Services.AddScoped<ISnapshotRetentionService, SnapshotRetentionService>();
+builder.Services.AddHostedService<SnapshotRetentionWorker>();
 builder.Services.AddScoped<IRedfishClient, RedfishClient>();
 builder.Services.AddScoped<IUniFiClient, UniFiClient>();
+builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 
 builder.Services.Configure<KubernetesConfigOptions>(builder.Configuration.GetSection(KubernetesConfigOptions.SectionName));
 builder.Services.AddSingleton<IKubernetes>(sp =>
@@ -183,6 +192,7 @@ app.MapGet("/api/v1/admin/ping", (ClaimsPrincipal user) => Results.Ok(new
 
 app.MapHostEndpoints();
 app.MapProxmoxEndpoints();
+app.MapSnapshotRetentionEndpoints();
 app.MapNodeAdoptionEndpoints();
 app.MapAgentManagementEndpoints();
 app.MapJobEndpoints();
@@ -191,6 +201,7 @@ app.MapClusterEndpoints();
 app.MapRedfishEndpoints();
 app.MapUniFiEndpoints();
 app.MapKubernetesEndpoints();
+app.MapDiscoveryEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
 
 app.MapPost("/api/v1/debug/test-reboot", async (

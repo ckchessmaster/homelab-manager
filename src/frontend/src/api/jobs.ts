@@ -3,6 +3,7 @@ import { apiClient } from './client'
 export interface JobSummary {
   id: string
   targetHostId: string
+  pipelineId?: string | null
   status: 'Pending' | 'Running' | 'Verifying' | 'Completed' | 'Failed' | 'RolledBack' | string
   activeStep?: string | null
   initiatedBy: string
@@ -13,6 +14,7 @@ export interface JobSummary {
 
 export interface CreateJobRequest {
   targetHostId: string
+  pipelineId?: string
 }
 
 export async function fetchJobs(hostId?: string, limit = 50): Promise<JobSummary[]> {
@@ -27,9 +29,9 @@ export async function fetchJob(id: string): Promise<JobSummary> {
   return apiClient<JobSummary>(`/api/v1/jobs/${id}`)
 }
 
-export async function createJob(targetHostId: string): Promise<JobSummary> {
+export async function createJob(targetHostId: string, pipelineId?: string): Promise<JobSummary> {
   return apiClient<JobSummary>('/api/v1/jobs', {
     method: 'POST',
-    body: JSON.stringify({ targetHostId }),
+    body: JSON.stringify({ targetHostId, pipelineId }),
   })
 }

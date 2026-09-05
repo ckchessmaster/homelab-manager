@@ -9,6 +9,8 @@ public class UpdateJob
 
     public Guid TargetHostId { get; set; }
 
+    public string PipelineId { get; set; } = "standard-os-upgrade";
+
     public string InitiatedBy { get; set; } = string.Empty;
 
     /// <summary>

@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Orchestration;
+using ControlPlane.Api.Features.Orchestration.Pipelines;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
@@ -497,6 +498,130 @@ public class DagOrchestrationTests
         var listResponse = await client.GetFromJsonAsync<List<JobSummaryDto>>($"/api/v1/jobs?hostId={hostId}");
         Assert.NotNull(listResponse);
         Assert.Contains(listResponse, j => j.Id == jobSummary.Id);
+    }
+
+    [Fact]
+    public void PipelineCatalog_ReturnsAllExpectedProfiles_And_RecommendsProperProfile()
+    {
+        var catalog = new PipelineCatalog();
+        var profiles = catalog.GetProfiles();
+
+        Assert.Equal(5, profiles.Count);
+        Assert.Contains(profiles, p => p.Id == "standard-os-upgrade");
+        Assert.Contains(profiles, p => p.Id == "k8s-node-rolling-upgrade");
+        Assert.Contains(profiles, p => p.Id == "safe-reboot-verify");
+        Assert.Contains(profiles, p => p.Id == "preflight-dryrun");
+        Assert.Contains(profiles, p => p.Id == "hypervisor-snapshot-only");
+
+        // Step counts
+        var standard = catalog.GetProfile("standard-os-upgrade")!;
+        Assert.Equal(8, standard.Steps.Count);
+
+        var k8s = catalog.GetProfile("k8s-node-rolling-upgrade")!;
+        Assert.Equal(11, k8s.Steps.Count);
+
+        var reboot = catalog.GetProfile("safe-reboot-verify")!;
+        Assert.Equal(4, reboot.Steps.Count);
+
+        var dryrun = catalog.GetProfile("preflight-dryrun")!;
+        Assert.Equal(3, dryrun.Steps.Count);
+
+        var snapshot = catalog.GetProfile("hypervisor-snapshot-only")!;
+        Assert.Equal(2, snapshot.Steps.Count);
+
+        // Recommendation
+        Assert.Equal("k8s-node-rolling-upgrade", catalog.GetRecommendedProfileId("k8s_node", "linux_debian"));
+        Assert.Equal("standard-os-upgrade", catalog.GetRecommendedProfileId("proxmox_vm", "linux_debian"));
+        Assert.Equal("standard-os-upgrade", catalog.GetRecommendedProfileId("baremetal", "linux_ubuntu"));
+    }
+
+    [Fact]
+    public void PipelineCatalog_BuildPipeline_ThrowsKeyNotFound_ForUnknownId()
+    {
+        var catalog = new PipelineCatalog();
+        Assert.Throws<KeyNotFoundException>(() => catalog.BuildPipeline("non-existent-pipeline", null!));
+    }
+
+    [Fact]
+    public async Task JobEndpoints_ListPipelines_ReturnsProfilesList()
+    {
+        using var factory = new DagTestAppFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-ControlPlane-Key", "dev-secret-key-123");
+
+        var response = await client.GetAsync("/api/v1/pipelines");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var profiles = await response.Content.ReadFromJsonAsync<List<PipelineProfileDto>>();
+        Assert.NotNull(profiles);
+        Assert.Equal(5, profiles.Count);
+        Assert.Contains(profiles, p => p.Id == "standard-os-upgrade" && p.Steps.Count == 8);
+        Assert.Contains(profiles, p => p.Id == "k8s-node-rolling-upgrade" && p.Steps.Count == 11);
+    }
+
+    [Fact]
+    public async Task JobEndpoints_CreateJob_WithSpecificPipeline_PersistsAndAppliesProfile()
+    {
+        using var factory = new DagTestAppFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-ControlPlane-Key", "dev-secret-key-123");
+
+        var hostId = Guid.NewGuid();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            db.Hosts.Add(new HostEntity
+            {
+                Id = hostId,
+                Hostname = "k8s-worker-profile-node",
+                IpAddress = "192.168.1.17",
+                OsFamily = "linux_debian",
+                TargetType = "k8s_node"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 1. Trigger job with specific pipeline "safe-reboot-verify"
+        var request = new CreateJobRequest(hostId, "safe-reboot-verify");
+        var postResponse = await client.PostAsJsonAsync("/api/v1/jobs", request);
+        Assert.Equal(HttpStatusCode.Accepted, postResponse.StatusCode);
+
+        var jobSummary = await postResponse.Content.ReadFromJsonAsync<JobSummaryDto>();
+        Assert.NotNull(jobSummary);
+        Assert.Equal("safe-reboot-verify", jobSummary.PipelineId);
+
+        // 2. Fetch job details
+        var getResponse = await client.GetAsync($"/api/v1/jobs/{jobSummary.Id}");
+        var fetchedJob = await getResponse.Content.ReadFromJsonAsync<JobSummaryDto>();
+        Assert.NotNull(fetchedJob);
+        Assert.Equal("safe-reboot-verify", fetchedJob.PipelineId);
+    }
+
+    [Fact]
+    public async Task JobEndpoints_CreateJob_WithUnknownPipeline_ReturnsNotFound()
+    {
+        using var factory = new DagTestAppFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-ControlPlane-Key", "dev-secret-key-123");
+
+        var hostId = Guid.NewGuid();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            db.Hosts.Add(new HostEntity
+            {
+                Id = hostId,
+                Hostname = "unknown-pipe-node",
+                IpAddress = "192.168.1.18",
+                OsFamily = "linux_debian",
+                TargetType = "baremetal"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var request = new CreateJobRequest(hostId, "invalid-pipeline-xyz");
+        var postResponse = await client.PostAsJsonAsync("/api/v1/jobs", request);
+        Assert.Equal(HttpStatusCode.NotFound, postResponse.StatusCode);
     }
 
     private class MockStep : IJobStep

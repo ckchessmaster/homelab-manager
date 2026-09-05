@@ -44,6 +44,7 @@ import {
   RotateCcw,
   ChevronLeft,
   ChevronRight,
+  Camera,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -54,6 +55,8 @@ import {
   DropdownMenuLabel,
 } from '../../components/ui/dropdown-menu'
 import { RebootHostModal } from './RebootHostModal'
+import { LaunchWorkflowModal } from '../orchestration/LaunchWorkflowModal'
+import { SnapshotManagementModal } from '../snapshots/SnapshotManagementModal'
 import { createJob } from '../../api/jobs'
 import type { Host, HostFilterParams } from '../../api/hosts'
 
@@ -85,6 +88,9 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [selectedHostIds, setSelectedHostIds] = useState<Set<string>>(new Set())
   const [rebootModalHost, setRebootModalHost] = useState<Host | null>(null)
   const [rebootBulkHosts, setRebootBulkHosts] = useState<Host[] | null>(null)
+  const [workflowModalHost, setWorkflowModalHost] = useState<Host | null>(null)
+  const [snapshotModalHost, setSnapshotModalHost] = useState<Host | null>(null)
+  const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false)
 
   // Pagination state
   const [page, setPage] = useState(1)
@@ -98,8 +104,12 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   }
 
   const handleTriggerUpdate = (host: Host) => {
-    setTerminalJobId(null)
-    setAutoTriggerUpdate(true)
+    setWorkflowModalHost(host)
+  }
+
+  const handleWorkflowLaunched = (jobId: string, host: Host) => {
+    setTerminalJobId(jobId)
+    setAutoTriggerUpdate(false)
     setTerminalHost(host)
   }
 
@@ -293,6 +303,20 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                 {agentVersionInfo?.outdatedAgentsCount}
               </span>
             )}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setSnapshotModalHost(null)
+              setIsSnapshotModalOpen(true)
+            }}
+            className="gap-1.5 border-purple-800/80 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60"
+            title="Manage Proxmox hypervisor snapshots & retention"
+          >
+            <Camera className="h-4 w-4" />
+            <span>Snapshots</span>
           </Button>
 
           <Button
@@ -635,6 +659,17 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                           <Shield className="h-3.5 w-3.5" />
                           <span>Adopt via SSH</span>
                         </DropdownMenuItem>
+                        {(host.targetType === 'proxmox_vm' || host.targetType === 'proxmox_lxc' || host.proxmox) && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSnapshotModalHost(host)
+                              setIsSnapshotModalOpen(true)
+                            }}
+                          >
+                            <Camera className="h-3.5 w-3.5 text-purple-400" />
+                            <span>Proxmox Snapshots</span>
+                          </DropdownMenuItem>
+                        )}
 
                         <DropdownMenuSeparator />
 
@@ -753,6 +788,25 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         open={isMassUpdateModalOpen}
         onClose={() => setIsMassUpdateModalOpen(false)}
         onSuccess={() => refetch()}
+      />
+
+      {/* Modular Pipeline Launch Modal */}
+      <LaunchWorkflowModal
+        isOpen={Boolean(workflowModalHost)}
+        onClose={() => setWorkflowModalHost(null)}
+        host={workflowModalHost}
+        availableHosts={hosts || []}
+        onWorkflowLaunched={handleWorkflowLaunched}
+      />
+
+      {/* Proxmox Snapshots Management Modal */}
+      <SnapshotManagementModal
+        isOpen={isSnapshotModalOpen}
+        onClose={() => {
+          setIsSnapshotModalOpen(false)
+          setSnapshotModalHost(null)
+        }}
+        selectedHost={snapshotModalHost}
       />
 
       {/* Host Terminal Drawer */}

@@ -16,11 +16,12 @@ public static class DependencyInjection
         {
             if (isStandby)
             {
-                var dbPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".controlplane",
-                    "standby-state.db"
-                );
+                var dbPath = config.GetValue<string>("STANDBY_DB_PATH")
+                    ?? Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        ".controlplane",
+                        "standby-state.db"
+                    );
                 var directory = Path.GetDirectoryName(dbPath);
                 if (!string.IsNullOrEmpty(directory))
                 {
@@ -55,6 +56,9 @@ public static class DependencyInjection
         {
             logger.LogInformation("Standby mode active: initializing SQLite database.");
             await context.Database.EnsureCreatedAsync(cancellationToken);
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TABLE IF NOT EXISTS system_settings (key TEXT NOT NULL PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);",
+                cancellationToken);
             await DbSeeder.SeedStandbyAsync(context, cancellationToken);
             logger.LogInformation("SQLite database schema ensured and seeded.");
         }

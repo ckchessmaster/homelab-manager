@@ -3,6 +3,7 @@ import { Layout } from './components/layout/Layout'
 import type { NavTab } from './components/layout/AppSidebar'
 import { HostTable } from './features/hosts/HostTable'
 import { AddHostModal } from './features/hosts/AddHostModal'
+import { DiscoveryView } from './features/discovery/DiscoveryView'
 import { ProxmoxProbeView } from './features/adapters/ProxmoxProbeView'
 import { WorkflowsView } from './features/orchestration/WorkflowsView'
 import { useHosts } from './features/hosts/useHosts'
@@ -84,6 +85,10 @@ export default function App() {
           {/* Add Host Modal */}
           <AddHostModal open={addHostOpen} onClose={() => setAddHostOpen(false)} />
         </div>
+      )}
+
+      {activeTab === 'discovery' && (
+        <DiscoveryView onSelectHost={() => setActiveTab('hosts')} />
       )}
 
       {activeTab === 'adapters' && (

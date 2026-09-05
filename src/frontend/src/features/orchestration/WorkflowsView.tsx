@@ -10,10 +10,10 @@ import {
   Filter,
   RefreshCw,
   Activity,
-  ShieldCheck,
-  Sparkles,
 } from 'lucide-react'
-import { useJobs, useCreateJob } from './useJobs'
+import { useJobs } from './useJobs'
+import { usePipelines } from './usePipelines'
+import { LaunchWorkflowModal } from './LaunchWorkflowModal'
 import { useHosts } from '../hosts/useHosts'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -26,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table'
-import { Dialog, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../components/ui/dialog'
 import { HostTerminalDrawer } from '../hosts/HostTerminalDrawer'
 import type { Host } from '../../api/hosts'
 import type { JobSummary } from '../../api/jobs'
@@ -34,12 +33,12 @@ import type { JobSummary } from '../../api/jobs'
 export function WorkflowsView() {
   const { data: jobs, isLoading, isFetching, refetch } = useJobs()
   const { data: hosts } = useHosts()
-  const createJobMutation = useCreateJob()
+  const { data: pipelines } = usePipelines()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [pipelineFilter, setPipelineFilter] = useState<string>('all')
   const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false)
-  const [selectedHostId, setSelectedHostId] = useState<string>('')
 
   // Terminal drawer state
   const [terminalHost, setTerminalHost] = useState<Host | null>(null)
@@ -52,6 +51,13 @@ export function WorkflowsView() {
     hosts?.forEach((h) => map.set(h.id, h))
     return map
   }, [hosts])
+
+  // Pipeline lookup map
+  const pipelineMap = useMemo(() => {
+    const map = new Map<string, string>()
+    pipelines?.forEach((p) => map.set(p.id, p.name))
+    return map
+  }, [pipelines])
 
   // Filtered jobs
   const filteredJobs = useMemo(() => {
@@ -69,9 +75,13 @@ export function WorkflowsView() {
       const matchesStatus =
         statusFilter === 'all' || job.status.toLowerCase() === statusFilter.toLowerCase()
 
-      return matchesSearch && matchesStatus
+      const pId = job.pipelineId || 'standard-os-upgrade'
+      const matchesPipeline =
+        pipelineFilter === 'all' || pId.toLowerCase() === pipelineFilter.toLowerCase()
+
+      return matchesSearch && matchesStatus && matchesPipeline
     })
-  }, [jobs, hostMap, searchTerm, statusFilter])
+  }, [jobs, hostMap, searchTerm, statusFilter, pipelineFilter])
 
   // Aggregate metrics
   const totalJobs = jobs?.length || 0
@@ -85,23 +95,6 @@ export function WorkflowsView() {
     setTerminalJobId(job.id)
     setAutoTriggerDag(false)
     setTerminalHost(host)
-  }
-
-  const handleTriggerNewJob = async () => {
-    if (!selectedHostId) return
-    const host = hostMap.get(selectedHostId)
-    if (!host) return
-
-    try {
-      const job = await createJobMutation.mutateAsync(selectedHostId)
-      setIsTriggerModalOpen(false)
-      setSelectedHostId('')
-      setTerminalJobId(job.id)
-      setAutoTriggerDag(false)
-      setTerminalHost(host)
-    } catch {
-      // handled by mutation
-    }
   }
 
   const getStatusBadge = (status: string) => {
@@ -206,8 +199,8 @@ export function WorkflowsView() {
             onClick={() => setIsTriggerModalOpen(true)}
             className="text-xs h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-md shadow-emerald-950/50"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            Trigger DAG Update
+            <Play className="w-3.5 h-3.5 fill-current" />
+            Launch Workflow
           </Button>
         </div>
       </div>
@@ -268,7 +261,21 @@ export function WorkflowsView() {
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+          {/* Pipeline filter dropdown */}
+          <select
+            value={pipelineFilter}
+            onChange={(e) => setPipelineFilter(e.target.value)}
+            className="px-2.5 py-1 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500 h-8"
+          >
+            <option value="all">All Pipelines</option>
+            {pipelines?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+
           <Filter className="w-3.5 h-3.5 text-zinc-500 hidden sm:inline" />
           <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-0.5 text-xs">
             {['all', 'running', 'completed', 'failed'].map((st) => (
@@ -290,183 +297,137 @@ export function WorkflowsView() {
       </div>
 
       {/* Jobs Table */}
-      <div className="border border-zinc-800 rounded-xl overflow-hidden bg-zinc-900/40 backdrop-blur-sm">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900/60">
-              <TableHead className="w-[200px] text-zinc-400 font-medium text-xs">Target Host</TableHead>
-              <TableHead className="w-[130px] text-zinc-400 font-medium text-xs">Status</TableHead>
-              <TableHead className="text-zinc-400 font-medium text-xs">Active / Last Step</TableHead>
-              <TableHead className="w-[100px] text-zinc-400 font-medium text-xs">Operator</TableHead>
-              <TableHead className="w-[140px] text-zinc-400 font-medium text-xs">Started</TableHead>
-              <TableHead className="w-[100px] text-zinc-400 font-medium text-xs">Duration</TableHead>
-              <TableHead className="w-[120px] text-right text-zinc-400 font-medium text-xs">Action</TableHead>
+      {/* Jobs Table */}
+      <Table>
+        <TableHeader>
+          <TableRow className="border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900/60">
+            <TableHead className="min-w-[140px] text-zinc-400 font-medium text-xs">Target Host</TableHead>
+            <TableHead className="min-w-[130px] text-zinc-400 font-medium text-xs">Pipeline</TableHead>
+            <TableHead className="min-w-[90px] text-zinc-400 font-medium text-xs">Status</TableHead>
+            <TableHead className="min-w-[140px] text-zinc-400 font-medium text-xs">Active / Last Step</TableHead>
+            <TableHead className="hidden xl:table-cell w-[90px] text-zinc-400 font-medium text-xs">Operator</TableHead>
+            <TableHead className="min-w-[90px] text-zinc-400 font-medium text-xs">Started</TableHead>
+            <TableHead className="w-[80px] text-zinc-400 font-medium text-xs">Duration</TableHead>
+            <TableHead className="w-[80px] text-right text-zinc-400 font-medium text-xs">Action</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoading ? (
+            <TableRow>
+              <TableCell colSpan={8} className="h-32 text-center text-zinc-500 text-xs">
+                Loading update pipelines...
+              </TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-zinc-500 text-xs">
-                  Loading update pipelines...
-                </TableCell>
-              </TableRow>
-            ) : filteredJobs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-zinc-500 text-xs">
-                  No update jobs found. Click &quot;Trigger DAG Update&quot; above or run an update from the Host Inventory.
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredJobs.map((job) => {
-                const host = hostMap.get(job.targetHostId)
-                return (
-                  <TableRow
-                    key={job.id}
-                    className="border-zinc-800/60 hover:bg-zinc-800/30 transition-colors"
-                  >
-                    {/* Target Host */}
-                    <TableCell>
-                      {host ? (
-                        <div>
-                          <div className="font-semibold text-xs text-zinc-200">{host.hostname}</div>
-                          <div className="text-[11px] font-mono text-zinc-500">{host.ipAddress}</div>
-                        </div>
-                      ) : (
-                        <span className="font-mono text-xs text-zinc-400 truncate block max-w-[160px]">
-                          {job.targetHostId}
-                        </span>
-                      )}
-                    </TableCell>
+          ) : filteredJobs.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={8} className="h-32 text-center text-zinc-500 text-xs">
+                No update jobs found. Click &quot;Launch Workflow&quot; above or start a workflow from the Host Inventory.
+              </TableCell>
+            </TableRow>
+          ) : (
+            filteredJobs.map((job) => {
+              const host = hostMap.get(job.targetHostId)
+              const pipelineName =
+                pipelineMap.get(job.pipelineId || 'standard-os-upgrade') ||
+                job.pipelineId ||
+                'Standard Upgrade'
 
-                    {/* Status */}
-                    <TableCell>{getStatusBadge(job.status)}</TableCell>
-
-                    {/* Active Step */}
-                    <TableCell>
-                      <div className="space-y-0.5">
-                        <span className="text-xs font-mono text-zinc-300">
-                          {job.activeStep || (job.status === 'Completed' ? 'All steps completed' : '—')}
-                        </span>
-                        {job.failureReason && (
-                          <p className="text-[11px] font-mono text-rose-400 truncate max-w-md" title={job.failureReason}>
-                            {job.failureReason}
-                          </p>
-                        )}
+              return (
+                <TableRow
+                  key={job.id}
+                  className="border-zinc-800/60 hover:bg-zinc-800/30 transition-colors"
+                >
+                  {/* Target Host */}
+                  <TableCell>
+                    {host ? (
+                      <div>
+                        <div className="font-semibold text-xs text-zinc-200">{host.hostname}</div>
+                        <div className="text-[11px] font-mono text-zinc-500">{host.ipAddress}</div>
                       </div>
-                    </TableCell>
-
-                    {/* Initiated By */}
-                    <TableCell>
-                      <span className="text-xs text-zinc-400 font-medium">{job.initiatedBy}</span>
-                    </TableCell>
-
-                    {/* Started At */}
-                    <TableCell>
-                      <span className="text-xs text-zinc-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-zinc-500" />
-                        {job.startedAt ? new Date(job.startedAt).toLocaleTimeString() : '—'}
+                    ) : (
+                      <span className="font-mono text-xs text-zinc-400 truncate block max-w-[140px]">
+                        {job.targetHostId}
                       </span>
-                    </TableCell>
+                    )}
+                  </TableCell>
 
-                    {/* Duration */}
-                    <TableCell>
-                      <span className="text-xs font-mono text-zinc-400">
-                        {formatDuration(job.startedAt, job.completedAt)}
+                  {/* Pipeline Profile */}
+                  <TableCell>
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
+                      <GitFork className="w-3 h-3 text-emerald-400" />
+                      <span className="truncate max-w-[120px]">{pipelineName}</span>
+                    </span>
+                  </TableCell>
+
+                  {/* Status */}
+                  <TableCell>{getStatusBadge(job.status)}</TableCell>
+
+                  {/* Active Step */}
+                  <TableCell>
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-mono text-zinc-300">
+                        {job.activeStep || (job.status === 'Completed' ? 'All steps completed' : '—')}
                       </span>
-                    </TableCell>
+                      {job.failureReason && (
+                        <p className="text-[11px] font-mono text-rose-400 truncate max-w-xs md:max-w-md" title={job.failureReason}>
+                          {job.failureReason}
+                        </p>
+                      )}
+                    </div>
+                  </TableCell>
 
-                    {/* Actions */}
-                    <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleOpenTerminalForJob(job)}
-                        className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-sky-400 hover:text-sky-300"
-                        title="Open streaming terminal console"
-                      >
-                        <Terminal className="w-3.5 h-3.5" />
-                        Console
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                  {/* Initiated By */}
+                  <TableCell className="hidden xl:table-cell">
+                    <span className="text-xs text-zinc-400 font-medium">{job.initiatedBy}</span>
+                  </TableCell>
 
-      {/* Trigger DAG Update Modal */}
-      {isTriggerModalOpen && (
-        <Dialog open={isTriggerModalOpen} onClose={() => setIsTriggerModalOpen(false)} maxWidth="md">
-          <DialogHeader onClose={() => setIsTriggerModalOpen(false)}>
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <DialogTitle>Trigger DAG Host Upgrade</DialogTitle>
-            </div>
-          </DialogHeader>
+                  {/* Started At */}
+                  <TableCell>
+                    <span className="text-xs text-zinc-400 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-zinc-500" />
+                      {job.startedAt ? new Date(job.startedAt).toLocaleTimeString() : '—'}
+                    </span>
+                  </TableCell>
 
-          <DialogBody className="space-y-4">
-            <p className="text-xs text-zinc-400">
-              Select a managed target node to initiate the durable update pipeline. ControlPlane will run pre-flight safety checks, verify package locks, stream package upgrades, and monitor health.
-            </p>
+                  {/* Duration */}
+                  <TableCell>
+                    <span className="text-xs font-mono text-zinc-400">
+                      {formatDuration(job.startedAt, job.completedAt)}
+                    </span>
+                  </TableCell>
 
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-zinc-300">Target Managed Node</label>
-              <select
-                value={selectedHostId}
-                onChange={(e) => setSelectedHostId(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-md text-zinc-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              >
-                <option value="">-- Choose Host --</option>
-                {hosts
-                  ?.filter((h) => h.agent?.installed)
-                  .map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.hostname} ({h.ipAddress}) — {h.agent?.upgradablePackagesCount || 0} packages upgradable
-                    </option>
-                  ))}
-              </select>
-            </div>
+                  {/* Actions */}
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenTerminalForJob(job)}
+                      className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-sky-400 hover:text-sky-300"
+                      title="Open streaming terminal console"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      Console
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              )
+            })
+          )}
+        </TableBody>
+      </Table>
 
-            {/* Preflight Safety Gates Preview */}
-            <div className="p-3.5 bg-zinc-950/70 border border-zinc-800/80 rounded-lg space-y-2 text-xs">
-              <span className="font-semibold text-zinc-300 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                Durable Pre-Flight Safety Protocol:
-              </span>
-              <ul className="space-y-1.5 text-zinc-400 text-[11px] pl-5 list-disc">
-                <li>Heartbeat Freshness: Verifies agent WebSocket heartbeat &lt; 15 seconds.</li>
-                <li>Disk Headroom Check: Validates root filesystem free space &gt; 20%.</li>
-                <li>Package Lock Inspection: Ensures no stale apt/dnf locks exist.</li>
-                <li>Non-Interactive Package Upgrade: Executes dist-upgrade with log streaming.</li>
-              </ul>
-            </div>
-          </DialogBody>
-
-          <DialogFooter>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setIsTriggerModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={!selectedHostId || createJobMutation.isPending}
-              onClick={handleTriggerNewJob}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              {createJobMutation.isPending ? 'Starting...' : 'Launch Upgrade DAG'}
-            </Button>
-          </DialogFooter>
-        </Dialog>
-      )}
+      {/* Modular Pipeline Launch Modal */}
+      <LaunchWorkflowModal
+        isOpen={isTriggerModalOpen}
+        onClose={() => setIsTriggerModalOpen(false)}
+        availableHosts={hosts || []}
+        onWorkflowLaunched={(jobId, host) => {
+          setIsTriggerModalOpen(false)
+          setTerminalJobId(jobId)
+          setAutoTriggerDag(false)
+          setTerminalHost(host)
+        }}
+      />
 
       {/* Live Terminal Drawer */}
       {terminalHost && (
