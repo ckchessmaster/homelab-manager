@@ -27,6 +27,7 @@ import {
   TableRow,
 } from '../../components/ui/table'
 import { HostTerminalDrawer } from '../hosts/HostTerminalDrawer'
+import { WorkflowCanvasModal } from './canvas/WorkflowCanvasModal'
 import type { Host } from '../../api/hosts'
 import type { JobSummary } from '../../api/jobs'
 
@@ -39,6 +40,10 @@ export function WorkflowsView() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [pipelineFilter, setPipelineFilter] = useState<string>('all')
   const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false)
+
+  // Canvas modal state
+  const [canvasJob, setCanvasJob] = useState<JobSummary | null>(null)
+  const [isCanvasModalOpen, setIsCanvasModalOpen] = useState(false)
 
   // Terminal drawer state
   const [terminalHost, setTerminalHost] = useState<Host | null>(null)
@@ -397,16 +402,31 @@ export function WorkflowsView() {
 
                   {/* Actions */}
                   <TableCell className="text-right whitespace-nowrap">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenTerminalForJob(job)}
-                      className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-sky-400 hover:text-sky-300 inline-flex items-center shrink-0"
-                      title="Open streaming terminal console"
-                    >
-                      <Terminal className="w-3.5 h-3.5 shrink-0" />
-                      Console
-                    </Button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setCanvasJob(job)
+                          setIsCanvasModalOpen(true)
+                        }}
+                        className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 inline-flex items-center shrink-0"
+                        title="Open interactive DAG canvas"
+                      >
+                        <GitFork className="w-3.5 h-3.5 shrink-0" />
+                        Visual DAG
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenTerminalForJob(job)}
+                        className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-sky-400 hover:text-sky-300 inline-flex items-center shrink-0"
+                        title="Open streaming terminal console"
+                      >
+                        <Terminal className="w-3.5 h-3.5 shrink-0" />
+                        Console
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               )
@@ -439,6 +459,22 @@ export function WorkflowsView() {
             setTerminalHost(null)
             setTerminalJobId(null)
             setAutoTriggerDag(false)
+          }}
+        />
+      )}
+
+      {/* Interactive Visual DAG Canvas Modal */}
+      {canvasJob && (
+        <WorkflowCanvasModal
+          isOpen={isCanvasModalOpen}
+          onClose={() => {
+            setIsCanvasModalOpen(false)
+            setCanvasJob(null)
+          }}
+          job={canvasJob}
+          host={hostMap.get(canvasJob.targetHostId) || null}
+          onOpenTerminal={(job) => {
+            handleOpenTerminalForJob(job)
           }}
         />
       )}

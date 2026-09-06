@@ -41,7 +41,7 @@ Phase 3: Temporal Durable Execution & Node-Based Visual Workflow Redesign
 | **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-database-reorganization-and-schema-isolation.md)** | Database Reorganization & Schema Isolation (`controlplane` DB & schema) | ✅ Completed |
 | **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-temporal-aspire-orchestration-and-sdk.md)** | Temporal Aspire Hosting (`temporalio/dev-server`) & .NET SDK Setup | ✅ Completed |
 | **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-temporal-activities-and-durable-sagas.md)** | Temporal Activities, Durable Sagas & Human-in-the-Loop Approval Gates | ✅ Completed |
-| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-node-based-workflow-canvas-ui.md)** | Node-Based Visual Workflow Canvas UI (`@xyflow/react`) | ⏳ Not Started |
+| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-node-based-workflow-canvas-ui.md)** | Node-Based Visual Workflow Canvas UI (`@xyflow/react`) | ✅ Completed |
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-parameterized-workflow-launcher.md)** | Parameterized Workflow Launcher & Real-Time Graph Preview | ⏳ Not Started |
 | **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-multi-node-fleet-rolling-orchestration.md)** | Multi-Node Fleet Rolling Orchestrator & Batch Workflows | ⏳ Not Started |
 | **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-standby-temporal-cli-integration.md)** | Standby Mode Temporal CLI Integration (Embedded SQLite Dev Server) | ⏳ Not Started |
