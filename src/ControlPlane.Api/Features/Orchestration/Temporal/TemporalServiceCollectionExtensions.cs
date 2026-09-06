@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Temporalio.Client;
 using Temporalio.Extensions.Hosting;
 using Temporalio.Workflows;
+using ControlPlane.Api.Features.Orchestration.Temporal.Activities;
+using ControlPlane.Api.Features.Orchestration.Temporal.Workflows;
 
 namespace ControlPlane.Api.Features.Orchestration.Temporal;
 
@@ -38,9 +40,24 @@ public static class TemporalServiceCollectionExtensions
             targetHost = targetHost["https://".Length..];
         }
 
+        services.AddSingleton<IWorkflowLogEmitter, WorkflowLogEmitter>();
+        services.AddScoped<IPreflightActivities, PreflightActivities>();
+        services.AddScoped<IProxmoxActivities, ProxmoxActivities>();
+        services.AddScoped<IKubernetesActivities, KubernetesActivities>();
+        services.AddScoped<IAgentActivities, AgentActivities>();
+        services.AddScoped<IHealthProbeActivities, HealthProbeActivities>();
+        services.AddScoped<IUpdateJobActivities, UpdateJobActivities>();
+
         services.AddTemporalClient(targetHost, options.Namespace);
         services.AddHostedTemporalWorker(options.TaskQueue)
-            .AddWorkflow<SystemPingWorkflow>();
+            .AddWorkflow<Workflows.HostUpgradeWorkflow>()
+            .AddWorkflow<SystemPingWorkflow>()
+            .AddScopedActivities<Activities.PreflightActivities>()
+            .AddScopedActivities<Activities.ProxmoxActivities>()
+            .AddScopedActivities<Activities.KubernetesActivities>()
+            .AddScopedActivities<Activities.AgentActivities>()
+            .AddScopedActivities<Activities.HealthProbeActivities>()
+            .AddScopedActivities<Activities.UpdateJobActivities>();
 
         return services;
     }

@@ -15,6 +15,7 @@ using ControlPlane.Api.Features.Jobs;
 using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Features.Orchestration.Pipelines;
 using ControlPlane.Api.Features.Orchestration.Temporal;
+using ControlPlane.Api.Features.Orchestration.Temporal.Endpoints;
 using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
@@ -211,6 +212,7 @@ app.MapKubernetesEndpoints();
 app.MapDiscoveryEndpoints();
 app.MapSecurityEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
+app.MapTemporalWorkflowEndpoints();
 
 app.MapPost("/api/v1/debug/test-reboot", async (
     DebugRebootRequest request,

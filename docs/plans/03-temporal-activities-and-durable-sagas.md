@@ -1,7 +1,7 @@
 # Plan 03: Temporal Activities, Durable Sagas & Human-in-the-Loop Approval Gates
 
 **Phase:** Phase 3 (Temporal Durable Execution & Node-Based Visual Workflow Redesign)  
-**Status:** ⏳ Ready  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 02: Temporal Aspire Hosting & .NET SDK Setup](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-temporal-aspire-orchestration-and-sdk.md)
 
 ---
@@ -135,8 +135,8 @@ dotnet test --filter "FullyQualifiedName~TemporalWorkflowTests"
 ```
 
 ### Acceptance Criteria
-- [ ] All 12 step capabilities ported to typed Temporal Activities.
-- [ ] `HostUpgradeWorkflow` executes end-to-end with Saga compensations on activity failure.
-- [ ] Workflow pauses and resumes cleanly on `ApproveRebootSignal`.
-- [ ] REST API endpoints permit starting workflows, sending signals, and querying workflow status.
-- [ ] All automated tests pass.
+- [x] All 12 step capabilities ported to typed Temporal Activities.
+- [x] `HostUpgradeWorkflow` executes end-to-end with Saga compensations on activity failure.
+- [x] Workflow pauses and resumes cleanly on `ApproveRebootSignal`.
+- [x] REST API endpoints permit starting workflows, sending signals, and querying workflow status.
+- [x] All automated tests pass.
