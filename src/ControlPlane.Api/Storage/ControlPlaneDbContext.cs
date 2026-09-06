@@ -24,6 +24,12 @@ public class ControlPlaneDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        if (!Database.IsSqlite())
+        {
+            modelBuilder.HasDefaultSchema("controlplane");
+        }
+
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ControlPlaneDbContext).Assembly);
     }
 }

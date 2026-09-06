@@ -177,4 +177,29 @@ public class PostgresStorageTests : IAsyncLifetime
         Assert.Single(queriedJob.StepLogs);
         Assert.Equal(1, queriedJob.StepLogs.First().SequenceId);
     }
+
+    [Fact]
+    public async Task Migrations_CreateTablesInControlPlaneSchema()
+    {
+        using var context = CreateContext();
+        await context.Database.MigrateAsync();
+
+        using var conn = context.Database.GetDbConnection();
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'controlplane';";
+        using var reader = await cmd.ExecuteReaderAsync();
+
+        var tableNames = new List<string>();
+        while (await reader.ReadAsync())
+        {
+            tableNames.Add(reader.GetString(0));
+        }
+
+        Assert.Contains("hosts", tableNames);
+        Assert.Contains("update_jobs", tableNames);
+        Assert.Contains("step_logs", tableNames);
+        Assert.Contains("cluster_leases", tableNames);
+        Assert.Contains("system_settings", tableNames);
+    }
 }

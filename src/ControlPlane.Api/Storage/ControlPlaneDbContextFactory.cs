@@ -35,8 +35,9 @@ public class ControlPlaneDbContextFactory : IDesignTimeDbContextFactory<ControlP
         }
         else
         {
-            var connectionString = configuration.GetConnectionString("PostgresDatabase")
-                ?? "Host=localhost;Database=controlplane_designtime";
+            var connectionString = configuration.GetConnectionString("ControlPlaneDatabase")
+                ?? configuration.GetConnectionString("PostgresDatabase")
+                ?? "Host=localhost;Database=controlplane;Username=postgres";
 
             optionsBuilder.UseNpgsql(connectionString, npgsql =>
             {

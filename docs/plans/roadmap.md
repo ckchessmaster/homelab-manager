@@ -1,46 +1,50 @@
-# ControlPlane Implementation Roadmap: Phase 2
+# ControlPlane Implementation Roadmap: Phase 3
 
-This document defines the sequential implementation plan for **Phase 2** of the **Homelab Orchestration & Management Plane (ControlPlane)**, building upon the foundations in [initial-overview.md](file:///home/ckingdon/projects/homelab-manager/docs/initial-overview.md).
+This document defines the sequential implementation plan for **Phase 3** of the **Homelab Orchestration & Management Plane (ControlPlane)**, focusing on **Temporal Durable Execution & Node-Based Visual Workflow Redesign**.
 
-*(Historical Phase 1 MVP plans are preserved in [docs/plans/archive/phase1-mvp/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase1-mvp/)).*
-
----
-
-## 🧭 Phase 2 Milestone & Plan Dependency Graph
-
-```
-Phase 2: Service Discovery, Modular Pipelines & Enterprise Hardening
-├── [01-service-discovery-proxmox-and-k8s.md]
-│   └── Auto-discover Proxmox VMs/LXCs & Kubernetes cluster nodes with 1-click import
-│
-├── [02-modular-pipeline-profiles.md]
-│   └── Flexible pipeline catalog, pre-built DAG profiles, and interactive workflow launcher
-│
-├── [03-snapshot-retention-worker.md]
-│   └── Proxmox 24-hour snapshot retention background worker & pruning
-│
-├── [04-secrets-encryption-at-rest.md]
-│   └── Application-layer AES-256-GCM envelope encryption for adapter credentials & sensitive settings
-│
-├── [05-standby-cli-distribution.md]
-│   └── Release packaging scripts & cross-platform Standby CLI distribution
-│
-└── [06-zitadel-oidc-production-auth.md]
-    └── Zitadel OIDC PKCE code flow in SPA & JWT Bearer RBAC in API
-```
+*(Historical plans are preserved in [docs/plans/archive/phase1-mvp/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase1-mvp/) and [docs/plans/archive/phase2/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase2/)).*
 
 ---
 
-## 📊 Phase 2 Plan Execution Status
+## 🧭 Phase 3 Milestone & Plan Dependency Graph
+
+```
+Phase 3: Temporal Durable Execution & Node-Based Visual Workflow Redesign
+├── [01-database-reorganization-and-schema-isolation.md]
+│   └── App-specific PostgreSQL DB & schema isolation (controlplane) + SQLite standby separation
+│
+├── [02-temporal-aspire-orchestration-and-sdk.md]
+│   └── Aspire hosting with temporalio/dev-server (UI enabled), Temporal DB, and Temporalio .NET SDK setup
+│
+├── [03-temporal-activities-and-durable-sagas.md]
+│   └── Convert steps to Activities, implement HostUpgradeWorkflow with Sagas & Reboot Approval Signals
+│
+├── [04-node-based-workflow-canvas-ui.md]
+│   └── React 19 @xyflow/react visual DAG canvas with live status pulsing, timers & approval action gates
+│
+├── [05-parameterized-workflow-launcher.md]
+│   └── Slide-over workflow launcher, parameter builder (snapshot, reboot policy, health probes), and 1-click trigger
+│
+├── [06-multi-node-fleet-rolling-orchestration.md]
+│   └── Multi-host rolling cluster upgrade workflow (cordon ➔ drain ➔ upgrade ➔ reboot ➔ verify ➔ uncordon)
+│
+└── [07-standby-temporal-cli-integration.md]
+    └── Standby CLI runner with embedded Temporal SQLite dev server for 100% workflow parity offline
+```
+
+---
+
+## 📊 Phase 3 Plan Execution Status
 
 | Phase / Plan | Description | Status |
 | :--- | :--- | :--- |
-| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-service-discovery-proxmox-and-k8s.md)** | Unified Service Discovery: Proxmox VMs/LXCs & Kubernetes nodes with 1-click inventory import | ✅ Completed |
-| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-modular-pipeline-profiles.md)** | Modular Pipeline Profiles: Selectable DAG workflows, step preview visualizer, and launch modal | ✅ Completed |
-| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-snapshot-retention-worker.md)** | Proxmox Snapshot 24-Hour Retention Worker & Automated Pruning | ✅ Completed |
-| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-secrets-encryption-at-rest.md)** | Secrets Management & AES-256-GCM Encryption at Rest for Adapter Credentials | ✅ Completed |
-| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-standby-cli-distribution.md)** | Standby CLI Release Packaging & Cross-Platform Distribution Scripts | ⏳ Not Started |
-| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-zitadel-oidc-production-auth.md)** | Production Zitadel OIDC Authentication & Role-Based Access Control | ⏳ Not Started |
+| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-database-reorganization-and-schema-isolation.md)** | Database Reorganization & Schema Isolation (`controlplane` DB & schema) | ✅ Completed |
+| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-temporal-aspire-orchestration-and-sdk.md)** | Temporal Aspire Hosting (`temporalio/dev-server`) & .NET SDK Setup | ✅ Completed |
+| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-temporal-activities-and-durable-sagas.md)** | Temporal Activities, Durable Sagas & Human-in-the-Loop Approval Gates | ⏳ Ready |
+| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-node-based-workflow-canvas-ui.md)** | Node-Based Visual Workflow Canvas UI (`@xyflow/react`) | ⏳ Not Started |
+| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-parameterized-workflow-launcher.md)** | Parameterized Workflow Launcher & Real-Time Graph Preview | ⏳ Not Started |
+| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-multi-node-fleet-rolling-orchestration.md)** | Multi-Node Fleet Rolling Orchestrator & Batch Workflows | ⏳ Not Started |
+| **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-standby-temporal-cli-integration.md)** | Standby Mode Temporal CLI Integration (Embedded SQLite Dev Server) | ⏳ Not Started |
 
 ---
 

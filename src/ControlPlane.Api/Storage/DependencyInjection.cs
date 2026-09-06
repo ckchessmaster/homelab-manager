@@ -33,8 +33,9 @@ public static class DependencyInjection
             }
             else
             {
-                var connectionString = config.GetConnectionString("PostgresDatabase")
-                    ?? throw new InvalidOperationException("Connection string 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:PostgresDatabase.");
+                var connectionString = config.GetConnectionString("ControlPlaneDatabase")
+                    ?? config.GetConnectionString("PostgresDatabase")
+                    ?? throw new InvalidOperationException("Connection string 'ControlPlaneDatabase' or 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:ControlPlaneDatabase.");
 
                 options.UseNpgsql(connectionString, npgsql =>
                 {
@@ -64,7 +65,8 @@ public static class DependencyInjection
         }
         else
         {
-            logger.LogInformation("Cluster mode active: applying PostgreSQL migrations.");
+            logger.LogInformation("Cluster mode active: ensuring 'controlplane' schema and applying PostgreSQL migrations.");
+            await context.Database.ExecuteSqlRawAsync("CREATE SCHEMA IF NOT EXISTS controlplane;", cancellationToken);
             await context.Database.MigrateAsync(cancellationToken);
             logger.LogInformation("PostgreSQL migrations applied successfully.");
         }

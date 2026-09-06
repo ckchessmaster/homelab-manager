@@ -14,6 +14,7 @@ using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Jobs;
 using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Features.Orchestration.Pipelines;
+using ControlPlane.Api.Features.Orchestration.Temporal;
 using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
@@ -42,6 +43,7 @@ builder.Services.AddSingleton<IAgentCommandExecutor, AgentCommandExecutor>();
 builder.Services.AddSingleton<IStepLogConsumer, StepLogStreamConsumer>();
 builder.Services.AddSingleton<IPipelineCatalog, PipelineCatalog>();
 builder.Services.AddSingleton<JobOrchestratorService>();
+builder.Services.AddTemporalOrchestration(builder.Configuration);
 
 builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
 builder.Services.AddScoped<NodeAdoptionService>();

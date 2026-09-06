@@ -53,9 +53,13 @@ public class AgentLivenessBackgroundService : BackgroundService
 
         var cutoff = DateTimeOffset.UtcNow - _offlineThreshold;
 
-        var offlineCandidateHosts = await db.Hosts
-            .Where(h => h.Agent.Installed && h.Agent.LastSeenAt != null && h.Agent.LastSeenAt < cutoff)
+        var allHosts = await db.Hosts
+            .AsNoTracking()
             .ToListAsync(cancellationToken);
+
+        var offlineCandidateHosts = allHosts
+            .Where(h => h.Agent?.Installed == true && h.Agent.LastSeenAt != null && h.Agent.LastSeenAt < cutoff)
+            .ToList();
 
         foreach (var host in offlineCandidateHosts)
         {
