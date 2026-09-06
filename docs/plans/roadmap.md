@@ -38,7 +38,7 @@ Phase 2: Service Discovery, Modular Pipelines & Enterprise Hardening
 | **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-service-discovery-proxmox-and-k8s.md)** | Unified Service Discovery: Proxmox VMs/LXCs & Kubernetes nodes with 1-click inventory import | ✅ Completed |
 | **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-modular-pipeline-profiles.md)** | Modular Pipeline Profiles: Selectable DAG workflows, step preview visualizer, and launch modal | ✅ Completed |
 | **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-snapshot-retention-worker.md)** | Proxmox Snapshot 24-Hour Retention Worker & Automated Pruning | ✅ Completed |
-| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-secrets-encryption-at-rest.md)** | Secrets Management & AES-256-GCM Encryption at Rest for Adapter Credentials | ⏳ Not Started |
+| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-secrets-encryption-at-rest.md)** | Secrets Management & AES-256-GCM Encryption at Rest for Adapter Credentials | ✅ Completed |
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-standby-cli-distribution.md)** | Standby CLI Release Packaging & Cross-Platform Distribution Scripts | ⏳ Not Started |
 | **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-zitadel-oidc-production-auth.md)** | Production Zitadel OIDC Authentication & Role-Based Access Control | ⏳ Not Started |
 

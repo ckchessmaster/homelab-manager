@@ -1,6 +1,7 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 var apiKey = builder.AddParameter("api-key", secret: true);
+var masterKey = builder.AddParameter("master-key", secret: true);
 
 var postgres = builder.AddPostgres("postgres")
     .WithDataVolume()
@@ -13,7 +14,8 @@ var api = builder.AddProject<Projects.ControlPlane_Api>("api")
     .WaitFor(db)
     .WithHttpEndpoint(port: 5029, targetPort: 5029, isProxied: false)
     .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:5029")
-    .WithEnvironment("ControlPlane__ApiKey", apiKey);
+    .WithEnvironment("ControlPlane__ApiKey", apiKey)
+    .WithEnvironment("CONTROLPLANE_MASTER_KEY", masterKey);
 
 builder.AddViteApp("frontend", "../../frontend")
     .WithNpm(install: false)

@@ -1,7 +1,7 @@
 # Plan 04: Secrets Management & Encryption at Rest
 
 **Phase:** Phase 2  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 01: Service Discovery](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-service-discovery-proxmox-and-k8s.md), [Plan 02: Modular Pipeline Profiles](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-modular-pipeline-profiles.md), [Plan 03: Snapshot Retention Worker](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-snapshot-retention-worker.md)
 
 ---
@@ -105,9 +105,9 @@ tests/ControlPlane.Api.Tests/
 
 ## 4. Acceptance Criteria & Verification
 
-* [ ] `ISecretEncryptionService` encrypts arbitrary secrets using AES-256-GCM.
-* [ ] Tampered ciphertext or tag fails authentication tag verification.
-* [ ] Legacy plaintext values are handled transparently and re-encrypted on write.
-* [ ] Database query on `system_settings` confirms no raw secret tokens exist in `value_json`.
-* [ ] Proxmox adapter probe and discovery continue to function seamlessly using the decrypted secret.
-* [ ] `dotnet test` passes with 100% test suite success.
+* [x] `ISecretEncryptionService` encrypts arbitrary secrets using AES-256-GCM.
+* [x] Tampered ciphertext or tag fails authentication tag verification.
+* [x] Legacy plaintext values are handled transparently and re-encrypted on write.
+* [x] Database query on `system_settings` confirms no raw secret tokens exist in `value_json`.
+* [x] Proxmox adapter probe and discovery continue to function seamlessly using the decrypted secret.
+* [x] `dotnet test` passes with 100% test suite success.

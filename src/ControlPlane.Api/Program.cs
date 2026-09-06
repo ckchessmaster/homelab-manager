@@ -14,6 +14,7 @@ using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Jobs;
 using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Features.Orchestration.Pipelines;
+using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
@@ -50,6 +51,10 @@ builder.Services.AddScoped<MassAgentUpdateService>();
 builder.Services.AddScoped<ProxmoxProbeService>();
 builder.Services.Configure<ProxmoxOptions>(builder.Configuration.GetSection(ProxmoxOptions.SectionName));
 builder.Services.Configure<SnapshotRetentionOptions>(builder.Configuration.GetSection(SnapshotRetentionOptions.SectionName));
+builder.Services.Configure<SecurityOptions>(builder.Configuration.GetSection(SecurityOptions.SectionName));
+builder.Services.AddSingleton<ISecurityKeyProvider, EnvironmentOrFileKeyProvider>();
+builder.Services.AddSingleton<ISecretEncryptionService, SecretEncryptionService>();
+builder.Services.AddHostedService<SecretsMigrationWorker>();
 builder.Services.AddScoped<IAdapterConfigService, AdapterConfigService>();
 builder.Services.AddScoped<ProxmoxTaskPoller>();
 builder.Services.AddScoped<IProxmoxClient, ProxmoxClient>();
@@ -202,6 +207,7 @@ app.MapRedfishEndpoints();
 app.MapUniFiEndpoints();
 app.MapKubernetesEndpoints();
 app.MapDiscoveryEndpoints();
+app.MapSecurityEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
 
 app.MapPost("/api/v1/debug/test-reboot", async (

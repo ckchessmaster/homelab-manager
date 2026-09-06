@@ -6,6 +6,7 @@ using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Orchestration;
+using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
@@ -824,6 +825,8 @@ public class ProxmoxSnapshotAndRollbackTests
             var client = new HttpClient(handler);
             var mockFactory = new MockHttpClientFactory(client);
             services.AddSingleton<IHttpClientFactory>(mockFactory);
+            services.AddSingleton<ISecurityKeyProvider, EnvironmentOrFileKeyProvider>();
+            services.AddSingleton<ISecretEncryptionService, SecretEncryptionService>();
             services.AddScoped<IAdapterConfigService, AdapterConfigService>();
             services.AddScoped<ProxmoxTaskPoller>();
             services.AddScoped<IProxmoxClient, ProxmoxClient>();

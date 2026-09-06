@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ControlPlane.Api.Features.Adapters.Proxmox;
+using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -21,15 +22,18 @@ public class AdapterConfigService : IAdapterConfigService
 
     private readonly ControlPlaneDbContext _dbContext;
     private readonly IOptions<ProxmoxOptions> _defaultOptions;
+    private readonly ISecretEncryptionService _encryptionService;
     private readonly ILogger<AdapterConfigService> _logger;
 
     public AdapterConfigService(
         ControlPlaneDbContext dbContext,
         IOptions<ProxmoxOptions> defaultOptions,
+        ISecretEncryptionService encryptionService,
         ILogger<AdapterConfigService> logger)
     {
         _dbContext = dbContext;
         _defaultOptions = defaultOptions;
+        _encryptionService = encryptionService;
         _logger = logger;
     }
 
@@ -112,7 +116,11 @@ public class AdapterConfigService : IAdapterConfigService
         var newSecret = request.ApiTokenSecret;
         if (!string.IsNullOrWhiteSpace(newSecret) && newSecret != MaskedPlaceholder)
         {
-            current.ApiTokenSecret = newSecret.Trim();
+            current.ApiTokenSecret = _encryptionService.Encrypt(newSecret.Trim());
+        }
+        else if (!string.IsNullOrWhiteSpace(current.ApiTokenSecret) && !_encryptionService.IsEncrypted(current.ApiTokenSecret))
+        {
+            current.ApiTokenSecret = _encryptionService.Encrypt(current.ApiTokenSecret);
         }
 
         current.BaseUrl = (request.BaseUrl ?? string.Empty).Trim();
@@ -178,7 +186,7 @@ public class AdapterConfigService : IAdapterConfigService
                     {
                         BaseUrl = stored.BaseUrl,
                         ApiTokenId = stored.ApiTokenId,
-                        ApiTokenSecret = stored.ApiTokenSecret,
+                        ApiTokenSecret = _encryptionService.Decrypt(stored.ApiTokenSecret),
                         AllowSelfSignedCert = stored.AllowSelfSignedCert,
                         TaskPollTimeoutSeconds = stored.TaskPollTimeoutSeconds > 0 ? stored.TaskPollTimeoutSeconds : 300,
                         TaskPollIntervalMilliseconds = stored.TaskPollIntervalMilliseconds > 0 ? stored.TaskPollIntervalMilliseconds : 1000
@@ -191,6 +199,15 @@ public class AdapterConfigService : IAdapterConfigService
             _logger.LogWarning(ex, "Failed to parse Proxmox adapter configuration from database; using application settings fallback.");
         }
 
-        return _defaultOptions.Value;
+        var def = _defaultOptions.Value;
+        return new ProxmoxOptions
+        {
+            BaseUrl = def.BaseUrl,
+            ApiTokenId = def.ApiTokenId,
+            ApiTokenSecret = _encryptionService.Decrypt(def.ApiTokenSecret),
+            AllowSelfSignedCert = def.AllowSelfSignedCert,
+            TaskPollTimeoutSeconds = def.TaskPollTimeoutSeconds,
+            TaskPollIntervalMilliseconds = def.TaskPollIntervalMilliseconds
+        };
     }
 }
