@@ -51,6 +51,7 @@ public static class TemporalServiceCollectionExtensions
         services.AddTemporalClient(targetHost, options.Namespace);
         services.AddHostedTemporalWorker(options.TaskQueue)
             .AddWorkflow<Workflows.HostUpgradeWorkflow>()
+            .AddWorkflow<Workflows.RollingUpgradeWorkflow>()
             .AddWorkflow<SystemPingWorkflow>()
             .AddScopedActivities<Activities.PreflightActivities>()
             .AddScopedActivities<Activities.ProxmoxActivities>()

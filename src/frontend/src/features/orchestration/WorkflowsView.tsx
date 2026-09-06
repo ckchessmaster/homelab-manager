@@ -10,6 +10,7 @@ import {
   Filter,
   RefreshCw,
   Activity,
+  Layers,
 } from 'lucide-react'
 import { useJobs } from './useJobs'
 import { usePipelines } from './usePipelines'
@@ -28,6 +29,7 @@ import {
 } from '../../components/ui/table'
 import { HostTerminalDrawer } from '../hosts/HostTerminalDrawer'
 import { WorkflowCanvasModal } from './canvas/WorkflowCanvasModal'
+import { FleetRollingLauncherModal, FleetRollingDashboardModal } from './fleet'
 import type { Host } from '../../api/hosts'
 import type { JobSummary } from '../../api/jobs'
 
@@ -40,6 +42,12 @@ export function WorkflowsView() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [pipelineFilter, setPipelineFilter] = useState<string>('all')
   const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false)
+
+  // Fleet rolling modal state
+  const [isFleetLauncherOpen, setIsFleetLauncherOpen] = useState(false)
+  const [activeFleetBatchId, setActiveFleetBatchId] = useState<string | null>(null)
+  const [activeFleetHosts, setActiveFleetHosts] = useState<Host[]>([])
+  const [isFleetDashboardOpen, setIsFleetDashboardOpen] = useState(false)
 
   // Canvas modal state
   const [canvasJob, setCanvasJob] = useState<JobSummary | null>(null)
@@ -197,6 +205,15 @@ export function WorkflowsView() {
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsFleetLauncherOpen(true)}
+            className="text-xs h-9 gap-1.5 border-indigo-700/80 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white font-medium shadow-md shadow-indigo-950/40"
+          >
+            <Layers className="w-3.5 h-3.5 text-indigo-400" />
+            Rolling Fleet Upgrade
           </Button>
           <Button
             variant="primary"
@@ -488,6 +505,32 @@ export function WorkflowsView() {
           }}
         />
       )}
+
+      {/* Fleet Rolling Launcher Modal */}
+      <FleetRollingLauncherModal
+        isOpen={isFleetLauncherOpen}
+        onClose={() => setIsFleetLauncherOpen(false)}
+        availableHosts={hosts || []}
+        onFleetLaunched={(batchId, targetHosts) => {
+          setIsFleetLauncherOpen(false)
+          setActiveFleetBatchId(batchId)
+          setActiveFleetHosts(targetHosts)
+          setIsFleetDashboardOpen(true)
+        }}
+      />
+
+      {/* Fleet Rolling Dashboard Modal */}
+      <FleetRollingDashboardModal
+        isOpen={isFleetDashboardOpen}
+        onClose={() => {
+          setIsFleetDashboardOpen(false)
+          setActiveFleetBatchId(null)
+          setActiveFleetHosts([])
+        }}
+        batchId={activeFleetBatchId}
+        targetHosts={activeFleetHosts}
+        onOpenTerminalForJob={handleOpenTerminalForJob}
+      />
     </div>
   )
 }

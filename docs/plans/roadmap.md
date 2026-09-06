@@ -43,7 +43,7 @@ Phase 3: Temporal Durable Execution & Node-Based Visual Workflow Redesign
 | **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-temporal-activities-and-durable-sagas.md)** | Temporal Activities, Durable Sagas & Human-in-the-Loop Approval Gates | ✅ Completed |
 | **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-node-based-workflow-canvas-ui.md)** | Node-Based Visual Workflow Canvas UI (`@xyflow/react`) | ✅ Completed |
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-parameterized-workflow-launcher.md)** | Parameterized Workflow Launcher & Real-Time Graph Preview | ✅ Completed |
-| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-multi-node-fleet-rolling-orchestration.md)** | Multi-Node Fleet Rolling Orchestrator & Batch Workflows | ⏳ Not Started |
+| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-multi-node-fleet-rolling-orchestration.md)** | Multi-Node Fleet Rolling Orchestrator & Batch Workflows | ✅ Completed |
 | **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-standby-temporal-cli-integration.md)** | Standby Mode Temporal CLI Integration (Embedded SQLite Dev Server) | ⏳ Not Started |
 
 ---
