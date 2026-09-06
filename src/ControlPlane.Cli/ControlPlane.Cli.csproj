@@ -18,4 +18,11 @@
     <EmbeddedResource Include="wwwroot\**\*" />
   </ItemGroup>
 
+  <Target Name="SyncFrontendAssets" BeforeTargets="BeforeBuild" Condition="Exists('../frontend/dist')">
+    <ItemGroup>
+      <DistFiles Include="../frontend/dist/**/*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DistFiles)" DestinationFolder="wwwroot/%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

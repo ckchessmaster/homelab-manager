@@ -60,7 +60,7 @@ public class TemporalConfigurationTests
     }
 
     [Fact]
-    public void AddTemporalOrchestration_WhenStandbyMode_SkipsRegistration()
+    public void AddTemporalOrchestration_WhenStandbyModeWithoutStandbyTemporal_SkipsRegistration()
     {
         var services = new ServiceCollection();
         var configuration = new ConfigurationBuilder()
@@ -77,5 +77,27 @@ public class TemporalConfigurationTests
         var provider = services.BuildServiceProvider();
         var client = provider.GetService<ITemporalClient>();
         Assert.Null(client);
+    }
+
+    [Fact]
+    public void AddTemporalOrchestration_WhenStandbyModeWithStandbyTemporal_RegistersClient()
+    {
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["STANDBY_MODE"] = "true",
+                ["STANDBY_TEMPORAL"] = "true",
+                ["Temporal:Enabled"] = "true",
+                ["Temporal:ServerUrl"] = "127.0.0.1:7233"
+            })
+            .Build();
+
+        services.AddLogging();
+        services.AddTemporalOrchestration(configuration);
+
+        var provider = services.BuildServiceProvider();
+        var client = provider.GetService<ITemporalClient>();
+        Assert.NotNull(client);
     }
 }

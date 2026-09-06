@@ -16,9 +16,16 @@ public static class TemporalServiceCollectionExtensions
     {
         var options = configuration.GetSection(TemporalOptions.SectionName).Get<TemporalOptions>() ?? new TemporalOptions();
 
-        // Check if disabled explicitly or in standby mode unless enabled
+        // In standby mode, Temporal is only enabled if explicitly configured with STANDBY_TEMPORAL = true
         var isStandby = configuration.GetValue<bool>("STANDBY_MODE", false);
-        if (isStandby || !options.Enabled)
+        var standbyTemporal = configuration.GetValue<bool>("STANDBY_TEMPORAL", false);
+
+        if (isStandby && !standbyTemporal)
+        {
+            return services;
+        }
+
+        if (!options.Enabled)
         {
             return services;
         }

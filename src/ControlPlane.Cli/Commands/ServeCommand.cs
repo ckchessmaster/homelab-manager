@@ -1,15 +1,27 @@
 using System.CommandLine;
 using System.Text.Json.Serialization;
+using ControlPlane.Api.Features.Adapters.Config;
+using ControlPlane.Api.Features.Adapters.Kubernetes;
+using ControlPlane.Api.Features.Adapters.Proxmox;
+using ControlPlane.Api.Features.Adapters.Redfish;
+using ControlPlane.Api.Features.Adapters.UniFi;
 using ControlPlane.Api.Features.Adoption;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Cluster;
+using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Jobs;
 using ControlPlane.Api.Features.Orchestration;
+using ControlPlane.Api.Features.Orchestration.Pipelines;
+using ControlPlane.Api.Features.Orchestration.Temporal;
+using ControlPlane.Api.Features.Orchestration.Temporal.Endpoints;
+using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
 using ControlPlane.Cli.Synchronization;
+using ControlPlane.Cli.Temporal;
+using k8s;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -20,6 +32,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace ControlPlane.Cli.Commands;
 
@@ -27,7 +40,7 @@ public static class ServeCommand
 {
     public static Command Create()
     {
-        var command = new Command("serve", "Starts the standalone ControlPlane runner with embedded dashboard");
+        var command = new Command("serve", "Starts the standalone ControlPlane runner with embedded dashboard and local Temporal orchestration");
 
         var portOption = new Option<int>("--port", () => 5200, "Port to listen on");
         var takeoverOption = new Option<bool>("--takeover", () => false, "Perform cluster takeover prior to starting");
@@ -35,16 +48,50 @@ public static class ServeCommand
         var apiKeyOption = new Option<string?>("--api-key", () => "dev-secret-key-123", "API key for cluster authentication");
         var dbPathOption = new Option<string?>("--db-path", "Path to local SQLite database (default ~/.controlplane/standby-state.db)");
 
+        // Temporal Dev Server Options
+        var startTemporalOption = new Option<bool>("--start-temporal", () => true, "Automatically start managed local Temporal dev-server with SQLite persistence");
+        var noTemporalOption = new Option<bool>("--no-temporal", () => false, "Disable Temporal orchestration and run in fallback legacy mode");
+        var temporalPortOption = new Option<int>("--temporal-port", () => 7233, "Temporal gRPC port");
+        var temporalUiPortOption = new Option<int>("--temporal-ui-port", () => 8233, "Temporal Web UI port");
+        var temporalDbOption = new Option<string?>("--temporal-db", "Path to SQLite database for Temporal history (default ~/.controlplane/temporal-standby.db)");
+        var temporalUrlOption = new Option<string?>("--temporal-url", "Direct connection address for Temporal server (e.g. 127.0.0.1:7233)");
+        var temporalBinOption = new Option<string?>("--temporal-bin", "Custom path to temporal CLI binary");
+
         command.AddOption(portOption);
         command.AddOption(takeoverOption);
         command.AddOption(clusterUrlOption);
         command.AddOption(apiKeyOption);
         command.AddOption(dbPathOption);
 
-        command.SetHandler(async (port, takeover, clusterUrl, apiKey, dbPath) =>
+        command.AddOption(startTemporalOption);
+        command.AddOption(noTemporalOption);
+        command.AddOption(temporalPortOption);
+        command.AddOption(temporalUiPortOption);
+        command.AddOption(temporalDbOption);
+        command.AddOption(temporalUrlOption);
+        command.AddOption(temporalBinOption);
+
+        command.SetHandler(async (context) =>
         {
-            await RunServerAsync(port, takeover, clusterUrl, apiKey, dbPath, CancellationToken.None);
-        }, portOption, takeoverOption, clusterUrlOption, apiKeyOption, dbPathOption);
+            var port = context.ParseResult.GetValueForOption(portOption);
+            var takeover = context.ParseResult.GetValueForOption(takeoverOption);
+            var clusterUrl = context.ParseResult.GetValueForOption(clusterUrlOption);
+            var apiKey = context.ParseResult.GetValueForOption(apiKeyOption);
+            var dbPath = context.ParseResult.GetValueForOption(dbPathOption);
+
+            var startTemporal = context.ParseResult.GetValueForOption(startTemporalOption);
+            var noTemporal = context.ParseResult.GetValueForOption(noTemporalOption);
+            var temporalPort = context.ParseResult.GetValueForOption(temporalPortOption);
+            var temporalUiPort = context.ParseResult.GetValueForOption(temporalUiPortOption);
+            var temporalDb = context.ParseResult.GetValueForOption(temporalDbOption);
+            var temporalUrl = context.ParseResult.GetValueForOption(temporalUrlOption);
+            var temporalBin = context.ParseResult.GetValueForOption(temporalBinOption);
+
+            await RunServerAsync(
+                port, takeover, clusterUrl, apiKey, dbPath,
+                startTemporal, noTemporal, temporalPort, temporalUiPort, temporalDb, temporalUrl, temporalBin,
+                CancellationToken.None);
+        });
 
         return command;
     }
@@ -55,7 +102,14 @@ public static class ServeCommand
         string? clusterUrl,
         string? apiKey,
         string? dbPath,
-        CancellationToken cancellationToken)
+        bool startTemporal = true,
+        bool noTemporal = false,
+        int temporalPort = 7233,
+        int temporalUiPort = 8233,
+        string? temporalDb = null,
+        string? temporalUrl = null,
+        string? temporalBin = null,
+        CancellationToken cancellationToken = default)
     {
         var defaultDbDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".controlplane");
         Directory.CreateDirectory(defaultDbDir);
@@ -63,14 +117,64 @@ public static class ServeCommand
             ? Path.Combine(defaultDbDir, "standby-state.db")
             : dbPath;
 
+        var resolvedTemporalDb = string.IsNullOrWhiteSpace(temporalDb)
+            ? Path.Combine(defaultDbDir, "temporal-standby.db")
+            : temporalDb;
+
+        var resolvedTemporalUrl = string.IsNullOrWhiteSpace(temporalUrl)
+            ? $"127.0.0.1:{temporalPort}"
+            : temporalUrl;
+
+        // Manage Temporal Dev Server
+        var useTemporal = !noTemporal;
+        ITemporalDevServerManager? devServerManager = null;
+
+        if (useTemporal && startTemporal)
+        {
+            devServerManager = new TemporalDevServerManager();
+            var devServerConfig = new TemporalDevServerConfig(
+                Enabled: true,
+                GrpcPort: temporalPort,
+                UiPort: temporalUiPort,
+                DbFilename: resolvedTemporalDb,
+                Ip: "127.0.0.1",
+                CustomBinaryPath: temporalBin
+            );
+
+            Console.WriteLine($"[TEMPORAL] Initializing Standby Temporal Dev Server (SQLite: {resolvedTemporalDb})...");
+            var started = await devServerManager.EnsureRunningAsync(devServerConfig, cancellationToken);
+            if (!started)
+            {
+                Console.WriteLine("[WARNING] Temporal dev server could not be started. Falling back to legacy orchestration mode.");
+                useTemporal = false;
+            }
+            else
+            {
+                Console.WriteLine($"[TEMPORAL] Temporal Dev Server active on {resolvedTemporalUrl} (Web UI: http://127.0.0.1:{temporalUiPort})");
+            }
+        }
+
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
-        // Configure SQLite
+        // Configure Storage & Standby Mode
         var connectionString = $"Data Source={resolvedDbPath}";
         builder.Configuration["Storage:Provider"] = "Sqlite";
         builder.Configuration["ConnectionStrings:Sqlite"] = connectionString;
+        builder.Configuration["STANDBY_MODE"] = "true";
         builder.Configuration["Auth:DevBypass"] = "true";
+
+        if (useTemporal)
+        {
+            builder.Configuration["STANDBY_TEMPORAL"] = "true";
+            builder.Configuration["Temporal:Enabled"] = "true";
+            builder.Configuration["Temporal:ServerUrl"] = resolvedTemporalUrl;
+        }
+        else
+        {
+            builder.Configuration["STANDBY_TEMPORAL"] = "false";
+            builder.Configuration["Temporal:Enabled"] = "false";
+        }
 
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
@@ -84,11 +188,64 @@ public static class ServeCommand
         builder.Services.AddSingleton<ClusterState>();
         builder.Services.AddSingleton<IAgentCommandExecutor, AgentCommandExecutor>();
         builder.Services.AddSingleton<IStepLogConsumer, StepLogStreamConsumer>();
+        builder.Services.AddSingleton<IPipelineCatalog, PipelineCatalog>();
         builder.Services.AddSingleton<JobOrchestratorService>();
 
+        // Register Temporal Orchestration if enabled
+        builder.Services.AddTemporalOrchestration(builder.Configuration);
+
+        // Core business & adoption services
         builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
         builder.Services.AddScoped<NodeAdoptionService>();
         builder.Services.AddScoped<HostService>();
+        builder.Services.AddSingleton<AgentBinaryService>();
+        builder.Services.AddScoped<MassAgentUpdateService>();
+        builder.Services.AddScoped<ProxmoxProbeService>();
+
+        // Infrastructure Adapters for Standby Mode
+        builder.Services.Configure<ProxmoxOptions>(builder.Configuration.GetSection(ProxmoxOptions.SectionName));
+        builder.Services.Configure<SnapshotRetentionOptions>(builder.Configuration.GetSection(SnapshotRetentionOptions.SectionName));
+        builder.Services.Configure<SecurityOptions>(builder.Configuration.GetSection(SecurityOptions.SectionName));
+        builder.Services.AddSingleton<ISecurityKeyProvider, EnvironmentOrFileKeyProvider>();
+        builder.Services.AddSingleton<ISecretEncryptionService, SecretEncryptionService>();
+        builder.Services.AddScoped<IAdapterConfigService, AdapterConfigService>();
+        builder.Services.AddScoped<ProxmoxTaskPoller>();
+        builder.Services.AddScoped<IProxmoxClient, ProxmoxClient>();
+        builder.Services.AddScoped<ISnapshotRetentionService, SnapshotRetentionService>();
+        builder.Services.AddScoped<IRedfishClient, RedfishClient>();
+        builder.Services.AddScoped<IUniFiClient, UniFiClient>();
+        builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
+
+        builder.Services.Configure<KubernetesConfigOptions>(builder.Configuration.GetSection(KubernetesConfigOptions.SectionName));
+        builder.Services.AddSingleton<IKubernetes>(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<KubernetesConfigOptions>>().Value;
+            KubernetesClientConfiguration config;
+
+            if (opts.InClusterConfig)
+            {
+                config = KubernetesClientConfiguration.InClusterConfig();
+            }
+            else if (!string.IsNullOrWhiteSpace(opts.KubeConfigPath) && File.Exists(opts.KubeConfigPath))
+            {
+                config = KubernetesClientConfiguration.BuildConfigFromConfigFile(opts.KubeConfigPath);
+            }
+            else
+            {
+                try
+                {
+                    config = KubernetesClientConfiguration.BuildDefaultConfig();
+                }
+                catch
+                {
+                    config = new KubernetesClientConfiguration { Host = opts.MasterUri ?? "http://localhost:8080" };
+                }
+            }
+
+            return new Kubernetes(config);
+        });
+        builder.Services.AddScoped<IKubernetesAdapter, KubernetesAdapter>();
+        builder.Services.AddHttpClient(ProxmoxProbeService.StandardHttpClientName);
 
         // HTTP Client handler allowing self-signed certificates in homelab
         builder.Services.AddHttpClient("ClusterClient")
@@ -146,6 +303,10 @@ public static class ServeCommand
             if (!acquired)
             {
                 Console.WriteLine("[ERROR] Could not acquire cluster lease. Aborting takeover.");
+                if (devServerManager != null)
+                {
+                    await devServerManager.StopAsync(CancellationToken.None);
+                }
                 return;
             }
             Console.WriteLine("[TAKEOVER] Cluster lease acquired. Operating in Standby Runner Mode.");
@@ -165,19 +326,37 @@ public static class ServeCommand
             mode = "StandbyRunner",
             port,
             database = resolvedDbPath,
+            temporal = useTemporal ? "active" : "disabled",
+            temporalServer = useTemporal ? resolvedTemporalUrl : null,
+            temporalUi = useTemporal ? $"http://127.0.0.1:{temporalUiPort}" : null,
             timestamp = DateTimeOffset.UtcNow
         }));
 
+        // Map all API and Adapter Endpoints for 100% Feature Parity
         app.MapHostEndpoints();
+        app.MapProxmoxEndpoints();
+        app.MapSnapshotRetentionEndpoints();
+        app.MapNodeAdoptionEndpoints();
+        app.MapAgentManagementEndpoints();
         app.MapJobEndpoints();
         app.MapJobLogEndpoints();
         app.MapClusterEndpoints();
+        app.MapRedfishEndpoints();
+        app.MapUniFiEndpoints();
+        app.MapKubernetesEndpoints();
+        app.MapDiscoveryEndpoints();
+        app.MapSecurityEndpoints();
+        app.MapTemporalWorkflowEndpoints();
         app.MapHub<JobLogHub>("/hubs/jobs");
 
         // SPA fallback
         app.MapFallbackToFile("index.html", new StaticFileOptions { FileProvider = embeddedProvider });
 
         Console.WriteLine($"[STANDBY] ControlPlane Standby Runner active on http://localhost:{port}");
+        if (useTemporal)
+        {
+            Console.WriteLine($"[STANDBY] Temporal Web UI accessible at http://127.0.0.1:{temporalUiPort}");
+        }
 
         await app.StartAsync(cancellationToken);
 
@@ -204,6 +383,13 @@ public static class ServeCommand
             {
                 Console.WriteLine("[WARNING] Delta reconciliation could not complete cleanly. Lease held for safety.");
             }
+        }
+
+        if (devServerManager != null)
+        {
+            Console.WriteLine("[TEMPORAL] Stopping managed Temporal dev server...");
+            await devServerManager.StopAsync(CancellationToken.None);
+            await devServerManager.DisposeAsync();
         }
 
         await app.StopAsync(CancellationToken.None);
