@@ -440,11 +440,21 @@ export function WorkflowsView() {
         isOpen={isTriggerModalOpen}
         onClose={() => setIsTriggerModalOpen(false)}
         availableHosts={hosts || []}
-        onWorkflowLaunched={(jobId, host) => {
+        onWorkflowLaunched={(jobId, host, workflowId) => {
           setIsTriggerModalOpen(false)
-          setTerminalJobId(jobId)
-          setAutoTriggerDag(false)
-          setTerminalHost(host)
+          refetch()
+          setCanvasJob({
+            id: workflowId || jobId,
+            targetHostId: host.id,
+            pipelineId: 'temporal-host-upgrade',
+            status: 'Running',
+            activeStep: 'Preflight Checks',
+            initiatedBy: 'Operator',
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            failureReason: null,
+          })
+          setIsCanvasModalOpen(true)
         }}
       />
 
