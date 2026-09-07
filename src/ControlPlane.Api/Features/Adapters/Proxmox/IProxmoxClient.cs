@@ -91,4 +91,13 @@ public interface IProxmoxClient
     /// Checks whether the VM or container's storage backend supports snapshots.
     /// </summary>
     Task<bool> HasSnapshotFeatureAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default);
+
+    /// <summary>
+    /// Attempts to query guest OS information via QEMU guest agent (get-osinfo) or container/VM config.
+    /// </summary>
+    Task<string?> TryGetGuestOsTypeAsync(
+        string node,
+        int vmid,
+        bool isLxc = false,
+        CancellationToken ct = default) => Task.FromResult<string?>(null);
 }

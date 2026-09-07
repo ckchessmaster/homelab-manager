@@ -84,10 +84,16 @@ function InnerWorkflowCanvas({
   useEffect(() => {
     setNodes(initialNodes)
     setEdges(initialEdges)
-    const timer = setTimeout(() => {
-      fitView({ padding: 0.2, duration: 400 })
+    const t1 = setTimeout(() => {
+      fitView({ padding: 0.15, duration: 200 })
     }, 100)
-    return () => clearTimeout(timer)
+    const t2 = setTimeout(() => {
+      fitView({ padding: 0.15, duration: 200 })
+    }, 350)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [initialNodes, initialEdges, fitView, setNodes, setEdges])
 
   const minimapNodeColor = (node: Node) => {
@@ -110,7 +116,7 @@ function InnerWorkflowCanvas({
   return (
     <div
       className={`relative w-full rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950 ${className}`}
-      style={{ height }}
+      style={height !== undefined ? { height } : { height: '100%' }}
     >
       <ReactFlow
         nodes={nodes}
@@ -120,8 +126,8 @@ function InnerWorkflowCanvas({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.2}
+        fitViewOptions={{ padding: 0.15 }}
+        minZoom={0.05}
         maxZoom={1.5}
         defaultEdgeOptions={{ type: 'workflowEdge' }}
         proOptions={{ hideAttribution: true }}

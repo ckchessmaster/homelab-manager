@@ -812,6 +812,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
       {/* Host Terminal Drawer */}
       {terminalHost && (
         <HostTerminalDrawer
+          key={`${terminalHost.id}-${terminalJobId || 'live'}`}
           host={terminalHost}
           isOpen={Boolean(terminalHost)}
           initialJobId={terminalJobId}

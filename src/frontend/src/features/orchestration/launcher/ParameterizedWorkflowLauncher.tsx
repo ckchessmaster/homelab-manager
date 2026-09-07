@@ -237,15 +237,16 @@ export function ParameterizedWorkflowLauncher({
           </div>
 
           {/* Right Column: Live DAG Preview & Launch Trigger */}
-          <div className="lg:col-span-6 p-6 flex flex-col bg-zinc-950/60 overflow-hidden">
+          <div className="lg:col-span-6 p-6 flex flex-col h-full bg-zinc-950/60 overflow-hidden">
             {/* Live Canvas Preview */}
-            <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 flex flex-col h-full">
               <LiveDagPreview
                 enableSnapshot={enableSnapshot}
                 enableK8sDrain={enableK8sDrain}
                 requireApprovalBeforeReboot={requireApprovalBeforeReboot}
                 probeCount={probeUrls.length}
                 height="100%"
+                className="h-full"
               />
             </div>
 

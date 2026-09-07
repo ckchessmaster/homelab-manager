@@ -329,4 +329,62 @@ public class HostEndpointsTests
         var delResp = await client.DeleteAsync("/api/v1/hosts/11111111-1111-1111-1111-111111111111");
         Assert.Equal(HttpStatusCode.BadRequest, delResp.StatusCode);
     }
+
+    [Fact]
+    public async Task DeleteHost_WithCompletedJob_DeletesSuccessfully()
+    {
+        using var factory = new HostTestAppFactory();
+        var client = CreateAuthClient(factory);
+
+        var hostId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            var job = new UpdateJob
+            {
+                Id = Guid.NewGuid(),
+                TargetHostId = hostId,
+                InitiatedBy = "test-operator",
+                Status = "Completed",
+                ActiveStep = "apt update",
+                StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+                CompletedAt = DateTimeOffset.UtcNow
+            };
+            job.StepLogs.Add(new StepLog
+            {
+                SequenceId = 1,
+                StreamType = "stdout",
+                LogLine = "Finished successfully"
+            });
+            db.UpdateJobs.Add(job);
+            await db.SaveChangesAsync();
+        }
+
+        var delResp = await client.DeleteAsync($"/api/v1/hosts/{hostId}");
+        Assert.Equal(HttpStatusCode.NoContent, delResp.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateHost_WithValidHostnameAsAddress_Succeeds()
+    {
+        using var factory = new HostTestAppFactory();
+        var client = CreateAuthClient(factory);
+
+        var req = new CreateHostRequest(
+            Hostname: "proxmox-pve-node",
+            FriendlyName: "Proxmox Host",
+            IpAddress: "proxmox.local.chriskingdon.com",
+            OsFamily: "linux_debian",
+            TargetType: "baremetal"
+        );
+
+        var response = await client.PostAsJsonAsync("/api/v1/hosts", req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var created = await response.Content.ReadFromJsonAsync<HostResponse>();
+        Assert.NotNull(created);
+        Assert.Equal("proxmox-pve-node", created.Hostname);
+        // It either resolved to an IP or accepted the valid FQDN
+        Assert.False(string.IsNullOrWhiteSpace(created.IpAddress));
+    }
 }

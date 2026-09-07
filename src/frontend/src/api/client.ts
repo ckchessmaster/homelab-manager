@@ -14,6 +14,9 @@ export function setApiKey(key: string): void {
 
 export interface ApiErrorResponse {
   message?: string
+  errorMessage?: string
+  title?: string
+  detail?: string
   errors?: Record<string, string[]>
   status?: number
 }
@@ -62,10 +65,12 @@ export async function apiClient<T>(
     }
 
     const message =
+      errorData.errorMessage ||
       errorData.message ||
+      errorData.detail ||
       (errorData.errors
         ? Object.values(errorData.errors).flat().join(' ')
-        : `HTTP error ${response.status}`)
+        : errorData.title || `HTTP error ${response.status}`)
 
     throw new ApiError(message, response.status, errorData.errors)
   }

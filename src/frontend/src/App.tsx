@@ -80,7 +80,7 @@ export default function App() {
           </div>
 
           {/* Host Inventory Table */}
-          <HostTable onOpenAddModal={() => setAddHostOpen(false)} />
+          <HostTable onOpenAddModal={() => setAddHostOpen(true)} />
 
           {/* Add Host Modal */}
           <AddHostModal open={addHostOpen} onClose={() => setAddHostOpen(false)} />

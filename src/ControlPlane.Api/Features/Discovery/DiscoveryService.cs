@@ -1,3 +1,4 @@
+using System.Net;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Hosts;
@@ -72,6 +73,23 @@ public class DiscoveryService : IDiscoveryService
                         if (Uri.TryCreate(pveOpts.BaseUrl, UriKind.Absolute, out var pveUri))
                         {
                             defaultNodeIp = pveUri.Host;
+                            if (!IPAddress.TryParse(defaultNodeIp, out _))
+                            {
+                                try
+                                {
+                                    var addresses = await Dns.GetHostAddressesAsync(defaultNodeIp, ct);
+                                    var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                                            ?? addresses.FirstOrDefault();
+                                    if (ipv4 != null)
+                                    {
+                                        defaultNodeIp = ipv4.ToString();
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug(ex, "Could not resolve IP address for Proxmox base URL host {Host}", pveUri.Host);
+                                }
+                            }
                         }
 
                         foreach (var n in pveNodes)
@@ -127,6 +145,7 @@ public class DiscoveryService : IDiscoveryService
                             var status = res.Status ?? "unknown";
 
                             string? ip = null;
+                            string? osRaw = null;
                             if (string.Equals(status, "running", StringComparison.OrdinalIgnoreCase) && vmid > 0)
                             {
                                 try
@@ -137,7 +156,18 @@ public class DiscoveryService : IDiscoveryService
                                 {
                                     _logger.LogDebug(ipEx, "Could not resolve IP address for guest {Node}/{Vmid}", res.Node, vmid);
                                 }
+
+                                try
+                                {
+                                    osRaw = await _proxmoxClient.TryGetGuestOsTypeAsync(res.Node, vmid, isLxc, ct);
+                                }
+                                catch (Exception osEx)
+                                {
+                                    _logger.LogDebug(osEx, "Could not resolve OS info for guest {Node}/{Vmid}", res.Node, vmid);
+                                }
                             }
+
+                            var detectedOs = DetectOsFamily(osRaw, name);
 
                             // Match against existing hosts
                             var matchedHost = existingHosts.FirstOrDefault(h =>
@@ -151,7 +181,7 @@ public class DiscoveryService : IDiscoveryService
                                 Name: name,
                                 IpAddress: ip ?? matchedHost?.IpAddress,
                                 TargetType: targetType,
-                                OsFamily: matchedHost?.OsFamily ?? "linux_debian",
+                                OsFamily: matchedHost?.OsFamily ?? detectedOs,
                                 Status: status,
                                 ProxmoxNode: res.Node,
                                 ProxmoxVmid: vmid > 0 ? vmid : null,
@@ -218,7 +248,7 @@ public class DiscoveryService : IDiscoveryService
                             Name: kNode.Name,
                             IpAddress: kNode.InternalIp ?? matchedHost?.IpAddress,
                             TargetType: matchedHost?.TargetType ?? "baremetal",
-                            OsFamily: matchedHost?.OsFamily ?? (kNode.OsImage?.Contains("ubuntu", StringComparison.OrdinalIgnoreCase) == true || kNode.OsImage?.Contains("debian", StringComparison.OrdinalIgnoreCase) == true ? "linux_debian" : "linux_rhel"),
+                            OsFamily: matchedHost?.OsFamily ?? DetectOsFamily(kNode.OsImage, kNode.Name),
                             Status: kNode.IsReady ? "Ready" : "NotReady",
                             K8sNodeName: kNode.Name,
                             Roles: roles,
@@ -262,10 +292,29 @@ public class DiscoveryService : IDiscoveryService
             return new ImportCandidateResponse(false, null, null, "A valid IP address is required to import into host inventory.");
         }
 
+        var cleanIp = request.IpAddress.Trim();
+        if (!IPAddress.TryParse(cleanIp, out _))
+        {
+            try
+            {
+                var addresses = await Dns.GetHostAddressesAsync(cleanIp, ct);
+                var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        ?? addresses.FirstOrDefault();
+                if (ipv4 != null)
+                {
+                    cleanIp = ipv4.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not resolve hostname {Hostname} to an IP address", cleanIp);
+            }
+        }
+
         var createRequest = new CreateHostRequest(
             Hostname: request.Name.Trim(),
             FriendlyName: string.IsNullOrWhiteSpace(request.FriendlyName) ? null : request.FriendlyName.Trim(),
-            IpAddress: request.IpAddress.Trim(),
+            IpAddress: cleanIp,
             OsFamily: string.IsNullOrWhiteSpace(request.OsFamily) ? "linux_debian" : request.OsFamily.Trim(),
             TargetType: string.IsNullOrWhiteSpace(request.TargetType) ? "proxmox_vm" : request.TargetType.Trim(),
             ProxmoxNode: string.IsNullOrWhiteSpace(request.ProxmoxNode) ? null : request.ProxmoxNode.Trim(),
@@ -294,5 +343,28 @@ public class DiscoveryService : IDiscoveryService
         _logger.LogInformation("Successfully imported discovered candidate '{Name}' as host {HostId}", request.Name, createdHost.Id);
 
         return new ImportCandidateResponse(true, createdHost.Id, createdHost.Hostname, null);
+    }
+
+    public static string DetectOsFamily(string? osInfo, string? fallbackHint = null)
+    {
+        var combined = $"{osInfo} {fallbackHint}".Trim();
+        if (string.IsNullOrWhiteSpace(combined))
+        {
+            return "linux_debian";
+        }
+
+        var lower = combined.ToLowerInvariant();
+        if (lower.Contains("ubuntu")) return "linux_ubuntu";
+        if (lower.Contains("debian")) return "linux_debian";
+        if (lower.Contains("rocky")) return "linux_rocky";
+        if (lower.Contains("fedora")) return "linux_fedora";
+        if (lower.Contains("rhel") || lower.Contains("red hat") || lower.Contains("redhat") || lower.Contains("centos") || lower.Contains("alma")) return "linux_rhel";
+        if (lower.Contains("alpine")) return "linux_alpine";
+        if (lower.Contains("arch")) return "linux_arch";
+        if (lower.Contains("suse")) return "linux_suse";
+        if (lower.Contains("win")) return "windows";
+        if (lower.Contains("bsd")) return "freebsd";
+
+        return "linux_debian";
     }
 }

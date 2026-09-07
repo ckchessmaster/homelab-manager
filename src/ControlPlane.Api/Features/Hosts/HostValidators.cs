@@ -34,6 +34,30 @@ public static partial class HostValidators
         @"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    public static bool IsValidHostname(string host)
+    {
+        if (string.IsNullOrWhiteSpace(host) || host.Length > 253 || !HostnameRegex.IsMatch(host))
+        {
+            return false;
+        }
+
+        var parts = host.Split('.');
+        // If 4 parts all numeric, it is an IPv4 dotted-quad attempt that already failed IPAddress.TryParse
+        if (parts.Length == 4 && parts.All(p => p.All(char.IsAsciiDigit)))
+        {
+            return false;
+        }
+
+        // TLD or single host label must contain at least one letter (RFC 1123 / RFC 3696)
+        var lastPart = parts[^1];
+        if (!lastPart.Any(char.IsAsciiLetter))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     public static IDictionary<string, string[]> ValidateCreate(CreateHostRequest req)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -53,7 +77,7 @@ public static partial class HostValidators
         {
             AddError(nameof(req.Hostname), "Hostname is required.");
         }
-        else if (req.Hostname.Length > 253 || !HostnameRegex.IsMatch(req.Hostname))
+        else if (!IsValidHostname(req.Hostname))
         {
             AddError(nameof(req.Hostname), "Hostname must be a valid DNS hostname (alphanumeric with hyphens and dots).");
         }
@@ -65,7 +89,10 @@ public static partial class HostValidators
         }
         else if (!IPAddress.TryParse(req.IpAddress, out _))
         {
-            AddError(nameof(req.IpAddress), "IP address must be a valid IPv4 or IPv6 address.");
+            if (req.IpAddress.Length > 45 || !IsValidHostname(req.IpAddress))
+            {
+                AddError(nameof(req.IpAddress), "IP address must be a valid IPv4 or IPv6 address.");
+            }
         }
 
         // OS Family
@@ -149,7 +176,10 @@ public static partial class HostValidators
             }
             else if (!IPAddress.TryParse(req.IpAddress, out _))
             {
-                AddError(nameof(req.IpAddress), "IP address must be a valid IPv4 or IPv6 address.");
+                if (req.IpAddress.Length > 45 || !IsValidHostname(req.IpAddress))
+                {
+                    AddError(nameof(req.IpAddress), "IP address must be a valid IPv4 or IPv6 address.");
+                }
             }
         }
 

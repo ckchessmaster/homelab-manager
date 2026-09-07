@@ -9,6 +9,7 @@ export interface LiveDagPreviewProps {
   requireApprovalBeforeReboot: boolean
   probeCount: number
   height?: number | string
+  className?: string
 }
 
 export function LiveDagPreview({
@@ -16,7 +17,8 @@ export function LiveDagPreview({
   enableK8sDrain,
   requireApprovalBeforeReboot,
   probeCount,
-  height = 320,
+  height = '100%',
+  className = '',
 }: LiveDagPreviewProps) {
   const previewState: WorkflowStateLike = useMemo(() => ({
     status: 'Pending',
@@ -34,8 +36,8 @@ export function LiveDagPreview({
   }, [enableSnapshot, enableK8sDrain, requireApprovalBeforeReboot, probeCount])
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between px-1">
+    <div className={`flex-1 min-h-0 flex flex-col space-y-2.5 h-full ${className}`}>
+      <div className="flex items-center justify-between px-1 shrink-0">
         <div className="flex items-center gap-2">
           <GitFork className="w-4 h-4 text-emerald-400" />
           <span className="text-xs font-semibold text-zinc-200">
@@ -51,15 +53,17 @@ export function LiveDagPreview({
         </span>
       </div>
 
-      <WorkflowDagCanvas
-        workflowId="preview-dag"
-        state={previewState}
-        isProxmoxHost={enableSnapshot}
-        isK8sHost={enableK8sDrain}
-        requireApproval={requireApprovalBeforeReboot}
-        height={height}
-        className="border-zinc-800/80 shadow-inner"
-      />
+      <div className="flex-1 min-h-[380px] w-full h-full relative">
+        <WorkflowDagCanvas
+          workflowId="preview-dag"
+          state={previewState}
+          isProxmoxHost={enableSnapshot}
+          isK8sHost={enableK8sDrain}
+          requireApproval={requireApprovalBeforeReboot}
+          height={height}
+          className="border-zinc-800/80 shadow-inner h-full w-full"
+        />
+      </div>
     </div>
   )
 }

@@ -32,6 +32,14 @@ public class DiscoveryTests
             return Task.FromResult<string?>(null);
         }
 
+        public Dictionary<(string, int), string> GuestOsTypes { get; set; } = new();
+
+        public Task<string?> TryGetGuestOsTypeAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)
+        {
+            if (GuestOsTypes.TryGetValue((node, vmid), out var os)) return Task.FromResult<string?>(os);
+            return Task.FromResult<string?>(null);
+        }
+
         public Task<string> CreateVmSnapshotAsync(string node, int vmid, string snapName, string? description = null, bool isLxc = false, CancellationToken ct = default) => Task.FromResult("UPID:pve:001");
         public Task<string> RollbackVmSnapshotAsync(string node, int vmid, string snapName, bool isLxc = false, CancellationToken ct = default) => Task.FromResult("UPID:pve:002");
         public Task<string> DeleteVmSnapshotAsync(string node, int vmid, string snapName, bool isLxc = false, CancellationToken ct = default) => Task.FromResult("UPID:pve:003");
@@ -254,6 +262,49 @@ public class DiscoveryTests
     }
 
     [Fact]
+    public async Task ImportCandidateAsync_WithHostnameAddress_ImportsSuccessfully()
+    {
+        var (db, conn) = CreateInMemoryDbContext();
+        using var _ = conn;
+        using var __ = db;
+
+        var hostService = new HostService(db, NullLogger<HostService>.Instance);
+        var fakePve = new FakeProxmoxClient();
+        var fakeK8s = new FakeKubernetesAdapter();
+        var pveOpts = Options.Create(new ProxmoxOptions());
+
+        var service = new DiscoveryService(
+            db,
+            fakePve,
+            fakeK8s,
+            hostService,
+            pveOpts,
+            NullLogger<DiscoveryService>.Instance
+        );
+
+        var request = new ImportCandidateRequest(
+            Name: "pve-root-node",
+            IpAddress: "proxmox.local.chriskingdon.com",
+            TargetType: "baremetal",
+            OsFamily: "linux_debian",
+            FriendlyName: "Primary Proxmox Hypervisor",
+            ProxmoxNode: "proxmox",
+            ProxmoxVmid: null
+        );
+
+        var response = await service.ImportCandidateAsync(request);
+
+        Assert.True(response.Success);
+        Assert.NotNull(response.HostId);
+        Assert.Equal("pve-root-node", response.Hostname);
+
+        var hostInDb = await db.Hosts.FindAsync(response.HostId.Value);
+        Assert.NotNull(hostInDb);
+        Assert.Equal("pve-root-node", hostInDb.Hostname);
+        Assert.False(string.IsNullOrWhiteSpace(hostInDb.IpAddress));
+    }
+
+    [Fact]
     public async Task DiscoverClusterResourcesAsync_HandlesFloatingPointMetricsAndMissingFields()
     {
         var handler = new MockHttpMessageHandler(req =>
@@ -406,6 +457,54 @@ public class DiscoveryTests
         Assert.Equal(105, resources[0].Vmid);
         Assert.Equal("fallback-vm", resources[0].Name);
         Assert.Equal("proxmox", resources[0].Node);
+    }
+
+    [Fact]
+    public async Task ScanAsync_DetectsUbuntuGuestOs_ProperlySetsOsFamilyToUbuntu()
+    {
+        var (db, conn) = CreateInMemoryDbContext();
+        using var _ = conn;
+        using var __ = db;
+
+        var hostService = new HostService(db, NullLogger<HostService>.Instance);
+        var fakePve = new FakeProxmoxClient();
+        fakePve.Resources.Add(new ProxmoxClusterResourceDto("qemu/200", "proxmox", "qemu", 200, "ubuntu-worker-node", "running"));
+        fakePve.GuestIps[("proxmox", 200)] = "192.168.1.200";
+        fakePve.GuestOsTypes[("proxmox", 200)] = "ubuntu";
+
+        fakePve.Resources.Add(new ProxmoxClusterResourceDto("qemu/201", "proxmox", "qemu", 201, "debian-worker-node", "running"));
+        fakePve.GuestIps[("proxmox", 201)] = "192.168.1.201";
+        fakePve.GuestOsTypes[("proxmox", 201)] = "Debian GNU/Linux 12";
+
+        var fakeK8s = new FakeKubernetesAdapter();
+        fakeK8s.Nodes.Add(new K8sDiscoveredNodeDto(
+            Name: "k8s-node-ubuntu",
+            InternalIp: "192.168.1.202",
+            Roles: new List<string> { "worker" },
+            IsReady: true,
+            Unschedulable: false,
+            OsImage: "Ubuntu 22.04.4 LTS",
+            KernelVersion: "6.5.0-generic",
+            ContainerRuntimeVersion: "containerd://1.7.0",
+            Labels: new Dictionary<string, string>()
+        ));
+
+        var pveOpts = Options.Create(new ProxmoxOptions { BaseUrl = "https://pve:8006", ApiTokenId = "token" });
+        var service = new DiscoveryService(db, fakePve, fakeK8s, hostService, pveOpts, NullLogger<DiscoveryService>.Instance);
+
+        var result = await service.ScanAsync(includeProxmox: true, includeKubernetes: true);
+
+        var ubuntuVm = result.Candidates.FirstOrDefault(c => c.Name == "ubuntu-worker-node");
+        Assert.NotNull(ubuntuVm);
+        Assert.Equal("linux_ubuntu", ubuntuVm.OsFamily);
+
+        var debianVm = result.Candidates.FirstOrDefault(c => c.Name == "debian-worker-node");
+        Assert.NotNull(debianVm);
+        Assert.Equal("linux_debian", debianVm.OsFamily);
+
+        var k8sNode = result.Candidates.FirstOrDefault(c => c.Name == "k8s-node-ubuntu");
+        Assert.NotNull(k8sNode);
+        Assert.Equal("linux_ubuntu", k8sNode.OsFamily);
     }
 
     private class MockHttpMessageHandler : HttpMessageHandler

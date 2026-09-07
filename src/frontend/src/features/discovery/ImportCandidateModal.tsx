@@ -170,8 +170,11 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
                 onChange={(e) => setOsFamily(e.target.value)}
                 className="w-full h-9 bg-zinc-900 border border-zinc-800 rounded-md px-3 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
               >
-                <option value="linux_debian">Debian / Ubuntu (APT)</option>
-                <option value="linux_rhel">RHEL / Rocky / Fedora (DNF)</option>
+                <option value="linux_ubuntu">Ubuntu Linux</option>
+                <option value="linux_debian">Debian GNU/Linux</option>
+                <option value="linux_rhel">RHEL / Rocky / Alma</option>
+                <option value="linux_arch">Arch Linux</option>
+                <option value="linux_alpine">Alpine Linux</option>
                 <option value="windows">Windows Server</option>
               </select>
             </div>

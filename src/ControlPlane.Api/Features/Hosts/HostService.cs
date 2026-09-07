@@ -1,3 +1,4 @@
+using System.Net;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -82,6 +83,24 @@ public class HostService
 
         var cleanHostname = request.Hostname.Trim();
         var cleanIp = request.IpAddress.Trim();
+
+        if (!IPAddress.TryParse(cleanIp, out _))
+        {
+            try
+            {
+                var addresses = await Dns.GetHostAddressesAsync(cleanIp, cancellationToken);
+                var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        ?? addresses.FirstOrDefault();
+                if (ipv4 != null)
+                {
+                    cleanIp = ipv4.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not resolve DNS for host address '{CleanIp}'", cleanIp);
+            }
+        }
 
         var duplicateHostname = await _db.Hosts
             .AnyAsync(h => h.Hostname.ToLower() == cleanHostname.ToLower(), cancellationToken);
@@ -196,6 +215,23 @@ public class HostService
         if (request.IpAddress != null)
         {
             var cleanIp = request.IpAddress.Trim();
+            if (!IPAddress.TryParse(cleanIp, out _))
+            {
+                try
+                {
+                    var addresses = await Dns.GetHostAddressesAsync(cleanIp, cancellationToken);
+                    var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                            ?? addresses.FirstOrDefault();
+                    if (ipv4 != null)
+                    {
+                        cleanIp = ipv4.ToString();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not resolve DNS for host address '{CleanIp}'", cleanIp);
+                }
+            }
             var duplicate = await _db.Hosts
                 .AnyAsync(h => h.Id != id && h.IpAddress.ToLower() == cleanIp.ToLower(), cancellationToken);
 
@@ -283,6 +319,7 @@ public class HostService
     {
         var host = await _db.Hosts
             .Include(h => h.UpdateJobs)
+                .ThenInclude(j => j.StepLogs)
             .FirstOrDefaultAsync(h => h.Id == id, cancellationToken);
 
         if (host == null)
@@ -298,6 +335,11 @@ public class HostService
         if (activeJob != null)
         {
             return (false, false, $"Cannot delete host while update job '{activeJob.Id}' is {activeJob.Status}.");
+        }
+
+        if (host.UpdateJobs.Count > 0)
+        {
+            _db.UpdateJobs.RemoveRange(host.UpdateJobs);
         }
 
         _db.Hosts.Remove(host);

@@ -43,6 +43,17 @@ public class AgentHeartbeatHandler
         {
             host.Agent.UpgradablePackagesCount = message.PackageSummary.UpgradableCount;
         }
+
+        // Auto-refine OsFamily if host was set to generic debian but agent reports Ubuntu kernel
+        if (string.Equals(host.OsFamily, "linux_debian", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(message.KernelVersion)
+            && message.KernelVersion.Contains("ubuntu", StringComparison.OrdinalIgnoreCase))
+        {
+            host.OsFamily = "linux_ubuntu";
+            _logger.LogInformation("Refined OsFamily for host {Hostname} ({HostId}) to 'linux_ubuntu' based on kernel '{Kernel}'",
+                host.Hostname, host.Id, message.KernelVersion);
+        }
+
         host.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);

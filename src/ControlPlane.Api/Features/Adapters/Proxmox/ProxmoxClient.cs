@@ -493,6 +493,115 @@ public class ProxmoxClient : IProxmoxClient
         return null;
     }
 
+    public async Task<string?> TryGetGuestOsTypeAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)
+    {
+        var options = await GetOptionsAsync(ct);
+        ValidateConfiguration(options);
+
+        if (isLxc)
+        {
+            try
+            {
+                var lxcConfigEndpoint = $"/nodes/{Uri.EscapeDataString(node)}/lxc/{vmid}/config";
+                using var req = CreateRequest(options, HttpMethod.Get, lxcConfigEndpoint);
+                using var resp = await SendAsync(options, req, ct);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(ct);
+                    if (doc != null && doc.RootElement.TryGetProperty("data", out var data))
+                    {
+                        if (data.TryGetProperty("ostype", out var ostype) && ostype.ValueKind == JsonValueKind.String)
+                        {
+                            var val = ostype.GetString();
+                            if (!string.IsNullOrWhiteSpace(val)) return val;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not fetch LXC config for {Node}/{Vmid}", node, vmid);
+            }
+            return null;
+        }
+
+        // QEMU VM: 1. Try QEMU guest agent get-osinfo
+        try
+        {
+            var agentEndpoint = $"/nodes/{Uri.EscapeDataString(node)}/qemu/{vmid}/agent/get-osinfo";
+            using var req = CreateRequest(options, HttpMethod.Get, agentEndpoint);
+            using var resp = await SendAsync(options, req, ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(ct);
+                if (doc != null && doc.RootElement.TryGetProperty("data", out var data))
+                {
+                    if (data.TryGetProperty("result", out var result))
+                    {
+                        if (result.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String)
+                        {
+                            var id = idProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(id)) return id;
+                        }
+                        if (result.TryGetProperty("pretty-name", out var prettyProp) && prettyProp.ValueKind == JsonValueKind.String)
+                        {
+                            var pretty = prettyProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(pretty)) return pretty;
+                        }
+                        if (result.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String)
+                        {
+                            var name = nameProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(name)) return name;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Guest agent get-osinfo not available for QEMU VM {Node}/{Vmid}", node, vmid);
+        }
+
+        // QEMU VM: 2. Fallback to VM config (check ostype, tags, description)
+        try
+        {
+            var configEndpoint = $"/nodes/{Uri.EscapeDataString(node)}/qemu/{vmid}/config";
+            using var req = CreateRequest(options, HttpMethod.Get, configEndpoint);
+            using var resp = await SendAsync(options, req, ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(ct);
+                if (doc != null && doc.RootElement.TryGetProperty("data", out var data))
+                {
+                    if (data.TryGetProperty("ostype", out var ostype) && ostype.ValueKind == JsonValueKind.String)
+                    {
+                        var ostypeVal = ostype.GetString();
+                        if (!string.IsNullOrWhiteSpace(ostypeVal) && ostypeVal.StartsWith("win", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return ostypeVal;
+                        }
+                    }
+                    if (data.TryGetProperty("tags", out var tags) && tags.ValueKind == JsonValueKind.String)
+                    {
+                        var tagStr = tags.GetString();
+                        if (!string.IsNullOrWhiteSpace(tagStr)) return tagStr;
+                    }
+                    if (data.TryGetProperty("description", out var desc) && desc.ValueKind == JsonValueKind.String)
+                    {
+                        var descStr = desc.GetString();
+                        if (!string.IsNullOrWhiteSpace(descStr)) return descStr;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not fetch VM config for {Node}/{Vmid}", node, vmid);
+        }
+
+        return null;
+    }
+
     public async Task<List<ProxmoxSnapshotItem>> ListVmSnapshotsAsync(
         string node,
         int vmid,

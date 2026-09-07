@@ -31,17 +31,9 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   initialJobId = null,
   autoTriggerDag = false,
 }) => {
+  const terminalRef = useRef<TerminalRef>(null)
   const [activeJobId, setActiveJobId] = useState<string | null>(initialJobId)
-  const [prevInitialJobId, setPrevInitialJobId] = useState<string | null>(initialJobId)
   const [activeCommand, setActiveCommand] = useState<string>(initialJobId ? 'DAG Execution Log' : '')
-
-  if (initialJobId !== prevInitialJobId) {
-    setPrevInitialJobId(initialJobId)
-    setActiveJobId(initialJobId)
-    if (initialJobId) {
-      setActiveCommand('DAG Execution Log')
-    }
-  }
   const [customCommand, setCustomCommand] = useState('')
   const [customArgs, setCustomArgs] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
@@ -50,7 +42,13 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const autoTriggeredRef = useRef(false)
 
-  const terminalRef = useRef<TerminalRef>(null)
+  const handleScrollPositionChange = useCallback((isAtBottom: boolean) => {
+    setAutoScroll((prev) => {
+      if (!isAtBottom && prev) return false
+      if (isAtBottom && !prev) return true
+      return prev
+    })
+  }, [])
 
   const handleLogLine = useCallback((line: string, streamType?: string) => {
     if (!line) {
@@ -384,13 +382,7 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
               <TerminalCanvas
                 ref={terminalRef}
                 autoScroll={autoScroll}
-                onScrollPositionChange={(isAtBottom) => {
-                  if (!isAtBottom && autoScroll) {
-                    setAutoScroll(false)
-                  } else if (isAtBottom && !autoScroll) {
-                    setAutoScroll(true)
-                  }
-                }}
+                onScrollPositionChange={handleScrollPositionChange}
               />
             </div>
           </div>

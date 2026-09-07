@@ -302,6 +302,10 @@ public class KubernetesAdapter : IKubernetesAdapter
                 ));
             }
         }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning("Kubernetes cluster is unreachable at configured endpoint ({Message}). Skipping Kubernetes node discovery.", ex.Message);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to list Kubernetes nodes for discovery");

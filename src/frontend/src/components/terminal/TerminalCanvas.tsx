@@ -25,6 +25,17 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
     const terminalRef = useRef<Terminal | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
     const autoScrollRef = useRef(autoScroll)
+    const onDataRef = useRef(onData)
+    const onScrollPositionChangeRef = useRef(onScrollPositionChange)
+    const pendingWritesRef = useRef<string[]>([])
+
+    useEffect(() => {
+      onDataRef.current = onData
+    }, [onData])
+
+    useEffect(() => {
+      onScrollPositionChangeRef.current = onScrollPositionChange
+    }, [onScrollPositionChange])
 
     useEffect(() => {
       autoScrollRef.current = autoScroll
@@ -43,6 +54,8 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
               })
             }
           })
+        } else {
+          pendingWritesRef.current.push(data)
         }
       },
       writeln: (data: string) => {
@@ -54,9 +67,12 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
               })
             }
           })
+        } else {
+          pendingWritesRef.current.push(data + '\r\n')
         }
       },
       clear: () => {
+        pendingWritesRef.current = []
         terminalRef.current?.clear()
       },
       focus: () => {
@@ -110,6 +126,17 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
       term.loadAddon(fitAddon)
       term.open(containerRef.current)
 
+      terminalRef.current = term
+      fitAddonRef.current = fitAddon
+
+      // Flush any queued writes that arrived before DOM mounting
+      if (pendingWritesRef.current.length > 0) {
+        for (const item of pendingWritesRef.current) {
+          term.write(item)
+        }
+        pendingWritesRef.current = []
+      }
+
       // Fit after DOM render
       requestAnimationFrame(() => {
         try {
@@ -120,18 +147,25 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
         } catch {}
       })
 
-      terminalRef.current = term
-      fitAddonRef.current = fitAddon
+      // Secondary fit after modal entrance transitions stabilize
+      const fitTimer = setTimeout(() => {
+        try {
+          fitAddon.fit()
+          if (autoScrollRef.current) {
+            term.scrollToBottom()
+          }
+        } catch {}
+      }, 150)
 
-      if (onData) {
-        term.onData(onData)
-      }
+      const onDataDisposable = term.onData((data) => {
+        onDataRef.current?.(data)
+      })
 
       // Detect user scrolling to pause or resume auto-scroll
       const scrollDisposable = term.onScroll(() => {
         const buffer = term.buffer.active
         const isAtBottom = buffer.viewportY >= buffer.baseY - 1
-        onScrollPositionChange?.(isAtBottom)
+        onScrollPositionChangeRef.current?.(isAtBottom)
       })
 
       const resizeObserver = new ResizeObserver(() => {
@@ -150,13 +184,15 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
       resizeObserver.observe(containerRef.current)
 
       return () => {
+        clearTimeout(fitTimer)
+        onDataDisposable.dispose()
         scrollDisposable.dispose()
         resizeObserver.disconnect()
         term.dispose()
         terminalRef.current = null
         fitAddonRef.current = null
       }
-    }, [onData, onScrollPositionChange])
+    }, [])
 
     return (
       <div
