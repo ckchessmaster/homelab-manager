@@ -28,8 +28,11 @@ Phase 3: Temporal Durable Execution & Node-Based Visual Workflow Redesign
 ├── [06-multi-node-fleet-rolling-orchestration.md]
 │   └── Multi-host rolling cluster upgrade workflow (cordon ➔ drain ➔ upgrade ➔ reboot ➔ verify ➔ uncordon)
 │
-└── [07-standby-temporal-cli-integration.md]
-    └── Standby CLI runner with embedded Temporal SQLite dev server for 100% workflow parity offline
+├── [07-standby-temporal-cli-integration.md]
+│   └── Standby CLI runner with embedded Temporal SQLite dev server for 100% workflow parity offline
+│
+└── [08-playwright-e2e-testing.md]
+    └── End-to-end automated UI test suite with Playwright (Hosts, Terminal, Discovery, DAG Canvas, Launcher)
 ```
 
 ---
@@ -45,6 +48,7 @@ Phase 3: Temporal Durable Execution & Node-Based Visual Workflow Redesign
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-parameterized-workflow-launcher.md)** | Parameterized Workflow Launcher & Real-Time Graph Preview | ✅ Completed |
 | **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-multi-node-fleet-rolling-orchestration.md)** | Multi-Node Fleet Rolling Orchestrator & Batch Workflows | ✅ Completed |
 | **[Plan 07](file:///home/ckingdon/projects/homelab-manager/docs/plans/07-standby-temporal-cli-integration.md)** | Standby Mode Temporal CLI Integration (Embedded SQLite Dev Server) | ✅ Completed |
+| **[Plan 08](file:///home/ckingdon/projects/homelab-manager/docs/plans/08-playwright-e2e-testing.md)** | End-to-End Automated UI Testing with Playwright | ✅ Completed |
 
 ---
 

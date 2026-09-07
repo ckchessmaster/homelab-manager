@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "LD_LIBRARY_PATH=/home/ckingdon/.cache/playwright-libs/extracted/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH playwright test",
+    "test:e2e:ui": "LD_LIBRARY_PATH=/home/ckingdon/.cache/playwright-libs/extracted/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH playwright test --ui",
+    "test:e2e:headed": "LD_LIBRARY_PATH=/home/ckingdon/.cache/playwright-libs/extracted/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH playwright test --headed"
   },
   "dependencies": {
     "@microsoft/signalr": "^10.0.11",
@@ -22,6 +25,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
