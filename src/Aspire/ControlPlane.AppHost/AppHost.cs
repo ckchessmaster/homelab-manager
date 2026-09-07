@@ -2,6 +2,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 var apiKey = builder.AddParameter("api-key", secret: true);
 var masterKey = builder.AddParameter("master-key", secret: true);
+var enableMcpServer = builder.AddParameter("enable-mcp-server", "true");
 
 var postgres = builder.AddPostgres("postgres")
     .WithDataVolume()
@@ -24,7 +25,8 @@ var api = builder.AddProject<Projects.ControlPlane_Api>("api")
     .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:5029")
     .WithEnvironment("ControlPlane__ApiKey", apiKey)
     .WithEnvironment("CONTROLPLANE_MASTER_KEY", masterKey)
-    .WithEnvironment("Temporal__ServerUrl", temporal.GetEndpoint("grpc"));
+    .WithEnvironment("Temporal__ServerUrl", temporal.GetEndpoint("grpc"))
+    .WithEnvironment("ENABLE_MCP_SERVER", enableMcpServer);
 
 builder.AddViteApp("frontend", "../../frontend")
     .WithNpm(install: false)

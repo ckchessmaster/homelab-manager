@@ -12,6 +12,7 @@ using ControlPlane.Api.Features.Cluster;
 using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Jobs;
+using ControlPlane.Api.Features.Mcp;
 using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Features.Orchestration.Pipelines;
 using ControlPlane.Api.Features.Orchestration.Temporal;
@@ -66,6 +67,7 @@ builder.Services.AddHostedService<SnapshotRetentionWorker>();
 builder.Services.AddScoped<IRedfishClient, RedfishClient>();
 builder.Services.AddScoped<IUniFiClient, UniFiClient>();
 builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
+builder.Services.AddControlPlaneMcpServer(builder.Configuration);
 
 builder.Services.Configure<KubernetesConfigOptions>(builder.Configuration.GetSection(KubernetesConfigOptions.SectionName));
 builder.Services.AddSingleton<IKubernetes>(sp =>
@@ -213,6 +215,7 @@ app.MapDiscoveryEndpoints();
 app.MapSecurityEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
 app.MapTemporalWorkflowEndpoints();
+app.MapControlPlaneMcp(app.Configuration);
 
 app.MapPost("/api/v1/debug/test-reboot", async (
     DebugRebootRequest request,

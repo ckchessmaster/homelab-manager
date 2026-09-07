@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "controlplane": {
+      "serverUrl": "http://localhost:5029/mcp"
+    }
+  }
+}
