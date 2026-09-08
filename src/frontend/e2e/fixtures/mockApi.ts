@@ -110,6 +110,14 @@ export async function setupMockApi(page: Page, options?: {
   let hosts = [...(options?.hosts || INITIAL_MOCK_HOSTS)]
   const candidates = [...(options?.candidates || INITIAL_MOCK_CANDIDATES)]
 
+  // Set default Admin role and auth bypass for test predictability
+  await page.addInitScript(() => {
+    localStorage.setItem('cp_auth_bypass', 'true')
+    if (!localStorage.getItem('cp_bypass_role')) {
+      localStorage.setItem('cp_bypass_role', 'Admin')
+    }
+  })
+
   // 1. Generic catch-all for /api/ (must NOT match /src/api/)
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     await route.fulfill({
@@ -262,6 +270,66 @@ export async function setupMockApi(page: Page, options?: {
     }
   })
 
+  // 9b. POST /api/v1/hosts/adopt-batch
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/hosts\/adopt-batch$/, async (route) => {
+    const payload = route.request().postDataJSON()
+    const targetHosts = payload.hosts || []
+    for (const h of targetHosts) {
+      const existing = hosts.find((item) => item.id === h.hostId)
+      if (existing) {
+        existing.agent = {
+          installed: true,
+          version: '1.1.0',
+          lastSeenAt: new Date().toISOString(),
+          pendingReboot: false,
+          upgradablePackagesCount: 0,
+        }
+      }
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        totalRequested: targetHosts.length,
+        succeededCount: targetHosts.length,
+        failedCount: 0,
+        results: targetHosts.map((h: any) => ({
+          hostId: h.hostId,
+          hostname: h.hostname || h.targetHost,
+          success: true,
+          message: 'Agent installed and running',
+        })),
+      }),
+    })
+  })
+
+  // 9c. POST /api/v1/hosts/adopt and /api/v1/hosts/:id/adopt
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/hosts\/([a-zA-Z0-9-]+\/)?adopt$/, async (route) => {
+    const payload = route.request().postDataJSON()
+    if (payload.hostId) {
+      const existing = hosts.find((item) => item.id === payload.hostId)
+      if (existing) {
+        existing.agent = {
+          installed: true,
+          version: '1.1.0',
+          lastSeenAt: new Date().toISOString(),
+          pendingReboot: false,
+          upgradablePackagesCount: 0,
+        }
+      }
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        hostId: payload.hostId || 'adopted-host',
+        success: true,
+        message: 'Successfully adopted node',
+        steps: [],
+      }),
+    })
+  })
+
   // 10. Discovery Scan
   await page.route(/^https?:\/\/[^/]+\/api\/v1\/discovery\/scan/, async (route) => {
     const result: DiscoveryScanResult = {
@@ -279,8 +347,8 @@ export async function setupMockApi(page: Page, options?: {
     })
   })
 
-  // 11. Discovery Import
-  await page.route(/^https?:\/\/[^/]+\/api\/v1\/discovery\/import/, async (route) => {
+  // 11. Discovery Import (Single)
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/discovery\/import$/, async (route) => {
     const payload = route.request().postDataJSON()
     const newHostId = `imported-host-${Date.now()}`
     const importedHost: Host = {
@@ -301,6 +369,14 @@ export async function setupMockApi(page: Page, options?: {
     }
     hosts.push(importedHost)
 
+    // Update candidate in mock state
+    const match = candidates.find((c) => c.name === payload.name)
+    if (match) {
+      match.isManaged = true
+      match.existingHostId = newHostId
+      match.existingHostname = payload.name
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -308,6 +384,60 @@ export async function setupMockApi(page: Page, options?: {
         success: true,
         hostId: newHostId,
         hostname: payload.name,
+      }),
+    })
+  })
+
+  // 11b. Discovery Batch Import
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/discovery\/import-batch$/, async (route) => {
+    const payload = route.request().postDataJSON()
+    const items = payload.candidates || []
+    const results = []
+
+    for (const c of items) {
+      const newHostId = `imported-host-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+      const importedHost: Host = {
+        id: newHostId,
+        hostname: c.name,
+        friendlyName: c.friendlyName || c.name,
+        ipAddress: c.ipAddress,
+        osFamily: c.osFamily || payload.commonOsFamily || 'linux_debian',
+        targetType: c.targetType || payload.commonTargetType || 'baremetal',
+        proxmox: c.proxmoxNode ? { node: c.proxmoxNode, vmid: c.proxmoxVmid || 0 } : null,
+        agent: {
+          installed: false,
+          pendingReboot: false,
+          upgradablePackagesCount: 0,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      hosts.push(importedHost)
+
+      const match = candidates.find((cand) => cand.name === c.name)
+      if (match) {
+        match.isManaged = true
+        match.existingHostId = newHostId
+        match.existingHostname = c.name
+      }
+
+      results.push({
+        name: c.name,
+        success: true,
+        hostId: newHostId,
+        hostname: c.name,
+        errorMessage: null,
+      })
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        totalRequested: items.length,
+        succeededCount: results.length,
+        failedCount: 0,
+        results,
       }),
     })
   })
@@ -335,6 +465,226 @@ export async function setupMockApi(page: Page, options?: {
         workflowId: `wf-rolling-${Date.now()}`,
         runId: `run-${Date.now()}`,
         totalHosts: 3,
+      }),
+    })
+  })
+
+  // 13. Adapters: Proxmox Instances
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/adapters\/proxmox\/instances/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          id: 'pve-primary',
+          name: 'Primary Proxmox VE',
+          baseUrl: 'https://192.168.1.20:8006',
+          apiTokenId: 'root@pam!token',
+          apiTokenSecretMasked: '••••••••',
+          hasSecret: true,
+          allowSelfSignedCert: true,
+          taskPollTimeoutSeconds: 300,
+          taskPollIntervalMilliseconds: 1000,
+        },
+      ]),
+    })
+  })
+
+  // 14. Adapters: Kubernetes Clusters
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/adapters\/k8s\/clusters/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          id: 'k8s-prod',
+          name: 'k8s-homelab-prod',
+          apiServerUrl: 'https://192.168.1.10:6443',
+          hasKubeConfig: true,
+          hasToken: false,
+          skipTlsVerify: true,
+        },
+      ]),
+    })
+  })
+
+  // 15. Adapters: UniFi Instances
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/adapters\/unifi\/instances/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          id: 'unifi-primary',
+          name: 'Main UniFi Controller',
+          controllerUrl: 'https://192.168.1.1:8443',
+          username: 'admin',
+          passwordMasked: '••••••••',
+          hasPassword: true,
+          site: 'default',
+          allowSelfSignedCert: true,
+          updatedAt: new Date().toISOString(),
+        },
+      ]),
+    })
+  })
+
+  // 16. Adapters: UniFi Devices
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/adapters\/unifi\/[^/]+\/devices/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          mac: '74:83:c2:11:22:33',
+          name: 'Core Switch 24 PoE',
+          model: 'USW-24-PoE',
+          type: 'usw',
+          ip: '192.168.1.2',
+          state: 'Connected',
+          version: '6.5.59',
+          upgradeAvailable: false,
+          uptimeSeconds: 86400,
+          temperature: 46,
+          ports: [
+            { portIdx: 1, name: 'k8s-node-01', up: true, speedMbps: 1000, poeMode: 'auto', poePowerWatts: 7.2 },
+            { portIdx: 2, name: 'k8s-node-02', up: true, speedMbps: 1000, poeMode: 'auto', poePowerWatts: 6.8 },
+            { portIdx: 3, name: 'Port 3', up: false, speedMbps: 0, poeMode: 'off', poePowerWatts: 0 },
+          ],
+        },
+      ]),
+    })
+  })
+
+  // 17. Adapters: UniFi Clients
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/adapters\/unifi\/[^/]+\/clients/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          mac: '00:11:22:33:44:55',
+          ip: '192.168.1.50',
+          hostname: 'nas-storage-01',
+          lastSeen: new Date().toISOString(),
+        },
+      ]),
+    })
+  })
+
+  // 18. Workloads Aggregation & Operations
+  let mockWorkloads = [
+    {
+      clusterId: 'k8s-prod',
+      clusterName: 'k8s-homelab-prod',
+      namespace: 'default',
+      name: 'nginx-ingress-controller',
+      desiredReplicas: 2,
+      readyReplicas: 2,
+      availableReplicas: 2,
+      images: ['registry.k8s.io/ingress-nginx/controller:v1.9.4'],
+      creationTimestamp: '2026-01-01T00:00:00Z',
+      status: 'Ready',
+    },
+    {
+      clusterId: 'k8s-prod',
+      clusterName: 'k8s-homelab-prod',
+      namespace: 'monitoring',
+      name: 'prometheus-server',
+      desiredReplicas: 1,
+      readyReplicas: 1,
+      availableReplicas: 1,
+      images: ['prom/prometheus:v2.48.0'],
+      creationTimestamp: '2026-01-02T00:00:00Z',
+      status: 'Ready',
+    },
+    {
+      clusterId: 'k8s-prod',
+      clusterName: 'k8s-homelab-prod',
+      namespace: 'media',
+      name: 'plex-media-server',
+      desiredReplicas: 1,
+      readyReplicas: 0,
+      availableReplicas: 0,
+      images: ['linuxserver/plex:latest'],
+      creationTimestamp: '2026-01-03T00:00:00Z',
+      status: 'Degraded',
+    },
+  ]
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/workloads(\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: mockWorkloads,
+        clusters: ['k8s-homelab-prod'],
+        namespaces: ['default', 'monitoring', 'media'],
+        totalDeployments: mockWorkloads.length,
+        healthyDeployments: mockWorkloads.filter((w) => w.status === 'Ready').length,
+      }),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/workloads\/[^/]+\/[^/]+\/[^/]+\/pods/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          name: 'nginx-ingress-controller-784f9b8c6f-abcde',
+          namespace: 'default',
+          phase: 'Running',
+          nodeName: 'k8s-worker-01',
+          podIp: '10.244.1.20',
+          restartCount: 0,
+          isReady: true,
+          startTime: '2026-01-01T00:05:00Z',
+        },
+        {
+          name: 'nginx-ingress-controller-784f9b8c6f-fghij',
+          namespace: 'default',
+          phase: 'Running',
+          nodeName: 'k8s-worker-02',
+          podIp: '10.244.2.22',
+          restartCount: 0,
+          isReady: true,
+          startTime: '2026-01-01T00:05:00Z',
+        },
+      ]),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/workloads\/[^/]+\/[^/]+\/[^/]+\/restart/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        message: 'Rollout restart triggered successfully.',
+      }),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/workloads\/[^/]+\/[^/]+\/[^/]+\/scale/, async (route) => {
+    const payload = route.request().postDataJSON()
+    const match = route.request().url().match(/workloads\/([^/]+)\/([^/]+)\/([^/]+)\/scale/)
+    if (match) {
+      const [, clusterId, namespace, name] = match
+      const found = mockWorkloads.find((w) => w.name === name)
+      if (found) {
+        found.desiredReplicas = payload.replicas
+        found.readyReplicas = payload.replicas
+        found.status = payload.replicas > 0 ? 'Ready' : 'ScaledDown'
+      }
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        replicas: payload?.replicas ?? 1,
+        message: 'Deployment scaled successfully.',
       }),
     })
   })

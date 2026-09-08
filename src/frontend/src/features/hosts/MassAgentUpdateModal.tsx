@@ -178,7 +178,7 @@ export function MassAgentUpdateModal({
                   <div className="flex items-center gap-2">
                     {item.status === 'Dispatched' && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-700/50">
-                        <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+                        <Radio className="w-3 h-3 text-emerald-400" />
                         In-Band Sent
                       </span>
                     )}

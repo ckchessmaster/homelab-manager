@@ -22,6 +22,11 @@ export interface AgentState {
   upgradablePackagesCount: number
 }
 
+export interface KubernetesTarget {
+  clusterId?: string | null
+  nodeName?: string | null
+}
+
 export interface Host {
   id: string
   hostname: string
@@ -30,7 +35,12 @@ export interface Host {
   osFamily: string
   targetType: string
   proxmox?: ProxmoxTarget | null
+  proxmoxInstanceId?: string | null
+  kubernetes?: KubernetesTarget | null
+  k8sClusterId?: string | null
+  k8sNodeName?: string | null
   idrac?: IdracTarget | null
+  idracIp?: string | null
   networkPort?: UnifiPortTarget | null
   agent: AgentState
   createdAt: string
@@ -135,10 +145,61 @@ export async function deleteHost(id: string): Promise<void> {
   })
 }
 
+export interface ProxmoxInstanceDto {
+  id: string
+  name: string
+  baseUrl: string
+  apiTokenId: string
+  apiTokenSecretMasked: string
+  hasSecret: boolean
+  allowSelfSignedCert: boolean
+  taskPollTimeoutSeconds: number
+  taskPollIntervalMilliseconds: number
+  updatedAt?: string | null
+}
+
+export interface SaveProxmoxInstancePayload {
+  id?: string
+  name: string
+  baseUrl: string
+  apiTokenId: string
+  apiTokenSecret?: string
+  allowSelfSignedCert?: boolean
+  taskPollTimeoutSeconds?: number
+  taskPollIntervalMilliseconds?: number
+}
+
 export async function probeProxmox(payload: ProxmoxProbePayload): Promise<ProxmoxProbeResult> {
   return apiClient<ProxmoxProbeResult>('/api/v1/adapters/proxmox/test-connection', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export async function fetchProxmoxInstances(): Promise<ProxmoxInstanceDto[]> {
+  return apiClient<ProxmoxInstanceDto[]>('/api/v1/adapters/proxmox/instances')
+}
+
+export async function fetchProxmoxInstance(id: string): Promise<ProxmoxInstanceDto> {
+  return apiClient<ProxmoxInstanceDto>(`/api/v1/adapters/proxmox/instances/${encodeURIComponent(id)}`)
+}
+
+export async function saveProxmoxInstance(payload: SaveProxmoxInstancePayload): Promise<ProxmoxInstanceDto> {
+  return apiClient<ProxmoxInstanceDto>('/api/v1/adapters/proxmox/instances', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteProxmoxInstance(id: string): Promise<{ success: boolean; id: string }> {
+  return apiClient<{ success: boolean; id: string }>(`/api/v1/adapters/proxmox/instances/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function testProxmoxInstanceConnection(id: string): Promise<ProxmoxProbeResult> {
+  return apiClient<ProxmoxProbeResult>(`/api/v1/adapters/proxmox/instances/${encodeURIComponent(id)}/test-connection`, {
+    method: 'POST',
   })
 }
 
@@ -170,6 +231,35 @@ export interface NodeAdoptionResponse {
   steps: AdoptionStepEvent[]
 }
 
+export interface BatchAdoptHostItem {
+  hostId: string
+  targetHost: string
+  hostname?: string
+}
+
+export interface BatchAdoptNodesPayload {
+  hosts: BatchAdoptHostItem[]
+  port?: number
+  username?: string
+  password?: string | null
+  privateKey?: string | null
+  hubUrl?: string | null
+}
+
+export interface BatchAdoptItemResult {
+  hostId: string
+  hostname: string
+  success: boolean
+  message: string
+}
+
+export interface BatchAdoptNodesResponse {
+  totalRequested: number
+  succeededCount: number
+  failedCount: number
+  results: BatchAdoptItemResult[]
+}
+
 export async function adoptNode(payload: AdoptNodePayload): Promise<NodeAdoptionResponse> {
   const endpoint = payload.hostId ? `/api/v1/hosts/${payload.hostId}/adopt` : '/api/v1/hosts/adopt'
   return apiClient<NodeAdoptionResponse>(endpoint, {
@@ -177,6 +267,14 @@ export async function adoptNode(payload: AdoptNodePayload): Promise<NodeAdoption
     body: JSON.stringify(payload),
   })
 }
+
+export async function adoptNodesBatch(payload: BatchAdoptNodesPayload): Promise<BatchAdoptNodesResponse> {
+  return apiClient<BatchAdoptNodesResponse>('/api/v1/hosts/adopt-batch', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 
 export interface RebootHostResponse {
   jobId: string

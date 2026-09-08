@@ -44,6 +44,27 @@ export interface ImportCandidateResponse {
   errorMessage?: string
 }
 
+export interface BatchImportCandidatesPayload {
+  candidates: ImportCandidatePayload[]
+  commonTargetType?: string
+  commonOsFamily?: string
+}
+
+export interface BatchImportItemResult {
+  name: string
+  success: boolean
+  hostId?: string | null
+  hostname?: string | null
+  errorMessage?: string | null
+}
+
+export interface BatchImportCandidatesResponse {
+  totalRequested: number
+  succeededCount: number
+  failedCount: number
+  results: BatchImportItemResult[]
+}
+
 export async function scanDiscovery(options?: {
   includeProxmox?: boolean
   includeKubernetes?: boolean
@@ -63,3 +84,13 @@ export async function importCandidate(
     body: JSON.stringify(payload),
   })
 }
+
+export async function importCandidatesBatch(
+  payload: BatchImportCandidatesPayload
+): Promise<BatchImportCandidatesResponse> {
+  return apiClient<BatchImportCandidatesResponse>('/api/v1/discovery/import-batch', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+

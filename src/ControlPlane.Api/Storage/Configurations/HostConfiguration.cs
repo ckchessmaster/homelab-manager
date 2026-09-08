@@ -39,12 +39,27 @@ public class HostConfiguration : IEntityTypeConfiguration<HostEntity>
 
         builder.OwnsOne(h => h.Proxmox, p =>
         {
+            p.Property(x => x.InstanceId)
+                .HasColumnName("proxmox_instance_id")
+                .HasMaxLength(100);
+
             p.Property(x => x.Node)
                 .HasColumnName("proxmox_node")
                 .HasMaxLength(100);
 
             p.Property(x => x.Vmid)
                 .HasColumnName("proxmox_vmid");
+        });
+
+        builder.OwnsOne(h => h.Kubernetes, k =>
+        {
+            k.Property(x => x.ClusterId)
+                .HasColumnName("k8s_cluster_id")
+                .HasMaxLength(100);
+
+            k.Property(x => x.NodeName)
+                .HasColumnName("k8s_node_name")
+                .HasMaxLength(255);
         });
 
         builder.OwnsOne(h => h.Idrac, i =>

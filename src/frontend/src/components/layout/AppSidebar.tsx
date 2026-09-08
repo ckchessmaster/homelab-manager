@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '../ui/badge'
 
-export type NavTab = 'hosts' | 'discovery' | 'workflows' | 'adapters' | 'settings'
+export type NavTab = 'hosts' | 'workloads' | 'discovery' | 'workflows' | 'adapters' | 'settings'
 
 interface AppSidebarProps {
   activeTab: NavTab
@@ -41,6 +41,13 @@ export function AppSidebar({
       badgeDot: rebootPendingCount > 0,
     },
     {
+      id: 'workloads',
+      label: 'Applications & Workloads',
+      icon: Layers,
+      badge: 'K8s',
+      badgeVariant: 'default',
+    },
+    {
       id: 'discovery',
       label: 'Service Discovery',
       icon: Compass,
@@ -56,9 +63,9 @@ export function AppSidebar({
     },
     {
       id: 'adapters',
-      label: 'Adapters & Probes',
+      label: 'Infrastructure Adapters',
       icon: Radio,
-      badge: 'Proxmox',
+      badge: 'Hub',
       badgeVariant: 'purple',
     },
     {

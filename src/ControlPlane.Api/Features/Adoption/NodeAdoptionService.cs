@@ -149,7 +149,7 @@ public class NodeAdoptionService
         {
             var hubUrl = !string.IsNullOrWhiteSpace(request.HubUrl)
                 ? request.HubUrl
-                : _configuration["ControlPlane:HubUrl"] ?? "ws://192.168.20.159:5000/agent-hub";
+                : _configuration["ControlPlane:HubUrl"] ?? "ws://192.168.1.159:5029/agent-hub";
 
             var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
 

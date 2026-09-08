@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { scanDiscovery, importCandidate } from '../../api/discovery'
-import type { ImportCandidatePayload, DiscoveryScanResult, ImportCandidateResponse } from '../../api/discovery'
+import { scanDiscovery, importCandidate, importCandidatesBatch } from '../../api/discovery'
+import type {
+  ImportCandidatePayload,
+  DiscoveryScanResult,
+  ImportCandidateResponse,
+  BatchImportCandidatesPayload,
+  BatchImportCandidatesResponse,
+} from '../../api/discovery'
 
 export function useDiscoveryScan(options?: {
   includeProxmox?: boolean
@@ -26,3 +32,16 @@ export function useImportCandidate() {
     },
   })
 }
+
+export function useBatchImportCandidates() {
+  const queryClient = useQueryClient()
+
+  return useMutation<BatchImportCandidatesResponse, Error, BatchImportCandidatesPayload>({
+    mutationFn: (payload) => importCandidatesBatch(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+      queryClient.invalidateQueries({ queryKey: ['discovery'] })
+    },
+  })
+}
+

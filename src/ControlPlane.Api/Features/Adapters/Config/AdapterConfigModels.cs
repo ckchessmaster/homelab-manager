@@ -29,3 +29,133 @@ public class ProxmoxStoredConfig
     public int TaskPollTimeoutSeconds { get; set; } = 300;
     public int TaskPollIntervalMilliseconds { get; set; } = 1000;
 }
+
+public record ProxmoxInstanceDto(
+    string Id,
+    string Name,
+    string BaseUrl,
+    string ApiTokenId,
+    string ApiTokenSecretMasked,
+    bool HasSecret,
+    bool AllowSelfSignedCert,
+    int TaskPollTimeoutSeconds,
+    int TaskPollIntervalMilliseconds,
+    DateTimeOffset? UpdatedAt
+);
+
+public record SaveProxmoxInstanceRequest(
+    string? Id,
+    string Name,
+    string BaseUrl,
+    string ApiTokenId,
+    string? ApiTokenSecret,
+    bool AllowSelfSignedCert = true,
+    int? TaskPollTimeoutSeconds = null,
+    int? TaskPollIntervalMilliseconds = null
+);
+
+public class ProxmoxStoredInstance
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string BaseUrl { get; set; } = string.Empty;
+    public string ApiTokenId { get; set; } = string.Empty;
+    public string ApiTokenSecret { get; set; } = string.Empty;
+    public bool AllowSelfSignedCert { get; set; } = true;
+    public int TaskPollTimeoutSeconds { get; set; } = 300;
+    public int TaskPollIntervalMilliseconds { get; set; } = 1000;
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public record KubernetesClusterDto(
+    string Id,
+    string Name,
+    string? ApiServerUrl,
+    string? ContextName,
+    bool HasKubeConfig,
+    bool HasToken,
+    bool SkipTlsVerify,
+    DateTimeOffset? UpdatedAt
+);
+
+public record SaveKubernetesClusterRequest(
+    string? Id,
+    string Name,
+    string? ApiServerUrl,
+    string? KubeConfigRaw,
+    string? Token,
+    string? ContextName,
+    bool SkipTlsVerify = true
+);
+
+public class KubernetesStoredCluster
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? ApiServerUrl { get; set; }
+    public string? EncryptedKubeConfig { get; set; }
+    public string? EncryptedToken { get; set; }
+    public string? ContextName { get; set; }
+    public bool SkipTlsVerify { get; set; } = true;
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public record KubernetesClusterTestResultDto(
+    bool Success,
+    string? ServerVersion,
+    int NodeCount,
+    long LatencyMs,
+    string? Message
+);
+
+public record UniFiInstanceDto(
+    string Id,
+    string Name,
+    string ControllerUrl,
+    string Username,
+    string PasswordMasked,
+    bool HasPassword,
+    string Site,
+    bool AllowSelfSignedCert,
+    DateTimeOffset? UpdatedAt,
+    string AuthType = "api_key",
+    string? ApiKeyMasked = null,
+    bool HasApiKey = false
+);
+
+public record SaveUniFiInstanceRequest(
+    string? Id,
+    string Name,
+    string ControllerUrl,
+    string? Username = null,
+    string? Password = null,
+    string? ApiKey = null,
+    string AuthType = "api_key",
+    string Site = "default",
+    bool AllowSelfSignedCert = true
+);
+
+public class UniFiStoredInstance
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string ControllerUrl { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string EncryptedPassword { get; set; } = string.Empty;
+    public string? EncryptedApiKey { get; set; }
+    public string AuthType { get; set; } = "api_key";
+    public string Site { get; set; } = "default";
+    public bool AllowSelfSignedCert { get; set; } = true;
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public record UniFiTestResultDto(
+    bool Success,
+    string? ControllerVersion,
+    int? DeviceCount,
+    int? ClientCount,
+    List<string>? Sites,
+    long LatencyMs,
+    string? Message
+);
+

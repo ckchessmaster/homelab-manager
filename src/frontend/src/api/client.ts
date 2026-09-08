@@ -1,15 +1,23 @@
+import { getActiveAuthMode } from '../features/auth/authConfig'
+
 export const API_KEY_STORAGE_KEY = 'cp_api_key'
 
 export function getApiKey(): string {
+  if (typeof window === 'undefined') return ''
   return (
     localStorage.getItem(API_KEY_STORAGE_KEY) ||
     import.meta.env.VITE_API_KEY ||
-    'dev-secret-key-123'
+    ''
   )
 }
 
 export function setApiKey(key: string): void {
-  localStorage.setItem(API_KEY_STORAGE_KEY, key.trim())
+  if (typeof window === 'undefined') return
+  if (!key || !key.trim()) {
+    localStorage.removeItem(API_KEY_STORAGE_KEY)
+  } else {
+    localStorage.setItem(API_KEY_STORAGE_KEY, key.trim())
+  }
 }
 
 let getAuthTokenFn: (() => string | null) | null = null
@@ -49,13 +57,19 @@ export async function apiClient<T>(
 
   const headers = new Headers(options.headers || {})
   
-  const token = getAuthTokenFn ? getAuthTokenFn() : null
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
+  const authMode = getActiveAuthMode()
 
-  if (!headers.has('X-ControlPlane-Key')) {
-    headers.set('X-ControlPlane-Key', getApiKey())
+  if (authMode === 'oidc') {
+    const token = getAuthTokenFn ? getAuthTokenFn() : null
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+  } else {
+    // API Key Mode
+    const apiKey = getApiKey()
+    if (apiKey && !headers.has('X-ControlPlane-Key')) {
+      headers.set('X-ControlPlane-Key', apiKey)
+    }
   }
 
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {

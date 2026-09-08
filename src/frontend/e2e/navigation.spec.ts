@@ -24,9 +24,9 @@ test.describe('Navigation & Shell', () => {
     await page.getByRole('button', { name: /Workflows & DAGs/i }).click()
     await expect(page.getByText(/DAG Update Orchestration Engine/i)).toBeVisible()
 
-    // 4. Switch to Adapters & Probes
-    await page.getByRole('button', { name: /Adapters & Probes/i }).click()
-    await expect(page.getByText(/Infrastructure Adapters & Probes/i)).toBeVisible()
+    // 4. Switch to Infrastructure Adapters
+    await page.getByRole('button', { name: /Infrastructure Adapters/i }).click()
+    await expect(page.getByRole('heading', { name: /Infrastructure Adapters/i })).toBeVisible()
 
     // 5. Switch back to Host Inventory
     await page.getByRole('button', { name: /Host Inventory/i }).click()

@@ -26,6 +26,8 @@ public class Host
     // Hypervisor & Out-of-Band Correlation Targets
     public ProxmoxTarget? Proxmox { get; set; }
 
+    public KubernetesTarget? Kubernetes { get; set; }
+
     public IdracTarget? Idrac { get; set; }
 
     public UnifiPortTarget? NetworkPort { get; set; }

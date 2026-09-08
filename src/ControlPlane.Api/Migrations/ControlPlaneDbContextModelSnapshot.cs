@@ -290,11 +290,41 @@ namespace ControlPlane.Api.Migrations
                                 .HasConstraintName("fk_hosts_hosts_id");
                         });
 
+                    b.OwnsOne("ControlPlane.Api.Storage.Entities.KubernetesTarget", "Kubernetes", b1 =>
+                        {
+                            b1.Property<Guid>("HostId")
+                                .HasColumnType("uuid")
+                                .HasColumnName("id");
+
+                            b1.Property<string>("ClusterId")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("k8s_cluster_id");
+
+                            b1.Property<string>("NodeName")
+                                .HasMaxLength(255)
+                                .HasColumnType("character varying(255)")
+                                .HasColumnName("k8s_node_name");
+
+                            b1.HasKey("HostId");
+
+                            b1.ToTable("hosts", "controlplane");
+
+                            b1.WithOwner()
+                                .HasForeignKey("HostId")
+                                .HasConstraintName("fk_hosts_hosts_id");
+                        });
+
                     b.OwnsOne("ControlPlane.Api.Storage.Entities.ProxmoxTarget", "Proxmox", b1 =>
                         {
                             b1.Property<Guid>("HostId")
                                 .HasColumnType("uuid")
                                 .HasColumnName("id");
+
+                            b1.Property<string>("InstanceId")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("proxmox_instance_id");
 
                             b1.Property<string>("Node")
                                 .IsRequired()
@@ -344,6 +374,8 @@ namespace ControlPlane.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Idrac");
+
+                    b.Navigation("Kubernetes");
 
                     b.Navigation("NetworkPort");
 

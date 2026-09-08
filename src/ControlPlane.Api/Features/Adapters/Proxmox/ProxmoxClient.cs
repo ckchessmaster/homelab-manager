@@ -17,26 +17,36 @@ public class ProxmoxClient : IProxmoxClient
     private readonly ProxmoxTaskPoller _poller;
     private readonly ILogger<ProxmoxClient> _logger;
     private readonly IAdapterConfigService? _configService;
+    private readonly string? _instanceId;
+    private readonly ProxmoxOptions? _explicitOptions;
 
     public ProxmoxClient(
         IHttpClientFactory httpClientFactory,
         IOptions<ProxmoxOptions> options,
         ProxmoxTaskPoller poller,
         ILogger<ProxmoxClient> logger,
-        IAdapterConfigService? configService = null)
+        IAdapterConfigService? configService = null,
+        string? instanceId = null,
+        ProxmoxOptions? explicitOptions = null)
     {
         _httpClientFactory = httpClientFactory;
         _fallbackOptions = options.Value;
         _poller = poller;
         _logger = logger;
         _configService = configService;
+        _instanceId = instanceId;
+        _explicitOptions = explicitOptions;
     }
 
     private async Task<ProxmoxOptions> GetOptionsAsync(CancellationToken ct)
     {
+        if (_explicitOptions != null)
+        {
+            return _explicitOptions;
+        }
         if (_configService != null)
         {
-            return await _configService.GetActiveProxmoxOptionsAsync(ct);
+            return await _configService.GetActiveProxmoxOptionsAsync(_instanceId, ct);
         }
         return _fallbackOptions;
     }

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Net;
+using ControlPlane.Api.Features.Adapters.Config;
 using k8s;
 using k8s.Autorest;
 using k8s.Models;
@@ -302,9 +304,13 @@ public class KubernetesAdapter : IKubernetesAdapter
                 ));
             }
         }
-        catch (HttpRequestException ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _logger.LogWarning("Kubernetes cluster is unreachable at configured endpoint ({Message}). Skipping Kubernetes node discovery.", ex.Message);
+            _logger.LogWarning("Kubernetes node discovery operation was canceled.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            _logger.LogWarning("Kubernetes cluster is unreachable or timed out ({Message}). Skipping Kubernetes node discovery.", ex.Message);
         }
         catch (Exception ex)
         {
@@ -312,5 +318,197 @@ public class KubernetesAdapter : IKubernetesAdapter
         }
 
         return discovered;
+    }
+
+    public async Task<KubernetesClusterTestResultDto> TestConnectionAsync(CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var version = await _client.Version.GetCodeAsync(cancellationToken: ct);
+            var nodes = await _client.CoreV1.ListNodeAsync(limit: 100, cancellationToken: ct);
+            sw.Stop();
+
+            var nodeCount = nodes?.Items?.Count ?? 0;
+            var gitVersion = version?.GitVersion ?? "Unknown";
+
+            return new KubernetesClusterTestResultDto(
+                Success: true,
+                ServerVersion: gitVersion,
+                NodeCount: nodeCount,
+                LatencyMs: sw.ElapsedMilliseconds,
+                Message: $"Connected successfully to Kubernetes {gitVersion} ({nodeCount} nodes detected)."
+            );
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _logger.LogWarning("Failed to connect to Kubernetes cluster during test-connection: {Message}", ex.Message);
+            return new KubernetesClusterTestResultDto(
+                Success: false,
+                ServerVersion: null,
+                NodeCount: 0,
+                LatencyMs: sw.ElapsedMilliseconds,
+                Message: $"Connection failed: {ex.Message}"
+            );
+        }
+    }
+
+    public async Task<List<string>> ListNamespacesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var namespaces = await _client.CoreV1.ListNamespaceAsync(cancellationToken: ct);
+            return namespaces.Items?
+                .Select(n => n.Metadata?.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => n!)
+                .ToList() ?? new List<string>();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Kubernetes list namespaces operation was canceled.");
+            return new List<string>();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            _logger.LogWarning("Kubernetes cluster is unreachable or timed out while listing namespaces: {Message}", ex.Message);
+            return new List<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list Kubernetes namespaces");
+            return new List<string>();
+        }
+    }
+
+    public async Task<List<K8sDeploymentSummaryDto>> ListDeploymentsAsync(string? namespaceName = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var deployments = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.AppsV1.ListDeploymentForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.AppsV1.ListNamespacedDeploymentAsync(namespaceName, cancellationToken: ct);
+
+            if (deployments?.Items == null) return new List<K8sDeploymentSummaryDto>();
+
+            return deployments.Items.Select(d =>
+            {
+                var images = d.Spec?.Template?.Spec?.Containers?
+                    .Select(c => c.Image)
+                    .Where(img => !string.IsNullOrWhiteSpace(img))
+                    .Select(img => img!)
+                    .ToList() ?? new List<string>();
+
+                return new K8sDeploymentSummaryDto(
+                    Name: d.Metadata?.Name ?? string.Empty,
+                    Namespace: d.Metadata?.NamespaceProperty ?? "default",
+                    DesiredReplicas: d.Spec?.Replicas ?? 0,
+                    ReadyReplicas: d.Status?.ReadyReplicas ?? 0,
+                    AvailableReplicas: d.Status?.AvailableReplicas ?? 0,
+                    Images: images,
+                    CreationTimestamp: d.Metadata?.CreationTimestamp
+                );
+            }).ToList();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Kubernetes list deployments operation was canceled.");
+            return new List<K8sDeploymentSummaryDto>();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            _logger.LogWarning("Kubernetes cluster is unreachable or timed out while listing deployments: {Message}", ex.Message);
+            return new List<K8sDeploymentSummaryDto>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list Kubernetes deployments");
+            return new List<K8sDeploymentSummaryDto>();
+        }
+    }
+
+    public async Task<bool> RestartDeploymentAsync(string namespaceName, string deploymentName, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Triggering rollout restart for deployment '{Namespace}/{Name}'...", namespaceName, deploymentName);
+        try
+        {
+            var nowIso = DateTime.UtcNow.ToString("o");
+            var patchStr = $"{{\"spec\":{{\"template\":{{\"metadata\":{{\"annotations\":{{\"kubectl.kubernetes.io/restartedAt\":\"{nowIso}\"}}}}}}}}}}";
+            var patch = new V1Patch(patchStr, V1Patch.PatchType.MergePatch);
+            await _client.AppsV1.PatchNamespacedDeploymentAsync(patch, deploymentName, namespaceName, cancellationToken: ct);
+            _logger.LogInformation("Rollout restart successfully initiated for deployment '{Namespace}/{Name}'.", namespaceName, deploymentName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to restart deployment '{Namespace}/{Name}'", namespaceName, deploymentName);
+            return false;
+        }
+    }
+
+    public async Task<bool> ScaleDeploymentAsync(string namespaceName, string deploymentName, int replicas, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Scaling deployment '{Namespace}/{Name}' to {Replicas} replicas...", namespaceName, deploymentName, replicas);
+        try
+        {
+            var patchStr = $"{{\"spec\":{{\"replicas\":{replicas}}}}}";
+            var patch = new V1Patch(patchStr, V1Patch.PatchType.MergePatch);
+            await _client.AppsV1.PatchNamespacedDeploymentAsync(patch, deploymentName, namespaceName, cancellationToken: ct);
+            _logger.LogInformation("Deployment '{Namespace}/{Name}' scaled to {Replicas} replicas.", namespaceName, deploymentName, replicas);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to scale deployment '{Namespace}/{Name}'", namespaceName, deploymentName);
+            return false;
+        }
+    }
+
+    public async Task<List<K8sPodSummaryDto>> ListPodsAsync(string? namespaceName = null, string? nodeName = null, CancellationToken ct = default)
+    {
+        try
+        {
+            string? fieldSelector = !string.IsNullOrWhiteSpace(nodeName) ? $"spec.nodeName={nodeName}" : null;
+
+            var pods = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.CoreV1.ListPodForAllNamespacesAsync(fieldSelector: fieldSelector, cancellationToken: ct)
+                : await _client.CoreV1.ListNamespacedPodAsync(namespaceName, fieldSelector: fieldSelector, cancellationToken: ct);
+
+            if (pods?.Items == null) return new List<K8sPodSummaryDto>();
+
+            return pods.Items.Select(p =>
+            {
+                var restartCount = p.Status?.ContainerStatuses?.Sum(cs => cs.RestartCount) ?? 0;
+                var isReady = p.Status?.Conditions?
+                    .Any(c => string.Equals(c.Type, "Ready", StringComparison.OrdinalIgnoreCase) && string.Equals(c.Status, "True", StringComparison.OrdinalIgnoreCase)) ?? false;
+
+                return new K8sPodSummaryDto(
+                    Name: p.Metadata?.Name ?? string.Empty,
+                    Namespace: p.Metadata?.NamespaceProperty ?? "default",
+                    Phase: p.Status?.Phase ?? "Unknown",
+                    NodeName: p.Spec?.NodeName,
+                    PodIp: p.Status?.PodIP,
+                    RestartCount: restartCount,
+                    IsReady: isReady,
+                    StartTime: p.Status?.StartTime
+                );
+            }).ToList();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Kubernetes list pods operation was canceled.");
+            return new List<K8sPodSummaryDto>();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            _logger.LogWarning("Kubernetes cluster is unreachable or timed out while listing pods: {Message}", ex.Message);
+            return new List<K8sPodSummaryDto>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list Kubernetes pods");
+            return new List<K8sPodSummaryDto>();
+        }
     }
 }

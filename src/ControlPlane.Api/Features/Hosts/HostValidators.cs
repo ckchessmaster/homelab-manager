@@ -23,7 +23,8 @@ public static partial class HostValidators
     {
         "baremetal",
         "proxmox_vm",
-        "proxmox_lxc"
+        "proxmox_lxc",
+        "kubernetes_node"
     };
 
     private static readonly Regex HostnameRegex = new(

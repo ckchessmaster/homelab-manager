@@ -2,11 +2,12 @@ import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import {
   Database,
-  ShieldCheck,
   AlertTriangle,
   Server,
 } from 'lucide-react'
 import type { NavTab } from './AppSidebar'
+import { useAuthUser } from '../../features/auth/useAuthUser'
+import { ApiKeyHeaderMenu } from '../../features/auth/ApiKeyHeaderMenu'
 import { UserProfileDropdown } from '../../features/auth/UserProfileDropdown'
 
 interface StorageStatus {
@@ -29,6 +30,7 @@ export function AppHeader({
   totalHosts = 0,
   rebootPendingCount = 0,
 }: AppHeaderProps) {
+  const { authMode } = useAuthUser()
   const { data: storageStatus } = useQuery<StorageStatus>({
     queryKey: ['storageStatus'],
     queryFn: () => apiClient<StorageStatus>('/api/storage/status'),
@@ -40,6 +42,10 @@ export function AppHeader({
       title: 'Host Inventory',
       desc: 'Managed physical servers, virtual machines, and Proxmox containers.',
     },
+    workloads: {
+      title: 'Applications & Workloads',
+      desc: 'Multi-cluster Kubernetes deployments, rolling rollouts, and replica autoscaling.',
+    },
     discovery: {
       title: 'Service Discovery & Adoption',
       desc: 'Discover hypervisor VMs, LXC containers, and Kubernetes cluster nodes with 1-click import.',
@@ -49,8 +55,8 @@ export function AppHeader({
       desc: 'Directed acyclic graph orchestration with pre-flight checks and rollback.',
     },
     adapters: {
-      title: 'Infrastructure Adapters & Probes',
-      desc: 'Agentless hypervisor, BMC Redfish, and network switch connectors.',
+      title: 'Infrastructure Adapters',
+      desc: 'Agentless hypervisor, BMC Redfish, network switch, and Kubernetes cluster connectors.',
     },
     settings: {
       title: 'Settings & Security',
@@ -89,25 +95,19 @@ export function AppHeader({
 
           {/* Reboot Pending Indicator */}
           {rebootPendingCount > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950/60 border border-amber-800/80 text-[11px] text-amber-300 animate-pulse font-medium">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950/60 border border-amber-800/80 text-[11px] text-amber-300 font-medium">
               <AlertTriangle className="h-3 w-3 text-amber-400" />
               <span>{rebootPendingCount} Reboot Pending</span>
             </div>
           )}
         </div>
 
-        {/* Security / API Key Button */}
-        <button
-          onClick={onOpenSettings}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[11px] text-zinc-300 transition-colors cursor-pointer"
-          title="Manage API Key"
-        >
-          <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-          <span className="hidden sm:inline">API Key Connected</span>
-        </button>
-
-        {/* Zitadel User Profile & Role Menu */}
-        <UserProfileDropdown />
+        {/* Strictly segregated auth mode widgets: API Key mode OR OIDC mode, never both */}
+        {authMode === 'api_key' ? (
+          <ApiKeyHeaderMenu onOpenSettings={onOpenSettings} />
+        ) : (
+          <UserProfileDropdown />
+        )}
       </div>
     </header>
   )

@@ -214,6 +214,7 @@ public static class ServeCommand
         builder.Services.AddScoped<ISnapshotRetentionService, SnapshotRetentionService>();
         builder.Services.AddScoped<IRedfishClient, RedfishClient>();
         builder.Services.AddScoped<IUniFiClient, UniFiClient>();
+        builder.Services.AddScoped<IUniFiClientFactory, UniFiClientFactory>();
         builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 
         builder.Services.Configure<KubernetesConfigOptions>(builder.Configuration.GetSection(KubernetesConfigOptions.SectionName));

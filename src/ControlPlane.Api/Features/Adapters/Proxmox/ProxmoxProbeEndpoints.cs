@@ -73,6 +73,88 @@ public static class ProxmoxProbeEndpoints
         .WithName("TestProxmoxConnection")
         .WithSummary("Probe and verify connectivity to a Proxmox VE API endpoint");
 
+        group.MapGet("/instances", async (
+            IAdapterConfigService configService,
+            CancellationToken ct) =>
+        {
+            var instances = await configService.GetProxmoxInstancesAsync(ct);
+            return Results.Ok(instances);
+        })
+        .WithName("GetProxmoxInstances")
+        .WithSummary("Get all configured Proxmox VE adapter instances");
+
+        group.MapGet("/instances/{id}", async (
+            string id,
+            IAdapterConfigService configService,
+            CancellationToken ct) =>
+        {
+            var instance = await configService.GetProxmoxInstanceAsync(id, ct);
+            return instance != null
+                ? Results.Ok(instance)
+                : Results.NotFound(new { message = $"Proxmox instance '{id}' not found." });
+        })
+        .WithName("GetProxmoxInstanceById")
+        .WithSummary("Get a specific Proxmox VE adapter instance by id");
+
+        group.MapPost("/instances", async (
+            SaveProxmoxInstanceRequest request,
+            IAdapterConfigService configService,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.BaseUrl) || string.IsNullOrWhiteSpace(request.ApiTokenId))
+            {
+                return Results.BadRequest(new { message = "BaseUrl and ApiTokenId are required." });
+            }
+
+            var saved = await configService.SaveProxmoxInstanceAsync(request, ct);
+            return Results.Ok(saved);
+        })
+        .WithName("SaveProxmoxInstance")
+        .WithSummary("Create or update a Proxmox VE adapter instance");
+
+        group.MapDelete("/instances/{id}", async (
+            string id,
+            IAdapterConfigService configService,
+            CancellationToken ct) =>
+        {
+            var deleted = await configService.DeleteProxmoxInstanceAsync(id, ct);
+            return deleted
+                ? Results.Ok(new { success = true, id })
+                : Results.NotFound(new { message = $"Proxmox instance '{id}' not found." });
+        })
+        .WithName("DeleteProxmoxInstance")
+        .WithSummary("Delete a Proxmox VE adapter instance");
+
+        group.MapPost("/instances/{id}/test-connection", async (
+            string id,
+            ProxmoxProbeService probeService,
+            IAdapterConfigService configService,
+            CancellationToken cancellationToken) =>
+        {
+            var options = await configService.GetActiveProxmoxOptionsAsync(id, cancellationToken);
+            if (string.IsNullOrWhiteSpace(options.BaseUrl) ||
+                string.IsNullOrWhiteSpace(options.ApiTokenId) ||
+                string.IsNullOrWhiteSpace(options.ApiTokenSecret))
+            {
+                return Results.BadRequest(new
+                {
+                    message = $"Proxmox instance '{id}' has incomplete credentials."
+                });
+            }
+
+            var probeRequest = new ProxmoxProbeRequest(
+                BaseUrl: options.BaseUrl,
+                ApiTokenId: options.ApiTokenId,
+                ApiTokenSecret: options.ApiTokenSecret,
+                AllowSelfSignedCert: options.AllowSelfSignedCert
+            );
+
+            var result = await probeService.ProbeAsync(probeRequest, cancellationToken);
+            return Results.Ok(result);
+        })
+        .WithName("TestProxmoxInstanceConnection")
+        .WithSummary("Probe and verify connectivity to a specific saved Proxmox instance");
+
         return group;
     }
 }

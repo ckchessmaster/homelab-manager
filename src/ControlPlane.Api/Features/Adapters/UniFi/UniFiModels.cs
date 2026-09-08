@@ -34,3 +34,39 @@ public record UniFiPortOverride(
     string PoeMode,
     string? Name = null
 );
+
+public record UniFiPortDto(
+    int PortIdx,
+    string? Name,
+    bool Up,
+    int? SpeedMbps,
+    string PoeMode,
+    double? PoePowerWatts,
+    double? PoeVoltage = null,
+    double? PoeCurrent = null
+);
+
+public record UniFiDeviceDto(
+    string Mac,
+    string? Name,
+    string Model,
+    string Type,
+    string? Ip,
+    string State,
+    string? Version,
+    bool UpgradeAvailable,
+    long? UptimeSeconds,
+    double? Temperature,
+    List<UniFiPortDto> Ports
+);
+
+public record UniFiDeviceRestartRequest(
+    string? Reason = null
+);
+
+public record UniFiDeviceUpgradeRequest();
+
+public record UniFiPortCycleRequest(
+    int DelaySeconds = 5
+);
+

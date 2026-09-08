@@ -144,10 +144,11 @@ public class HostService
             }
         };
 
-        if (!string.IsNullOrWhiteSpace(request.ProxmoxNode) || request.ProxmoxVmid.HasValue)
+        if (!string.IsNullOrWhiteSpace(request.ProxmoxNode) || request.ProxmoxVmid.HasValue || !string.IsNullOrWhiteSpace(request.ProxmoxInstanceId))
         {
             host.Proxmox = new ProxmoxTarget
             {
+                InstanceId = string.IsNullOrWhiteSpace(request.ProxmoxInstanceId) ? null : request.ProxmoxInstanceId.Trim(),
                 Node = request.ProxmoxNode?.Trim() ?? string.Empty,
                 Vmid = request.ProxmoxVmid ?? 0
             };
@@ -167,6 +168,15 @@ public class HostService
             {
                 SwitchMac = request.UnifiSwitchMac?.Trim() ?? string.Empty,
                 PortNumber = request.UnifiSwitchPort ?? 0
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.K8sClusterId) || !string.IsNullOrWhiteSpace(request.K8sNodeName))
+        {
+            host.Kubernetes = new KubernetesTarget
+            {
+                ClusterId = string.IsNullOrWhiteSpace(request.K8sClusterId) ? null : request.K8sClusterId.Trim(),
+                NodeName = string.IsNullOrWhiteSpace(request.K8sNodeName) ? null : request.K8sNodeName.Trim()
             };
         }
 
@@ -261,9 +271,13 @@ public class HostService
             host.TargetType = request.TargetType.Trim().ToLowerInvariant();
         }
 
-        if (request.ProxmoxNode != null || request.ProxmoxVmid.HasValue)
+        if (request.ProxmoxNode != null || request.ProxmoxVmid.HasValue || request.ProxmoxInstanceId != null)
         {
             host.Proxmox ??= new ProxmoxTarget();
+            if (request.ProxmoxInstanceId != null)
+            {
+                host.Proxmox.InstanceId = string.IsNullOrWhiteSpace(request.ProxmoxInstanceId) ? null : request.ProxmoxInstanceId.Trim();
+            }
             if (request.ProxmoxNode != null)
             {
                 host.Proxmox.Node = request.ProxmoxNode.Trim();
@@ -297,6 +311,20 @@ public class HostService
             if (request.UnifiSwitchPort.HasValue)
             {
                 host.NetworkPort.PortNumber = request.UnifiSwitchPort.Value;
+            }
+        }
+
+        if (request.K8sClusterId != null || request.K8sNodeName != null)
+        {
+            if (string.IsNullOrWhiteSpace(request.K8sClusterId) && string.IsNullOrWhiteSpace(request.K8sNodeName))
+            {
+                host.Kubernetes = null;
+            }
+            else
+            {
+                host.Kubernetes ??= new KubernetesTarget();
+                if (request.K8sClusterId != null) host.Kubernetes.ClusterId = string.IsNullOrWhiteSpace(request.K8sClusterId) ? null : request.K8sClusterId.Trim();
+                if (request.K8sNodeName != null) host.Kubernetes.NodeName = string.IsNullOrWhiteSpace(request.K8sNodeName) ? null : request.K8sNodeName.Trim();
             }
         }
 
@@ -359,7 +387,8 @@ public class HostService
             IpAddress: host.IpAddress,
             OsFamily: host.OsFamily,
             TargetType: host.TargetType,
-            Proxmox: host.Proxmox == null ? null : new ProxmoxTargetDto(host.Proxmox.Node, host.Proxmox.Vmid),
+            Proxmox: host.Proxmox == null ? null : new ProxmoxTargetDto(host.Proxmox.Node, host.Proxmox.Vmid, host.Proxmox.InstanceId),
+            Kubernetes: host.Kubernetes == null ? null : new KubernetesTargetDto(host.Kubernetes.ClusterId, host.Kubernetes.NodeName),
             Idrac: host.Idrac == null ? null : new IdracTargetDto(host.Idrac.IpAddress),
             NetworkPort: host.NetworkPort == null ? null : new UnifiPortTargetDto(host.NetworkPort.SwitchMac, host.NetworkPort.PortNumber),
             Agent: new AgentStateDto(

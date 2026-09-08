@@ -45,7 +45,7 @@ export function Badge({
           className={cn(
             'h-1.5 w-1.5 rounded-full',
             dotColors[variant],
-            pulse && 'animate-ping inline-block'
+            pulse && 'animate-pulse inline-block'
           )}
         />
       )}

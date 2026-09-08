@@ -1,13 +1,67 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AuthProvider as OidcAuthProvider, useAuth as useOidcAuth } from 'react-oidc-context'
 import { AuthContext } from './AuthContext'
-import { getAuthConfig, createOidcSettings } from './authConfig'
+import { getAuthConfig, createOidcSettings, setActiveAuthMode } from './authConfig'
 import type { AuthState, UserProfile, UserRole } from './AuthTypes'
 import { ROLE_HIERARCHY, parseZitadelRoles, hasRequiredRole, getHighestRole } from './roleUtils'
-import { setAuthTokenProvider } from '../../api/client'
+import { getApiKey, setApiKey, setAuthTokenProvider } from '../../api/client'
 
 interface AuthProviderProps {
   children: ReactNode
+}
+
+function ApiKeyAuthProvider({ children }: { children: ReactNode }) {
+  const [apiKey, setApiKeyState] = useState<string>(() => {
+    return getApiKey()
+  })
+
+  const isAuthenticated = Boolean(apiKey && apiKey.trim().length > 0)
+
+  const handleSaveApiKey = (key: string) => {
+    const trimmed = key.trim()
+    setApiKey(trimmed)
+    setApiKeyState(trimmed)
+  }
+
+  const handleLogout = async () => {
+    setApiKey('')
+    setApiKeyState('')
+  }
+
+  const user: UserProfile | null = isAuthenticated
+    ? {
+        id: 'api-key-admin',
+        name: 'API Key Admin',
+        email: 'admin@controlplane.local',
+        roles: ['Admin', 'Operator', 'Viewer'],
+      }
+    : null
+
+  const contextValue: AuthState = {
+    authMode: 'api_key',
+    isAuthenticated,
+    isLoading: false,
+    isBypass: false,
+    user,
+    token: null,
+    apiKey: isAuthenticated ? apiKey : null,
+    roles: ['Admin', 'Operator', 'Viewer'],
+    activeRole: 'Admin',
+    login: async (key?: string) => {
+      if (key) {
+        handleSaveApiKey(key)
+      }
+    },
+    logout: handleLogout,
+    hasRole: () => true,
+    isAdmin: true,     // Full Access
+    isOperator: true,  // Full Access
+    isViewer: true,    // Full Access
+    setApiKey: handleSaveApiKey,
+    switchAuthMode: (mode) => setActiveAuthMode(mode),
+  }
+
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
 
 function BypassAuthProvider({ children }: { children: ReactNode }) {
@@ -35,6 +89,7 @@ function BypassAuthProvider({ children }: { children: ReactNode }) {
   }
 
   const contextValue: AuthState = {
+    authMode: 'oidc',
     isAuthenticated: true,
     isLoading: false,
     isBypass: true,
@@ -49,6 +104,7 @@ function BypassAuthProvider({ children }: { children: ReactNode }) {
     isAdmin: hasRequiredRole(effectiveRoles, 'Admin'),
     isOperator: hasRequiredRole(effectiveRoles, 'Operator'),
     isViewer: hasRequiredRole(effectiveRoles, 'Viewer'),
+    switchAuthMode: (mode) => setActiveAuthMode(mode),
   }
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
@@ -89,6 +145,7 @@ function OidcBridge({ children }: { children: ReactNode }) {
   }, [auth.user, effectiveRoles])
 
   const contextValue: AuthState = {
+    authMode: 'oidc',
     isAuthenticated: auth.isAuthenticated,
     isLoading: auth.isLoading,
     isBypass: false,
@@ -106,6 +163,7 @@ function OidcBridge({ children }: { children: ReactNode }) {
     isAdmin: hasRequiredRole(effectiveRoles, 'Admin'),
     isOperator: hasRequiredRole(effectiveRoles, 'Operator'),
     isViewer: hasRequiredRole(effectiveRoles, 'Viewer'),
+    switchAuthMode: (mode) => setActiveAuthMode(mode),
   }
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
@@ -113,6 +171,10 @@ function OidcBridge({ children }: { children: ReactNode }) {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const config = useMemo(() => getAuthConfig(), [])
+
+  if (config.mode === 'api_key') {
+    return <ApiKeyAuthProvider>{children}</ApiKeyAuthProvider>
+  }
 
   if (config.isBypass) {
     return <BypassAuthProvider>{children}</BypassAuthProvider>

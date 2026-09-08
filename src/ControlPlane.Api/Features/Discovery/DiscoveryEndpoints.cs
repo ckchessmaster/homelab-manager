@@ -12,10 +12,11 @@ public static class DiscoveryEndpoints
         group.MapGet("/scan", async (
             bool includeProxmox = true,
             bool includeKubernetes = true,
+            bool includeUniFi = true,
             IDiscoveryService discoveryService = null!,
             CancellationToken ct = default) =>
         {
-            var result = await discoveryService.ScanAsync(includeProxmox, includeKubernetes, ct);
+            var result = await discoveryService.ScanAsync(includeProxmox, includeKubernetes, includeUniFi, ct);
             return Results.Ok(result);
         });
 
@@ -28,6 +29,16 @@ public static class DiscoveryEndpoints
             return result.Success
                 ? Results.Ok(result)
                 : Results.BadRequest(result);
+        })
+        .RequireAuthorization(AuthConstants.RequireAdmin);
+
+        group.MapPost("/import-batch", async (
+            BatchImportCandidatesRequest request,
+            IDiscoveryService discoveryService,
+            CancellationToken ct) =>
+        {
+            var result = await discoveryService.ImportCandidatesBatchAsync(request, ct);
+            return Results.Ok(result);
         })
         .RequireAuthorization(AuthConstants.RequireAdmin);
 

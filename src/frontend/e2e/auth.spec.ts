@@ -49,4 +49,48 @@ test.describe('Authentication & RBAC User Experience', () => {
     // Verify Add Host is now enabled again
     await expect(addHostBtn).toBeEnabled()
   })
+
+  test('blocks unauthenticated visitors and prompts for API key in api_key mode', async ({ page }) => {
+    // Clear any auth flags to simulate clean unauthenticated visitor in api_key mode
+    await page.addInitScript(() => {
+      localStorage.removeItem('cp_auth_bypass')
+      localStorage.removeItem('cp_bypass_role')
+      localStorage.removeItem('cp_api_key')
+      localStorage.setItem('cp_auth_mode', 'api_key')
+    })
+    await page.goto('/')
+
+    // Auth gate screen must be visible
+    await expect(page.getByRole('heading', { name: /ControlPlane API Key Sign In/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Connect & Sign In/i })).toBeVisible()
+
+    // Protected dashboard elements MUST NOT be visible
+    await expect(page.getByText('Total Managed Nodes')).not.toBeVisible()
+    await expect(page.getByRole('table')).not.toBeVisible()
+
+    // Submit with empty key -> error message
+    await page.getByRole('button', { name: /Connect & Sign In/i }).click()
+    await expect(page.getByText(/Please enter a valid ControlPlane API key/i)).toBeVisible()
+
+    // Enter valid API key and submit
+    await page.getByPlaceholder(/Enter X-ControlPlane-Key/i).fill('secret-test-token-789')
+    await page.getByRole('button', { name: /Connect & Sign In/i }).click()
+
+    // Now authenticated: dashboard renders
+    await expect(page.getByText('Total Managed Nodes')).toBeVisible()
+    await expect(page.getByRole('table')).toBeVisible()
+
+    // Header displays API Key widget (Full Admin) and NOT OIDC profile dropdown
+    await expect(page.getByText('API Key')).toBeVisible()
+    await expect(page.getByText('Full Admin')).toBeVisible()
+    await expect(page.getByRole('button', { name: /DA Dev Admin/i })).not.toBeVisible()
+
+    // Disconnect via API Key menu
+    await page.getByRole('button', { name: /API Key/i }).click()
+    await page.getByRole('button', { name: /Disconnect \/ Lock/i }).click()
+
+    // Returns to AuthGatePage
+    await expect(page.getByRole('heading', { name: /ControlPlane API Key Sign In/i })).toBeVisible()
+    await expect(page.getByText('Total Managed Nodes')).not.toBeVisible()
+  })
 })

@@ -2,7 +2,7 @@
 
 **Phase:** Phase 4: Productionization & Deployment  
 **Status:** ⏳ Not Started  
-**Dependencies:** [Plan 01: Production Containerization](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md), [Plan 04: Agent Compilation](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-agent-cross-compilation-and-systemd-installer.md), [Plan 05: Helm Chart](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-kubernetes-production-packaging-and-helm.md)  
+**Dependencies:** [Plan 01: Production Containerization](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md), [Plan 05: Helm Chart](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-kubernetes-production-packaging-and-helm.md)  
 
 ---
 

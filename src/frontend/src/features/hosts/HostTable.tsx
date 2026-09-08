@@ -22,6 +22,9 @@ import { EditHostModal } from './EditHostModal'
 import { HostTerminalDrawer } from './HostTerminalDrawer'
 import { AdoptNodeModal } from './AdoptNodeModal'
 import { MassAgentUpdateModal } from './MassAgentUpdateModal'
+import { MassAdoptHostsModal } from './MassAdoptHostsModal'
+import { HostFilterPills, type PlatformFilter, type HealthFilter, type ViewMode } from './HostFilterPills'
+import { GroupedHostView } from './GroupedHostView'
 import { useDeleteHost, useHosts } from './useHosts'
 import { useAgentVersionInfo } from './useAgentUpdates'
 import { useAuthUser } from '../auth/useAuthUser'
@@ -59,7 +62,6 @@ import {
 import { RebootHostModal } from './RebootHostModal'
 import { LaunchWorkflowModal } from '../orchestration/LaunchWorkflowModal'
 import { SnapshotManagementModal } from '../snapshots/SnapshotManagementModal'
-import { createJob } from '../../api/jobs'
 import type { Host, HostFilterParams } from '../../api/hosts'
 
 interface HostTableProps {
@@ -69,9 +71,9 @@ interface HostTableProps {
 export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedOs, setSelectedOs] = useState('')
-  const [selectedTarget, setSelectedTarget] = useState('')
   const [onlyReboot, setOnlyReboot] = useState(false)
   const [onlyUpdates, setOnlyUpdates] = useState(false)
+  const [onlyHealthy, setOnlyHealthy] = useState(false)
 
   const [inspectHost, setInspectHost] = useState<Host | null>(null)
   const [hostToEdit, setHostToEdit] = useState<Host | null>(null)
@@ -79,6 +81,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [terminalHost, setTerminalHost] = useState<Host | null>(null)
   const [adoptHost, setAdoptHost] = useState<Host | null>(null)
   const [isAdoptModalOpen, setIsAdoptModalOpen] = useState(false)
+  const [isMassAdoptModalOpen, setIsMassAdoptModalOpen] = useState(false)
   const [copiedIp, setCopiedIp] = useState<string | null>(null)
   const [terminalJobId, setTerminalJobId] = useState<string | null>(null)
   const [autoTriggerUpdate, setAutoTriggerUpdate] = useState(false)
@@ -95,12 +98,37 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [snapshotModalHost, setSnapshotModalHost] = useState<Host | null>(null)
   const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false)
 
+  // View mode and platform filters
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem('cp_inventory_view_mode')
+      return saved === 'flat' || saved === 'grouped' ? saved : 'flat'
+    } catch {
+      return 'flat'
+    }
+  })
+
+  const currentHealthFilter: HealthFilter = onlyReboot
+    ? 'reboot'
+    : onlyUpdates
+    ? 'updates'
+    : onlyHealthy
+    ? 'healthy'
+    : 'all'
+
+  const handleHealthFilterChange = (h: HealthFilter) => {
+    setOnlyReboot(h === 'reboot')
+    setOnlyUpdates(h === 'updates')
+    setOnlyHealthy(h === 'healthy')
+  }
+
   // Pagination state
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [prevFilterKey, setPrevFilterKey] = useState('')
 
-  const currentFilterKey = `${searchTerm}|${selectedOs}|${selectedTarget}|${onlyReboot}|${onlyUpdates}|${pageSize}`
+  const currentFilterKey = `${searchTerm}|${selectedOs}|${onlyReboot}|${onlyUpdates}|${platformFilter}|${pageSize}`
   if (prevFilterKey !== currentFilterKey) {
     setPrevFilterKey(currentFilterKey)
     setPage(1)
@@ -119,7 +147,6 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const filters: HostFilterParams = {
     search: searchTerm || undefined,
     osFamily: selectedOs || undefined,
-    targetType: selectedTarget || undefined,
     pendingReboot: onlyReboot ? true : undefined,
     hasUpdates: onlyUpdates ? true : undefined,
   }
@@ -127,15 +154,45 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const { data: hosts, isLoading, isError, error, refetch, isFetching } = useHosts(filters)
   const deleteMutation = useDeleteHost()
 
-  const totalHosts = hosts?.length ?? 0
+  const displayHosts = useMemo(() => {
+    if (!hosts) return []
+    let result = hosts
+    if (platformFilter === 'proxmox') {
+      result = result.filter(
+        (h) => h.proxmox || h.targetType.startsWith('proxmox') || h.proxmoxInstanceId
+      )
+    } else if (platformFilter === 'kubernetes') {
+      result = result.filter((h) => h.k8sClusterId || h.k8sNodeName)
+    } else if (platformFilter === 'baremetal') {
+      result = result.filter(
+        (h) => h.targetType === 'baremetal' && !h.k8sNodeName && !h.proxmox
+      )
+    }
+
+    if (currentHealthFilter === 'healthy') {
+      result = result.filter(
+        (h) =>
+          h.agent?.installed &&
+          !h.agent.pendingReboot &&
+          (h.agent.upgradablePackagesCount || 0) === 0
+      )
+    }
+    return result
+  }, [hosts, platformFilter, currentHealthFilter])
+
+  const selectedHosts = useMemo(() => {
+    if (!hosts) return []
+    return hosts.filter((h) => selectedHostIds.has(h.id))
+  }, [hosts, selectedHostIds])
+
+  const totalHosts = displayHosts.length
   const totalPages = Math.max(1, Math.ceil(totalHosts / pageSize))
   const startIndex = (page - 1) * pageSize
   const endIndex = Math.min(startIndex + pageSize, totalHosts)
 
   const paginatedHosts = useMemo(() => {
-    if (!hosts) return []
-    return hosts.slice(startIndex, endIndex)
-  }, [hosts, startIndex, endIndex])
+    return displayHosts.slice(startIndex, endIndex)
+  }, [displayHosts, startIndex, endIndex])
 
   const toggleSelectAll = () => {
     if (!paginatedHosts || paginatedHosts.length === 0) return
@@ -165,24 +222,36 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
 
   const handleBulkReboot = () => {
     if (!hosts) return
-    const selected = hosts.filter((h) => selectedHostIds.has(h.id))
-    if (selected.length === 0) return
-    setRebootBulkHosts(selected)
+    const bulk = hosts.filter((h) => selectedHostIds.has(h.id))
+    if (bulk.length === 0) return
+    setRebootBulkHosts(bulk)
   }
 
-  const handleBulkUpdate = async () => {
+  const handleBulkUpdate = () => {
     if (!hosts) return
-    const selected = hosts.filter((h) => selectedHostIds.has(h.id) && h.agent.installed)
-    if (selected.length === 0) return
-    for (const h of selected) {
-      try {
-        await createJob(h.id)
-      } catch {
-        // continue
-      }
+    const firstSelected = hosts.find((h) => selectedHostIds.has(h.id))
+    if (firstSelected) {
+      setWorkflowModalHost(firstSelected)
     }
-    setSelectedHostIds(new Set())
-    handleTriggerUpdate(selected[0])
+  }
+
+  const handleDeleteClick = (host: Host) => {
+    setHostToDelete(host)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!hostToDelete) return
+    try {
+      await deleteMutation.mutateAsync(hostToDelete.id)
+      setHostToDelete(null)
+      setSelectedHostIds((prev) => {
+        const next = new Set(prev)
+        next.delete(hostToDelete.id)
+        return next
+      })
+    } catch {
+      // Handled by mutation error state
+    }
   }
 
   const handleCopyIp = (ip: string, e: React.MouseEvent) => {
@@ -192,23 +261,40 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
     setTimeout(() => setCopiedIp(null), 2000)
   }
 
-  const handleDeleteConfirm = async () => {
-    if (!hostToDelete) return
-    try {
-      await deleteMutation.mutateAsync(hostToDelete.id)
-      setHostToDelete(null)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete host')
+  const handleAdoptClick = () => {
+    if (selectedHostIds.size > 0) {
+      setIsMassAdoptModalOpen(true)
+    } else {
+      setAdoptHost(null)
+      setIsAdoptModalOpen(true)
     }
   }
 
   return (
     <div className="space-y-4">
-      {/* Controls / Filter Bar */}
+      {/* Platform & Health Facet Filter Pills */}
+      <HostFilterPills
+        hosts={hosts || []}
+        selectedPlatform={platformFilter}
+        onSelectPlatform={setPlatformFilter}
+        selectedHealth={currentHealthFilter}
+        onSelectHealth={handleHealthFilterChange}
+        viewMode={viewMode}
+        onToggleViewMode={(m) => {
+          setViewMode(m)
+          try {
+            localStorage.setItem('cp_inventory_view_mode', m)
+          } catch {
+            // Ignore storage errors
+          }
+        }}
+      />
+
+      {/* Controls / Filter & Action Bar */}
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-md">
         <div className="flex flex-1 flex-wrap items-center gap-3">
           {/* Search Box */}
-          <div className="relative min-w-[220px] flex-1 max-w-sm">
+          <div className="relative min-w-[240px] flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
             <Input
               placeholder="Search hostname, IP, friendly name..."
@@ -219,7 +305,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           </div>
 
           {/* OS Filter */}
-          <div className="w-36">
+          <div className="w-40">
             <Select
               value={selectedOs}
               onChange={(e) => setSelectedOs(e.target.value)}
@@ -232,123 +318,137 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
               <option value="windows">Windows</option>
             </Select>
           </div>
-
-          {/* Target Type Filter */}
-          <div className="w-36">
-            <Select
-              value={selectedTarget}
-              onChange={(e) => setSelectedTarget(e.target.value)}
-              className="bg-zinc-950/80"
-            >
-              <option value="">All Types</option>
-              <option value="baremetal">Bare-Metal</option>
-              <option value="proxmox_vm">Proxmox VM</option>
-              <option value="proxmox_lxc">Proxmox LXC</option>
-            </Select>
-          </div>
-
-          {/* Quick Filter Toggles */}
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setOnlyReboot(!onlyReboot)}
-              className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors cursor-pointer ${
-                onlyReboot
-                  ? 'bg-amber-950/80 border-amber-600 text-amber-300 font-medium'
-                  : 'bg-zinc-950/40 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <AlertTriangle className="h-3 w-3" />
-              Reboot Pending
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOnlyUpdates(!onlyUpdates)}
-              className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors cursor-pointer ${
-                onlyUpdates
-                  ? 'bg-sky-950/80 border-sky-600 text-sky-300 font-medium'
-                  : 'bg-zinc-950/40 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <ArrowUpCircle className="h-3 w-3" />
-              Updates Available
-            </button>
-          </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2 self-end md:self-auto">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            title="Refresh hosts list"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-          </Button>
+        {/* Action Buttons: Seamlessly transforms between Fleet Tools and Selected Hosts Actions */}
+        {selectedHostIds.size > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 animate-in fade-in">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-950/70 border border-sky-800/80 text-xs font-semibold text-sky-300">
+              <span className="w-2 h-2 rounded-full bg-sky-400" />
+              {selectedHostIds.size} Selected
+            </span>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsMassUpdateModalOpen(true)}
-            className={`gap-1.5 transition-colors ${
-              (agentVersionInfo?.outdatedAgentsCount ?? 0) > 0
-                ? 'border-amber-700/80 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60 shadow-xs shadow-amber-900/20'
-                : 'border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60'
-            }`}
-          >
-            <ArrowUpCircle className={`h-4 w-4 ${(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 ? 'text-amber-400' : 'text-zinc-400'}`} />
-            <span>Agent Updates</span>
-            {(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                {agentVersionInfo?.outdatedAgentsCount}
-              </span>
-            )}
-          </Button>
+            <RoleGate requiredRole="Admin" mode="disable">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsMassAdoptModalOpen(true)}
+                className="gap-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs h-8 font-medium shadow-xs shadow-sky-950"
+                title="Mass adopt selected hosts and install controlplane-agent via SSH"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                <span>Adopt / Install Agent</span>
+              </Button>
+            </RoleGate>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSnapshotModalHost(null)
-              setIsSnapshotModalOpen(true)
-            }}
-            className="gap-1.5 border-purple-800/80 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60"
-            title="Manage Proxmox hypervisor snapshots & retention"
-          >
-            <Camera className="h-4 w-4" />
-            <span>Snapshots</span>
-          </Button>
+            <RoleGate requiredRole="Operator" mode="disable">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkUpdate}
+                disabled={selectedHosts.filter((h) => h.agent.installed).length === 0}
+                className="gap-1.5 border-emerald-700/60 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/60 text-xs h-8 disabled:opacity-40"
+                title="Update packages on selected online nodes"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Update Packages</span>
+              </Button>
+            </RoleGate>
 
-          <RoleGate requiredRole="Admin" mode="disable">
+            <RoleGate requiredRole="Operator" mode="disable">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkReboot}
+                disabled={selectedHosts.filter((h) => h.agent.installed).length === 0}
+                className="gap-1.5 border-amber-700/60 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60 text-xs h-8 disabled:opacity-40"
+                title="Reboot selected online nodes"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reboot</span>
+              </Button>
+            </RoleGate>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedHostIds(new Set())}
+              className="text-xs text-zinc-400 hover:text-zinc-200 h-8"
+            >
+              Deselect
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 self-end md:self-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              title="Refresh hosts list"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsMassUpdateModalOpen(true)}
+              className={`gap-1.5 transition-colors ${
+                (agentVersionInfo?.outdatedAgentsCount ?? 0) > 0
+                  ? 'border-amber-700/80 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60 shadow-xs shadow-amber-900/20'
+                  : 'border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60'
+              }`}
+            >
+              <ArrowUpCircle className={`h-4 w-4 ${(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 ? 'text-amber-400' : 'text-zinc-400'}`} />
+              <span>Fleet Upgrade</span>
+              {(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {agentVersionInfo?.outdatedAgentsCount}
+                </span>
+              )}
+            </Button>
+
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                setAdoptHost(null)
-                setIsAdoptModalOpen(true)
+                setSnapshotModalHost(null)
+                setIsSnapshotModalOpen(true)
               }}
-              className="gap-1.5 border-sky-800/80 bg-sky-950/40 text-sky-300 hover:bg-sky-900/60"
+              className="gap-1.5 border-purple-800/80 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60"
+              title="Manage Proxmox hypervisor snapshots & retention"
             >
-              <Shield className="h-4 w-4" />
-              Adopt Server
+              <Camera className="h-4 w-4" />
+              <span>Snapshots</span>
             </Button>
-          </RoleGate>
 
-          <RoleGate requiredRole="Admin" mode="disable">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={onOpenAddModal}
-              className="gap-1.5"
-            >
-              <Plus className="h-4 w-4" />
-              Add Host
-            </Button>
-          </RoleGate>
-        </div>
+            <RoleGate requiredRole="Admin" mode="disable">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAdoptClick}
+                className="gap-1.5 border-sky-800/80 bg-sky-950/40 text-sky-300 hover:bg-sky-900/60"
+                title="Adopt server via SSH bootstrap"
+              >
+                <Shield className="h-4 w-4" />
+                <span>Adopt Server</span>
+              </Button>
+            </RoleGate>
+
+            <RoleGate requiredRole="Admin" mode="disable">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onOpenAddModal}
+                className="gap-1.5"
+              >
+                <Plus className="h-4 w-4" />
+                Add Host
+              </Button>
+            </RoleGate>
+          </div>
+        )}
       </div>
 
       {/* Outdated Agents Banner */}
@@ -356,7 +456,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-amber-950/50 via-zinc-900/70 to-zinc-900/50 border border-amber-800/50 rounded-xl backdrop-blur-md shadow-lg shadow-amber-950/10 animate-in fade-in">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0">
-              <ArrowUpCircle className="w-5 h-5 animate-pulse" />
+              <ArrowUpCircle className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -401,12 +501,12 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             Try Again
           </Button>
         </div>
-      ) : !hosts || hosts.length === 0 ? (
+      ) : !displayHosts || displayHosts.length === 0 ? (
         <div className="p-12 text-center border border-zinc-800 rounded-xl bg-zinc-900/30">
           <Server className="h-10 w-10 mx-auto text-zinc-600 mb-3" />
           <h3 className="text-base font-medium text-zinc-200">No hosts found</h3>
           <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1 mb-4">
-            {searchTerm || selectedOs || selectedTarget || onlyReboot || onlyUpdates
+            {searchTerm || selectedOs || onlyReboot || onlyUpdates || platformFilter !== 'all' || currentHealthFilter !== 'all'
               ? 'No managed hosts match your current filter query. Try clearing the filters.'
               : 'Your homelab inventory is empty. Register your first managed node to get started.'}
           </p>
@@ -414,6 +514,22 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             Register a Host
           </Button>
         </div>
+      ) : viewMode === 'grouped' ? (
+        <GroupedHostView
+          hosts={displayHosts}
+          onInspect={(h) => setInspectHost(h)}
+          onOpenTerminal={(h) => setTerminalHost(h)}
+          onTriggerUpdate={(h) => handleTriggerUpdate(h)}
+          onReboot={(h) => setRebootModalHost(h)}
+          onEdit={(h) => setHostToEdit(h)}
+          onDelete={(h) => setHostToDelete(h)}
+          onOpenSnapshots={(h) => {
+            setSnapshotModalHost(h)
+            setIsSnapshotModalOpen(true)
+          }}
+          isAdmin={isAdmin}
+          isOperator={isOperator}
+        />
       ) : (
         <div className="space-y-3">
           <Table containerClassName="min-h-[340px]">
@@ -560,31 +676,38 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                           <Shield className="h-4 w-4" />
                         </Button>
                       </RoleGate>
-                    ) : host.agent.pendingReboot ? (
-                      <RoleGate requiredRole="Operator" mode="disable">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-amber-400 hover:text-amber-300 hover:bg-amber-950/50"
-                          onClick={() => setRebootModalHost(host)}
-                          title="Reboot Node (Kernel Pending)"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </Button>
-                      </RoleGate>
-                    ) : host.agent.upgradablePackagesCount > 0 ? (
-                      <RoleGate requiredRole="Operator" mode="disable">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/50"
-                          onClick={() => handleTriggerUpdate(host)}
-                          title="Run DAG Update Pipeline"
-                        >
-                          <Sparkles className="h-4 w-4" />
-                        </Button>
-                      </RoleGate>
-                    ) : null}
+                    ) : (
+                      <>
+                        {host.agent.upgradablePackagesCount > 0 && (
+                          <RoleGate requiredRole="Operator" mode="disable">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/50"
+                              onClick={() => handleTriggerUpdate(host)}
+                              title={`Run DAG Update Pipeline (${host.agent.upgradablePackagesCount} updates)`}
+                            >
+                              <Sparkles className="h-4 w-4" />
+                            </Button>
+                          </RoleGate>
+                        )}
+                        <RoleGate requiredRole="Operator" mode="disable">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`h-8 w-8 transition-colors ${
+                              host.agent.pendingReboot
+                                ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-950/50'
+                                : 'text-zinc-400 hover:text-amber-300 hover:bg-zinc-800/60'
+                            }`}
+                            onClick={() => setRebootModalHost(host)}
+                            title={host.agent.pendingReboot ? 'Reboot Node (Kernel Reboot Pending)' : 'Reboot Node'}
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        </RoleGate>
+                      </>
+                    )}
 
                     {/* Console button */}
                     <Button
@@ -694,7 +817,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                         <DropdownMenuItem
                           destructive
                           disabled={!isAdmin}
-                          onClick={() => setHostToDelete(host)}
+                          onClick={() => handleDeleteClick(host)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           <span>Delete Host</span>
@@ -856,6 +979,21 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         />
       )}
 
+      {/* Mass Adopt Modal */}
+      {isMassAdoptModalOpen && (
+        <MassAdoptHostsModal
+          hosts={selectedHosts}
+          open={isMassAdoptModalOpen}
+          onClose={() => {
+            setIsMassAdoptModalOpen(false)
+            setSelectedHostIds(new Set())
+          }}
+          onSuccess={() => {
+            refetch()
+          }}
+        />
+      )}
+
       {/* Delete Confirmation Dialog */}
       {hostToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
@@ -882,47 +1020,6 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
               </Button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Floating Bulk Actions Bar */}
-      {selectedHostIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 rounded-2xl bg-zinc-950/95 border border-zinc-700/80 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
-          <div className="flex items-center gap-2 pr-3 border-r border-zinc-800">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-semibold text-zinc-200">
-              {selectedHostIds.size} {selectedHostIds.size === 1 ? 'host' : 'hosts'} selected
-            </span>
-          </div>
-
-          <Button
-            size="sm"
-            variant="primary"
-            className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8"
-            onClick={handleBulkUpdate}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Update Selected
-          </Button>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 border-amber-600/50 text-amber-300 hover:bg-amber-950/50 text-xs h-8"
-            onClick={handleBulkReboot}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reboot Selected
-          </Button>
-
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-xs text-zinc-400 hover:text-zinc-200 h-8"
-            onClick={() => setSelectedHostIds(new Set())}
-          >
-            Deselect
-          </Button>
         </div>
       )}
     </div>

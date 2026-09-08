@@ -5,6 +5,8 @@ namespace ControlPlane.Api.Storage.Entities;
 /// </summary>
 public class ProxmoxTarget
 {
+    public string? InstanceId { get; set; }
+
     public string Node { get; set; } = string.Empty;
 
     public int Vmid { get; set; }

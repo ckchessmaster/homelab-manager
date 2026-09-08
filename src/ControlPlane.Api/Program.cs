@@ -18,6 +18,7 @@ using ControlPlane.Api.Features.Orchestration.Pipelines;
 using ControlPlane.Api.Features.Orchestration.Temporal;
 using ControlPlane.Api.Features.Orchestration.Temporal.Endpoints;
 using ControlPlane.Api.Features.Security;
+using ControlPlane.Api.Features.Workloads;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
@@ -61,43 +62,29 @@ builder.Services.AddSingleton<ISecretEncryptionService, SecretEncryptionService>
 builder.Services.AddHostedService<SecretsMigrationWorker>();
 builder.Services.AddScoped<IAdapterConfigService, AdapterConfigService>();
 builder.Services.AddScoped<ProxmoxTaskPoller>();
+builder.Services.AddScoped<IProxmoxClientFactory, ProxmoxClientFactory>();
 builder.Services.AddScoped<IProxmoxClient, ProxmoxClient>();
 builder.Services.AddScoped<ISnapshotRetentionService, SnapshotRetentionService>();
 builder.Services.AddHostedService<SnapshotRetentionWorker>();
 builder.Services.AddScoped<IRedfishClient, RedfishClient>();
 builder.Services.AddScoped<IUniFiClient, UniFiClient>();
+builder.Services.AddScoped<IUniFiClientFactory, UniFiClientFactory>();
+builder.Services.AddScoped<IWorkloadService, WorkloadService>();
 builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddControlPlaneMcpServer(builder.Configuration);
 
 builder.Services.Configure<KubernetesConfigOptions>(builder.Configuration.GetSection(KubernetesConfigOptions.SectionName));
-builder.Services.AddSingleton<IKubernetes>(sp =>
+builder.Services.AddScoped<IKubernetesClientFactory, KubernetesClientFactory>();
+builder.Services.AddScoped<IKubernetes>(sp =>
 {
-    var opts = sp.GetRequiredService<IOptions<KubernetesConfigOptions>>().Value;
-    KubernetesClientConfiguration config;
-
-    if (opts.InClusterConfig)
-    {
-        config = KubernetesClientConfiguration.InClusterConfig();
-    }
-    else if (!string.IsNullOrWhiteSpace(opts.KubeConfigPath) && File.Exists(opts.KubeConfigPath))
-    {
-        config = KubernetesClientConfiguration.BuildConfigFromConfigFile(opts.KubeConfigPath);
-    }
-    else
-    {
-        try
-        {
-            config = KubernetesClientConfiguration.BuildDefaultConfig();
-        }
-        catch
-        {
-            config = new KubernetesClientConfiguration { Host = opts.MasterUri ?? "http://localhost:8080" };
-        }
-    }
-
-    return new Kubernetes(config);
+    var factory = sp.GetRequiredService<IKubernetesClientFactory>();
+    return factory.CreateClientAsync().GetAwaiter().GetResult();
 });
-builder.Services.AddScoped<IKubernetesAdapter, KubernetesAdapter>();
+builder.Services.AddScoped<IKubernetesAdapter>(sp =>
+{
+    var factory = sp.GetRequiredService<IKubernetesClientFactory>();
+    return factory.CreateAdapterAsync().GetAwaiter().GetResult();
+});
 
 builder.Services.AddHttpClient(ProxmoxProbeService.StandardHttpClientName);
 builder.Services.AddHttpClient(ProxmoxProbeService.InsecureHttpClientName)
@@ -213,6 +200,7 @@ app.MapClusterEndpoints();
 app.MapRedfishEndpoints();
 app.MapUniFiEndpoints();
 app.MapKubernetesEndpoints();
+app.MapWorkloadEndpoints();
 app.MapDiscoveryEndpoints();
 app.MapSecurityEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");

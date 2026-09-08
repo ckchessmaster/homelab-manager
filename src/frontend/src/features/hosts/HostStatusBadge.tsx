@@ -81,7 +81,7 @@ export function AgentStatusBadge({
   if (isOnline) {
     return (
       <div className="inline-flex items-center gap-1.5 flex-wrap">
-        <Badge variant="success" dot pulse>
+        <Badge variant="success" dot>
           Online {agent.version ? `(v${agent.version.replace(/^v/, '')})` : ''}
         </Badge>
         {isOutdated && (
@@ -104,7 +104,7 @@ export function AgentStatusBadge({
 export function RebootBadge({ pending }: { pending: boolean }) {
   if (!pending) return null
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-600/60 shadow-xs shadow-amber-900/40 animate-pulse">
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-600/60 shadow-xs shadow-amber-900/40">
       <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
       Reboot Pending
     </span>

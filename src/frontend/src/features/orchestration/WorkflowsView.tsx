@@ -116,7 +116,7 @@ export function WorkflowsView() {
       case 'Pending':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
             Pending
           </span>
         )
@@ -248,7 +248,7 @@ export function WorkflowsView() {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-zinc-400">Currently Running</span>
             {runningJobs > 0 ? (
-              <span className="h-2 w-2 rounded-full bg-sky-400 animate-ping inline-block" />
+              <span className="h-2 w-2 rounded-full bg-sky-400 inline-block" />
             ) : (
               <span className="h-2 w-2 rounded-full bg-zinc-600 inline-block" />
             )}

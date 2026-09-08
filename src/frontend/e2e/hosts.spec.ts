@@ -67,4 +67,37 @@ test.describe('Host Inventory & Management', () => {
     // pve-node-01 should no longer be in table
     await expect(page.getByRole('table').getByText('pve-node-01')).not.toBeVisible()
   })
+
+  test('supports selecting hosts and mass adopting them via SSH', async ({ page }) => {
+    // Check checkboxes for hosts
+    const k8sRow = page.locator('tr', { hasText: 'k8s-control-01' })
+    const pveRow = page.locator('tr', { hasText: 'pve-node-01' })
+
+    await k8sRow.locator('input[type="checkbox"]').check()
+    await pveRow.locator('input[type="checkbox"]').check()
+
+    // Top batch toolbar should show selection state
+    await expect(page.getByText('2 Selected')).toBeVisible()
+
+    // Click "Adopt / Install Agent" button in the toolbar
+    await page.getByRole('button', { name: /Adopt \/ Install Agent/i }).click()
+
+    // Mass adopt modal should open
+    await expect(page.getByText('Mass Adopt Hosts & Install Agent')).toBeVisible()
+    await expect(page.getByText(/Selected Targets \(2 Hosts\)/i)).toBeVisible()
+
+    // Fill credentials
+    await page.locator('input[type="password"]').fill('secretpassword')
+
+    // Submit adoption
+    await page.getByRole('button', { name: /Adopt All \(2 Hosts\)/i }).click()
+
+    // Verify success report
+    await expect(page.getByText(/Mass Adoption Complete/i)).toBeVisible()
+    await expect(page.getByText(/Successfully bootstrapped and connected 2 of 2 hosts/i)).toBeVisible()
+
+    // Close modal
+    await page.getByRole('button', { name: /Done/i }).click()
+    await expect(page.getByText('Mass Adopt Hosts & Install Agent')).not.toBeVisible()
+  })
 })

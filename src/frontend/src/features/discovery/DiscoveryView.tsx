@@ -4,16 +4,18 @@ import {
   RefreshCw,
   Search,
   CheckCircle2,
-  AlertCircle,
   Server,
   Cpu,
   Plus,
   ArrowRight,
   Layers,
   Box,
+  Users,
+  X,
 } from 'lucide-react'
 import { useDiscoveryScan } from './useDiscovery'
 import { ImportCandidateModal } from './ImportCandidateModal'
+import { MassAdoptModal } from './MassAdoptModal'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import {
@@ -36,6 +38,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
   const [managementFilter, setManagementFilter] = useState<'all' | 'unmanaged' | 'managed'>('all')
   const [selectedCandidate, setSelectedCandidate] = useState<DiscoveredCandidate | null>(null)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set())
+  const [isMassAdoptModalOpen, setIsMassAdoptModalOpen] = useState(false)
+  const [successNotice, setSuccessNotice] = useState<{ message: string; hostId?: string } | null>(null)
 
   const { data: scanData, isLoading, isFetching, refetch } = useDiscoveryScan()
 
@@ -60,6 +65,37 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
       return matchesSearch && matchesSource && matchesManagement
     })
   }, [candidates, searchTerm, sourceFilter, managementFilter])
+
+  const unmanagedInView = useMemo(
+    () => filteredCandidates.filter((c) => !c.isManaged),
+    [filteredCandidates]
+  )
+
+  const isAllSelected =
+    unmanagedInView.length > 0 &&
+    unmanagedInView.every((c) => selectedCandidateKeys.has(c.id || c.name))
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedCandidateKeys(new Set())
+    } else {
+      const next = new Set<string>()
+      unmanagedInView.forEach((c) => next.add(c.id || c.name))
+      setSelectedCandidateKeys(next)
+    }
+  }
+
+  const toggleSelectCandidate = (key: string) => {
+    setSelectedCandidateKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
 
   const handleImport = (candidate: DiscoveredCandidate) => {
     setSelectedCandidate(candidate)
@@ -98,82 +134,118 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
 
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
+        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-400">Discovered Targets</span>
-            <Layers className="h-4 w-4 text-sky-400" />
+            <span className="text-xs text-zinc-400">Discovered Hosts</span>
+            <Layers className="h-4 w-4 text-zinc-500" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-zinc-100">
-            {scanData?.totalDiscovered ?? 0}
-          </div>
-          <p className="text-[11px] text-zinc-500 mt-0.5">VMs, containers & nodes found</p>
+          <div className="text-2xl font-bold text-zinc-100 mt-1">{scanData?.totalDiscovered ?? 0}</div>
+          <div className="text-[11px] text-zinc-500 mt-1">Across all infrastructure adapters</div>
         </div>
 
-        <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
+        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-400">New / Unmanaged</span>
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs text-zinc-400">Unmanaged Targets</span>
+            <Compass className="h-4 w-4 text-sky-400" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-emerald-400">
-            {scanData?.unmanagedCount ?? 0}
-          </div>
-          <p className="text-[11px] text-zinc-500 mt-0.5">Available for 1-click import</p>
+          <div className="text-2xl font-bold text-sky-400 mt-1">{scanData?.unmanagedCount ?? 0}</div>
+          <div className="text-[11px] text-sky-500/80 mt-1">Available for 1-click adoption</div>
         </div>
 
-        <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
+        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-400">Already In Inventory</span>
-            <CheckCircle2 className="h-4 w-4 text-zinc-400" />
+            <span className="text-xs text-zinc-400">Already Managed</span>
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-zinc-100">
-            {scanData?.alreadyManaged ?? 0}
-          </div>
-          <p className="text-[11px] text-zinc-500 mt-0.5">Correlated & managed</p>
+          <div className="text-2xl font-bold text-emerald-400 mt-1">{scanData?.alreadyManaged ?? 0}</div>
+          <div className="text-[11px] text-emerald-500/80 mt-1">Bound in host inventory</div>
         </div>
 
-        <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
+        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-400">Connector Status</span>
+            <span className="text-xs text-zinc-400">Active Adapters</span>
             <Box className="h-4 w-4 text-purple-400" />
           </div>
-          <div className="mt-2 text-sm font-semibold text-zinc-200">
-            {scanData?.errors && scanData.errors.length > 0 ? (
-              <span className="text-amber-400">{scanData.errors.length} Warning(s)</span>
-            ) : (
-              <span className="text-emerald-400">Connected</span>
-            )}
-          </div>
-          <p className="text-[11px] text-zinc-500 mt-0.5">Proxmox & K8s APIs</p>
+          <div className="text-2xl font-bold text-purple-400 mt-1">2</div>
+          <div className="text-[11px] text-purple-500/80 mt-1">Proxmox VE & Kubernetes</div>
         </div>
       </div>
 
-      {/* Warnings / Errors Banner if any */}
-      {scanData?.errors && scanData.errors.length > 0 && (
-        <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl text-xs text-amber-300 space-y-1">
-          <div className="font-semibold flex items-center gap-1.5">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
-            <span>Discovery Notes:</span>
+      {/* Success Notification Banner */}
+      {successNotice && (
+        <div className="flex items-center justify-between p-3.5 bg-emerald-950/40 border border-emerald-800/60 rounded-xl text-xs text-emerald-300 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+            <span>{successNotice.message}</span>
           </div>
-          {scanData.errors.map((err, idx) => (
-            <div key={idx} className="pl-5 text-amber-300/80">• {err}</div>
-          ))}
+          <div className="flex items-center gap-2">
+            {successNotice.hostId && onSelectHost && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onSelectHost(successNotice.hostId!)}
+                className="text-xs h-7 px-2.5 text-emerald-200 border-emerald-800/60 hover:bg-emerald-900/40"
+              >
+                <span>View in Host Inventory</span>
+                <ArrowRight className="h-3 w-3 ml-1" />
+              </Button>
+            )}
+            <button
+              onClick={() => setSuccessNotice(null)}
+              className="text-emerald-400/70 hover:text-emerald-300 p-1 rounded"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Filters and Search Bar */}
-      <div className="p-4 bg-zinc-900/60 border border-zinc-800 rounded-xl space-y-3">
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
-            <Input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Filter by name, IP, node, or role..."
-              className="pl-9 h-9 text-xs"
-            />
+      {/* Selection / Mass Adopt Bar */}
+      {selectedCandidateKeys.size > 0 && (
+        <div className="flex items-center justify-between p-3.5 bg-sky-950/50 border border-sky-800/60 rounded-xl text-xs text-sky-200 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-sky-400" />
+            <span className="font-medium">
+              {selectedCandidateKeys.size} unmanaged {selectedCandidateKeys.size === 1 ? 'host' : 'hosts'} selected
+            </span>
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectedCandidateKeys(new Set())}
+              className="text-xs h-7 text-zinc-400 hover:text-zinc-200"
+            >
+              Clear Selection
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsMassAdoptModalOpen(true)}
+              className="text-xs h-7 gap-1.5 bg-sky-600 hover:bg-sky-500 text-white font-medium"
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span>Mass Adopt ({selectedCandidateKeys.size})</span>
+            </Button>
+          </div>
+        </div>
+      )}
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+          <Input
+            placeholder="Search discovered hosts..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9 bg-zinc-900/60 border-zinc-800 text-xs h-9"
+          />
+        </div>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex items-center gap-2">
             <select
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value as any)}
@@ -202,6 +274,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
         <Table>
           <TableHeader>
             <TableRow className="border-zinc-800 hover:bg-transparent">
+              <TableHead className="w-10 text-center">
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  onChange={toggleSelectAll}
+                  disabled={unmanagedInView.length === 0}
+                  className="rounded border-zinc-700 bg-zinc-800 text-sky-500 focus:ring-sky-500 cursor-pointer"
+                  title="Select all unmanaged hosts"
+                />
+              </TableHead>
               <TableHead className="text-zinc-400 text-xs font-semibold">Source & Type</TableHead>
               <TableHead className="text-zinc-400 text-xs font-semibold">Name & Hypervisor ID</TableHead>
               <TableHead className="text-zinc-400 text-xs font-semibold">IP Address</TableHead>
@@ -214,7 +296,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-zinc-400 text-xs">
+                <TableCell colSpan={8} className="h-32 text-center text-zinc-400 text-xs">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <RefreshCw className="h-5 w-5 animate-spin text-sky-400" />
                     <span>Querying hypervisors and cluster endpoints...</span>
@@ -223,7 +305,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
               </TableRow>
             ) : filteredCandidates.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-zinc-400 text-xs">
+                <TableCell colSpan={8} className="h-32 text-center text-zinc-400 text-xs">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Compass className="h-6 w-6 text-zinc-600" />
                     <span>No matching candidates discovered.</span>
@@ -236,6 +318,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
             ) : (
               filteredCandidates.map((candidate) => (
                 <TableRow key={candidate.id} className="border-zinc-800/60 hover:bg-zinc-800/30">
+                  <TableCell className="w-10 text-center">
+                    {!candidate.isManaged ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedCandidateKeys.has(candidate.id || candidate.name)}
+                        onChange={() => toggleSelectCandidate(candidate.id || candidate.name)}
+                        className="rounded border-zinc-700 bg-zinc-800 text-sky-500 focus:ring-sky-500 cursor-pointer"
+                        title={`Select ${candidate.name} for mass adoption`}
+                      />
+                    ) : (
+                      <span className="text-zinc-600" title="Already managed">
+                        —
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       {candidate.source === 'Proxmox' ? (
@@ -356,7 +453,29 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
           setSelectedCandidate(null)
         }}
         onSuccess={(hostId) => {
-          onSelectHost?.(hostId)
+          setSuccessNotice({
+            message: `Host "${selectedCandidate?.name}" successfully imported into inventory.`,
+            hostId,
+          })
+          setIsImportModalOpen(false)
+          setSelectedCandidate(null)
+          refetch()
+        }}
+      />
+
+      {/* Mass Adopt Modal */}
+      <MassAdoptModal
+        candidates={candidates.filter((c) => selectedCandidateKeys.has(c.id || c.name))}
+        open={isMassAdoptModalOpen}
+        onClose={() => {
+          setIsMassAdoptModalOpen(false)
+          setSelectedCandidateKeys(new Set())
+        }}
+        onSuccess={(succeededCount) => {
+          setSuccessNotice({
+            message: `Batch adoption complete: successfully imported ${succeededCount} hosts into inventory.`,
+          })
+          refetch()
         }}
       />
     </div>

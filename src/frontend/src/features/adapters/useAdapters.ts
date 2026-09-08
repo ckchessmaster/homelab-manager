@@ -3,12 +3,19 @@ import {
   fetchProxmoxConfig,
   saveProxmoxConfig,
   probeProxmox,
+  fetchProxmoxInstances,
+  fetchProxmoxInstance,
+  saveProxmoxInstance,
+  deleteProxmoxInstance,
+  testProxmoxInstanceConnection,
   type SaveProxmoxConfigPayload,
   type ProxmoxProbePayload,
+  type SaveProxmoxInstancePayload,
 } from '../../api/adapters'
 
 export const ADAPTERS_QUERY_KEY = ['adapters']
 export const PROXMOX_CONFIG_QUERY_KEY = ['adapters', 'proxmox', 'config']
+export const PROXMOX_INSTANCES_QUERY_KEY = ['adapters', 'proxmox', 'instances']
 
 export function useProxmoxConfig() {
   return useQuery({
@@ -24,6 +31,7 @@ export function useSaveProxmoxConfig() {
     mutationFn: (payload: SaveProxmoxConfigPayload) => saveProxmoxConfig(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PROXMOX_CONFIG_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: PROXMOX_INSTANCES_QUERY_KEY })
     },
   })
 }
@@ -31,5 +39,49 @@ export function useSaveProxmoxConfig() {
 export function useProbeProxmox() {
   return useMutation({
     mutationFn: (payload: ProxmoxProbePayload) => probeProxmox(payload),
+  })
+}
+
+export function useProxmoxInstances() {
+  return useQuery({
+    queryKey: PROXMOX_INSTANCES_QUERY_KEY,
+    queryFn: fetchProxmoxInstances,
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export function useProxmoxInstance(id: string) {
+  return useQuery({
+    queryKey: [...PROXMOX_INSTANCES_QUERY_KEY, id],
+    queryFn: () => fetchProxmoxInstance(id),
+    enabled: Boolean(id),
+  })
+}
+
+export function useSaveProxmoxInstance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: SaveProxmoxInstancePayload) => saveProxmoxInstance(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PROXMOX_INSTANCES_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: PROXMOX_CONFIG_QUERY_KEY })
+    },
+  })
+}
+
+export function useDeleteProxmoxInstance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => deleteProxmoxInstance(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PROXMOX_INSTANCES_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: PROXMOX_CONFIG_QUERY_KEY })
+    },
+  })
+}
+
+export function useTestProxmoxInstance() {
+  return useMutation({
+    mutationFn: (id: string) => testProxmoxInstanceConnection(id),
   })
 }

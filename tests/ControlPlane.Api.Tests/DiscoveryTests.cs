@@ -305,6 +305,58 @@ public class DiscoveryTests
     }
 
     [Fact]
+    public async Task ImportCandidatesBatchAsync_ImportsMultipleCandidatesSuccessfully()
+    {
+        var (db, conn) = CreateInMemoryDbContext();
+        using var _ = conn;
+        using var __ = db;
+
+        var hostService = new HostService(db, NullLogger<HostService>.Instance);
+        var fakePve = new FakeProxmoxClient();
+        var fakeK8s = new FakeKubernetesAdapter();
+        var pveOpts = Options.Create(new ProxmoxOptions());
+
+        var service = new DiscoveryService(
+            db,
+            fakePve,
+            fakeK8s,
+            hostService,
+            pveOpts,
+            NullLogger<DiscoveryService>.Instance
+        );
+
+        var batchRequest = new BatchImportCandidatesRequest(
+            Candidates: new List<ImportCandidateRequest>
+            {
+                new("batch-node-01", "192.168.1.111", "kubernetes_node", "linux_debian", "Batch Node 1", K8sClusterId: "k8s-prod", K8sNodeName: "batch-node-01"),
+                new("batch-node-02", "192.168.1.112", "kubernetes_node", "linux_debian", "Batch Node 2", K8sClusterId: "k8s-prod", K8sNodeName: "batch-node-02"),
+                new("batch-node-03", "", "baremetal", "linux_debian") // Missing IP, should fail gracefully
+            },
+            CommonTargetType: "kubernetes_node",
+            CommonOsFamily: "linux_debian"
+        );
+
+        var response = await service.ImportCandidatesBatchAsync(batchRequest);
+
+        Assert.Equal(3, response.TotalRequested);
+        Assert.Equal(2, response.SucceededCount);
+        Assert.Equal(1, response.FailedCount);
+
+        var item1 = response.Results.First(r => r.Name == "batch-node-01");
+        Assert.True(item1.Success);
+        Assert.NotNull(item1.HostId);
+
+        var item2 = response.Results.First(r => r.Name == "batch-node-02");
+        Assert.True(item2.Success);
+        Assert.NotNull(item2.HostId);
+
+        var item3 = response.Results.First(r => r.Name == "batch-node-03");
+        Assert.False(item3.Success);
+        Assert.Contains("valid IP address is required", item3.ErrorMessage);
+    }
+
+    [Fact]
+
     public async Task DiscoverClusterResourcesAsync_HandlesFloatingPointMetricsAndMissingFields()
     {
         var handler = new MockHttpMessageHandler(req =>

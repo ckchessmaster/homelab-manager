@@ -211,10 +211,15 @@ public class ControlPlaneMcpTools
     [McpServerTool]
     [Description("Get detailed information for a managed compute host including hardware targets and active jobs.")]
     public async Task<object?> GetHostDetails(
-        [Description("The GUID of the host to inspect.")] Guid hostId,
+        [Description("The GUID of the host to inspect.")] Guid? hostId = null,
         CancellationToken ct = default)
     {
-        var host = await _hostService.GetHostByIdAsync(hostId, ct);
+        if (!hostId.HasValue || hostId.Value == Guid.Empty)
+        {
+            return new { error = "The 'hostId' parameter is required." };
+        }
+
+        var host = await _hostService.GetHostByIdAsync(hostId.Value, ct);
         if (host == null) return null;
 
         var isOnline = _connectionManager.IsOnline(host.Id);
@@ -245,9 +250,10 @@ public class ControlPlaneMcpTools
     public async Task<object> ScanDiscovery(
         [Description("Whether to include Proxmox VE scan (default true).")] bool includeProxmox = true,
         [Description("Whether to include Kubernetes cluster scan (default true).")] bool includeKubernetes = true,
+        [Description("Whether to include Ubiquiti UniFi network scan (default true).")] bool includeUniFi = true,
         CancellationToken ct = default)
     {
-        var result = await _discoveryService.ScanAsync(includeProxmox, includeKubernetes, ct);
+        var result = await _discoveryService.ScanAsync(includeProxmox, includeKubernetes, includeUniFi, ct);
         return result;
     }
 

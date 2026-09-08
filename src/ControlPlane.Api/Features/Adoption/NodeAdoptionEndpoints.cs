@@ -40,6 +40,54 @@ public static class NodeAdoptionEndpoints
         .WithName("AdoptHostById")
         .WithSummary("Adopt an existing inventory host via SSH bootstrap");
 
+        group.MapPost("/adopt-batch", async (
+            [FromBody] BatchAdoptNodesRequest request,
+            NodeAdoptionService adoptionService,
+            CancellationToken cancellationToken) =>
+        {
+            var results = new List<BatchAdoptItemResult>();
+            var succeeded = 0;
+            var failed = 0;
+
+            foreach (var item in request.Hosts)
+            {
+                var singleReq = new AdoptNodeRequest(
+                    HostId: item.HostId,
+                    Hostname: item.Hostname,
+                    TargetHost: item.TargetHost,
+                    Port: request.Port,
+                    Username: request.Username,
+                    Password: request.Password,
+                    PrivateKey: request.PrivateKey,
+                    HubUrl: request.HubUrl
+                );
+
+                try
+                {
+                    var res = await adoptionService.AdoptNodeAsync(singleReq, null, cancellationToken);
+                    if (res.Success)
+                    {
+                        succeeded++;
+                        results.Add(new BatchAdoptItemResult(item.HostId, item.Hostname ?? item.TargetHost, true, res.Message));
+                    }
+                    else
+                    {
+                        failed++;
+                        results.Add(new BatchAdoptItemResult(item.HostId, item.Hostname ?? item.TargetHost, false, res.Message));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    results.Add(new BatchAdoptItemResult(item.HostId, item.Hostname ?? item.TargetHost, false, ex.Message));
+                }
+            }
+
+            return Results.Ok(new BatchAdoptNodesResponse(request.Hosts.Count, succeeded, failed, results));
+        })
+        .WithName("AdoptNodesBatch")
+        .WithSummary("Adopt multiple existing inventory hosts in batch via SSH bootstrap");
+
         return routes;
     }
 }

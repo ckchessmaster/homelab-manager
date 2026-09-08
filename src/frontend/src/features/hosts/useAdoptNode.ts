@@ -1,5 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { adoptNode, type AdoptNodePayload, type NodeAdoptionResponse } from '../../api/hosts'
+import {
+  adoptNode,
+  adoptNodesBatch,
+  type AdoptNodePayload,
+  type NodeAdoptionResponse,
+  type BatchAdoptNodesPayload,
+  type BatchAdoptNodesResponse,
+} from '../../api/hosts'
 
 export function useAdoptNode() {
   const queryClient = useQueryClient()
@@ -11,3 +18,15 @@ export function useAdoptNode() {
     },
   })
 }
+
+export function useBatchAdoptNodes() {
+  const queryClient = useQueryClient()
+
+  return useMutation<BatchAdoptNodesResponse, Error, BatchAdoptNodesPayload>({
+    mutationFn: (payload: BatchAdoptNodesPayload) => adoptNodesBatch(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
+  })
+}
+

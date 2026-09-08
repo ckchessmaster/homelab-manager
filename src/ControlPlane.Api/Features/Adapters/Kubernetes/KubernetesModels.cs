@@ -42,3 +42,29 @@ public record K8sDiscoveredNodeDto(
     string? ContainerRuntimeVersion,
     Dictionary<string, string> Labels
 );
+
+public record K8sDeploymentSummaryDto(
+    string Name,
+    string Namespace,
+    int DesiredReplicas,
+    int ReadyReplicas,
+    int AvailableReplicas,
+    List<string> Images,
+    DateTime? CreationTimestamp
+);
+
+public record K8sPodSummaryDto(
+    string Name,
+    string Namespace,
+    string Phase,
+    string? NodeName,
+    string? PodIp,
+    int RestartCount,
+    bool IsReady,
+    DateTime? StartTime
+);
+
+public record K8sScaleDeploymentRequest(
+    int Replicas
+);
+

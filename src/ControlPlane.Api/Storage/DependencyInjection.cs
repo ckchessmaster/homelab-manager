@@ -60,6 +60,30 @@ public static class DependencyInjection
             await context.Database.ExecuteSqlRawAsync(
                 "CREATE TABLE IF NOT EXISTS system_settings (key TEXT NOT NULL PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);",
                 cancellationToken);
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE hosts ADD COLUMN proxmox_instance_id TEXT;", cancellationToken);
+            }
+            catch
+            {
+                // Ignored if column already exists
+            }
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE hosts ADD COLUMN k8s_cluster_id TEXT;", cancellationToken);
+            }
+            catch
+            {
+                // Ignored if column already exists
+            }
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE hosts ADD COLUMN k8s_node_name TEXT;", cancellationToken);
+            }
+            catch
+            {
+                // Ignored if column already exists
+            }
             await DbSeeder.SeedStandbyAsync(context, cancellationToken);
             logger.LogInformation("SQLite database schema ensured and seeded.");
         }

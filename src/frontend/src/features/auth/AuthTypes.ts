@@ -1,3 +1,5 @@
+import type { AuthMode } from './authConfig'
+
 export type UserRole = 'Admin' | 'Operator' | 'Viewer'
 
 export interface UserProfile {
@@ -10,18 +12,22 @@ export interface UserProfile {
 }
 
 export interface AuthState {
+  authMode: AuthMode
   isAuthenticated: boolean
   isLoading: boolean
   isBypass: boolean
   user: UserProfile | null
   token: string | null
+  apiKey?: string | null
   roles: UserRole[]
   activeRole: UserRole
-  login: () => Promise<void>
+  login: (key?: string) => Promise<void>
   logout: () => Promise<void>
   hasRole: (requiredRole: UserRole) => boolean
   isAdmin: boolean
   isOperator: boolean
   isViewer: boolean
   setActiveRole?: (role: UserRole) => void
+  setApiKey?: (key: string) => void
+  switchAuthMode?: (mode: AuthMode) => void
 }

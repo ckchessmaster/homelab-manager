@@ -21,6 +21,12 @@ public class ControlPlaneDbContext : DbContext
 
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        base.OnConfiguring(optionsBuilder);
+        optionsBuilder.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.OptionalDependentWithoutIdentifyingPropertyWarning));
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

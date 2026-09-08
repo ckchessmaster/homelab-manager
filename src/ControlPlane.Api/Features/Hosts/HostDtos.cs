@@ -8,6 +8,7 @@ public record HostResponse(
     string OsFamily,
     string TargetType,
     ProxmoxTargetDto? Proxmox,
+    KubernetesTargetDto? Kubernetes,
     IdracTargetDto? Idrac,
     UnifiPortTargetDto? NetworkPort,
     AgentStateDto Agent,
@@ -15,7 +16,9 @@ public record HostResponse(
     DateTimeOffset UpdatedAt
 );
 
-public record ProxmoxTargetDto(string Node, int Vmid);
+public record ProxmoxTargetDto(string Node, int Vmid, string? InstanceId = null);
+
+public record KubernetesTargetDto(string? ClusterId, string? NodeName);
 
 public record IdracTargetDto(string IpAddress);
 
@@ -37,6 +40,9 @@ public record CreateHostRequest(
     string TargetType,
     string? ProxmoxNode = null,
     int? ProxmoxVmid = null,
+    string? ProxmoxInstanceId = null,
+    string? K8sClusterId = null,
+    string? K8sNodeName = null,
     string? IdracIp = null,
     string? UnifiSwitchMac = null,
     int? UnifiSwitchPort = null
@@ -50,6 +56,9 @@ public record UpdateHostRequest(
     string? TargetType = null,
     string? ProxmoxNode = null,
     int? ProxmoxVmid = null,
+    string? ProxmoxInstanceId = null,
+    string? K8sClusterId = null,
+    string? K8sNodeName = null,
     string? IdracIp = null,
     string? UnifiSwitchMac = null,
     int? UnifiSwitchPort = null,
