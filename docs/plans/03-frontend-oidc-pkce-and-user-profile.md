@@ -1,7 +1,7 @@
 # Plan 03: Frontend OIDC Authentication Flow (PKCE) & User Profile Context
 
 **Phase:** Phase 4: Productionization & Deployment  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 02: Zitadel Identity Setup & Backend RBAC](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-zitadel-identity-setup-and-backend-rbac.md)  
 
 ---
@@ -26,7 +26,7 @@ Integrate modern OpenID Connect (OIDC) with **Proof Key for Code Exchange (PKCE)
      * "Sign Out" button terminating session with Zitadel end-session endpoint.
 
 4. **Role-Based UI Trimming & Route Protection**:
-   * Create `usePermissions()` hook checking user roles: `isAdmin`, `isOperator`, `isViewer`.
+   * Create `useAuthUser()` hook checking user roles: `isAdmin`, `isOperator`, `isViewer`.
    * Disable/hide destructive buttons ("Delete Host", "Adopt Node", "Launch Rolling Upgrade") for users with read-only `Viewer` role.
    * Display helpful tooltips on disabled actions ("Requires Admin privileges").
 
@@ -42,14 +42,16 @@ Integrate modern OpenID Connect (OIDC) with **Proof Key for Code Exchange (PKCE)
 src/frontend/src/
 ├── features/
 │   └── auth/
-│       ├── AuthProvider.tsx                 # OIDC Context Provider wrapper
+│       ├── AuthProvider.tsx                 # OIDC Context Provider wrapper with bypass support
 │       ├── authConfig.ts                    # Zitadel client configuration
 │       ├── useAuthUser.ts                   # Hook for current user, roles & permissions
+│       ├── AuthTypes.ts                     # TypeScript interfaces for auth context & profiles
+│       ├── roleUtils.ts                     # Role hierarchy & Zitadel claim parsing
 │       ├── CallbackPage.tsx                 # OIDC redirect callback handler
 │       ├── UserProfileDropdown.tsx          # Top bar profile menu & sign-out
 │       └── RoleGate.tsx                     # Conditional rendering component based on roles
 ├── components/layout/
-│   └── Header.tsx                           # Integrate UserProfileDropdown
+│   └── AppHeader.tsx                        # Integrate UserProfileDropdown
 └── api/
     └── client.ts                            # Bearer token injection interceptor
 ```
@@ -69,7 +71,7 @@ src/frontend/src/
 
 3. **Implement `useAuthUser` & `RoleGate`**:
    * Parse `profile['urn:zitadel:iam:org:project:roles']` to determine `roles`.
-   * Provide `hasRole(role)` and permission flags (`canManageHosts`, `canLaunchWorkflows`).
+   * Provide `hasRole(role)` and permission flags (`isAdmin`, `isOperator`, `isViewer`).
 
 4. **Integrate Header User Profile**:
    * Place `UserProfileDropdown` in the top right header bar.
@@ -87,8 +89,8 @@ src/frontend/src/
 
 ## 4. Acceptance Criteria
 
-- [ ] React SPA initiates PKCE login redirect against Zitadel when unauthenticated in production mode.
-- [ ] Successful login exchanges code, captures JWT, and surfaces user identity in the UI.
-- [ ] Top header displays user profile dropdown with role chips and logout action.
-- [ ] UI controls dynamically disable or hide destructive operations for Viewer users.
-- [ ] Dev bypass mode remains 100% functional for offline development, Standby CLI, and Playwright tests.
+- [x] React SPA initiates PKCE login redirect against Zitadel when unauthenticated in production mode.
+- [x] Successful login exchanges code, captures JWT, and surfaces user identity in the UI.
+- [x] Top header displays user profile dropdown with role chips and logout action.
+- [x] UI controls dynamically disable or hide destructive operations for Viewer users.
+- [x] Dev bypass mode remains 100% functional for offline development, Standby CLI, and Playwright tests.

@@ -1,7 +1,7 @@
 # Plan 02: Zitadel Identity Provider Setup & Backend JWT / RBAC Engine
 
 **Phase:** Phase 4: Productionization & Deployment  
-**Status:** ⏳ Not Started  
+**Status:** ✅ Completed  
 **Dependencies:** [Plan 01: Production Containerization & Compose](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md)  
 
 ---
@@ -11,8 +11,8 @@
 Establish enterprise-grade OpenID Connect (OIDC) identity management with **Zitadel** and enforce Role-Based Access Control (RBAC) across the ASP.NET Core Backend API:
 
 1. **Zitadel Service Configuration & Initialization**:
-   * Define Zitadel container definitions in the production Compose stack (`docker/compose/docker-compose.zitadel.yml`).
-   * Automate tenant initialization script (Organization, Project `controlplane`, SPA Application with PKCE, Machine User for API, Roles: `admin`, `operator`, `viewer`).
+   * Define Zitadel container definitions in the production Compose stack (`docker/compose/docker-compose.zitadel.yml`) and Aspire orchestrator (`ControlPlane.AppHost`).
+   * Automate tenant initialization script (`docker/compose/zitadel/init-zitadel.sh`) creating Organization, Project `controlplane`, SPA Application with PKCE, Machine User for API, and Roles: `admin`, `operator`, `viewer`.
 
 2. **Backend JWT Bearer Token Validation**:
    * Add `Microsoft.AspNetCore.Authentication.JwtBearer` to `ControlPlane.Api`.
@@ -20,7 +20,7 @@ Establish enterprise-grade OpenID Connect (OIDC) identity management with **Zita
 
 3. **Composite Authentication Scheme**:
    * Implement `CompositeAuthenticationHandler` supporting:
-     * **Zitadel Bearer Token**: Standard browser SPA sessions (`Authorization: Bearer <jwt>`).
+     * **Zitadel Bearer Token**: Standard browser SPA sessions (`Authorization: Bearer <jwt>`) with WebSocket access_token fallback.
      * **API Key (`X-ControlPlane-Key`)**: Headless CLI runners, cron scripts, Standby CLI runner.
      * **Dev Bypass (`AUTH_BYPASS=true`)**: Local offline development.
 
@@ -43,10 +43,13 @@ docker/
     └── zitadel/
         └── init-zitadel.sh                  # Bootstrap script creating org, project, app & roles
 
+src/Aspire/ControlPlane.AppHost/
+└── AppHost.cs                               # Zitadel container orchestration in Aspire
+
 src/ControlPlane.Api/
 ├── Security/
 │   ├── AuthConstants.cs                    # Policy and scheme name constants
-│   ├── CompositeAuthenticationHandler.cs   # Forwards between JwtBearer and ApiKey
+│   ├── CompositeAuthenticationHandler.cs   # Forwards between JwtBearer, ApiKey, and DevBypass
 │   ├── ZitadelJwtOptions.cs                # Zitadel configuration POCO
 │   └── ZitadelRoleClaimsTransformation.cs  # Extracts Zitadel project roles into ClaimsPrincipal
 └── Program.cs                              # Authentication & Authorization registration
@@ -81,7 +84,7 @@ src/ControlPlane.Api/
 
 ## 4. Acceptance Criteria
 
-- [ ] Zitadel compose definition runs and initializes the `controlplane` application and roles.
-- [ ] ASP.NET Core API validates Zitadel JWT tokens via OIDC discovery.
-- [ ] Composite authentication supports both Zitadel JWTs and static `X-ControlPlane-Key`.
-- [ ] RBAC policies correctly restrict admin vs operator vs viewer actions.
+- [x] Zitadel compose definition runs and initializes the `controlplane` application and roles.
+- [x] ASP.NET Core API validates Zitadel JWT tokens via OIDC discovery.
+- [x] Composite authentication supports both Zitadel JWTs and static `X-ControlPlane-Key`.
+- [x] RBAC policies correctly restrict admin vs operator vs viewer actions.

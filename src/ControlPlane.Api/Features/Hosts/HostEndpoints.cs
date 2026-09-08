@@ -1,5 +1,6 @@
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
+using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 
@@ -11,7 +12,7 @@ public static class HostEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/hosts")
             .WithTags("Hosts")
-            .RequireAuthorization();
+            .RequireAuthorization(AuthConstants.RequireViewer);
 
         group.MapGet("/", async (
             [AsParameters] HostFilterQuery query,
@@ -55,7 +56,8 @@ public static class HostEndpoints
             return Results.Created($"/api/v1/hosts/{host!.Id}", host);
         })
         .WithName("CreateHost")
-        .WithSummary("Register a new managed host in the inventory");
+        .WithSummary("Register a new managed host in the inventory")
+        .RequireAuthorization(AuthConstants.RequireAdmin);
 
         group.MapPut("/{id:guid}", async (
             Guid id,
@@ -83,7 +85,8 @@ public static class HostEndpoints
             return Results.Ok(host);
         })
         .WithName("UpdateHost")
-        .WithSummary("Update attributes of an existing managed host");
+        .WithSummary("Update attributes of an existing managed host")
+        .RequireAuthorization(AuthConstants.RequireAdmin);
 
         group.MapDelete("/{id:guid}", async (
             Guid id,
@@ -105,7 +108,8 @@ public static class HostEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteHost")
-        .WithSummary("Remove a managed host from inventory");
+        .WithSummary("Remove a managed host from inventory")
+        .RequireAuthorization(AuthConstants.RequireAdmin);
 
         group.MapPost("/{id:guid}/reboot", async (
             Guid id,
@@ -165,7 +169,8 @@ public static class HostEndpoints
             });
         })
         .WithName("RebootHost")
-        .WithSummary("Dispatch a reboot command to a connected host agent");
+        .WithSummary("Dispatch a reboot command to a connected host agent")
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         return group;
     }

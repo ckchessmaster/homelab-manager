@@ -1,3 +1,5 @@
+using ControlPlane.Api.Security;
+
 namespace ControlPlane.Api.Features.Discovery;
 
 public static class DiscoveryEndpoints
@@ -5,7 +7,7 @@ public static class DiscoveryEndpoints
     public static IEndpointRouteBuilder MapDiscoveryEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/discovery")
-            .RequireAuthorization();
+            .RequireAuthorization(AuthConstants.RequireViewer);
 
         group.MapGet("/scan", async (
             bool includeProxmox = true,
@@ -26,7 +28,8 @@ public static class DiscoveryEndpoints
             return result.Success
                 ? Results.Ok(result)
                 : Results.BadRequest(result);
-        });
+        })
+        .RequireAuthorization(AuthConstants.RequireAdmin);
 
         return app;
     }

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using ControlPlane.Api.Features.Orchestration.Pipelines;
+using ControlPlane.Api.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ControlPlane.Api.Features.Orchestration;
@@ -47,13 +48,13 @@ public static class JobEndpoints
             return Results.Ok(profiles);
         })
         .WithTags("Jobs & Orchestration")
-        .RequireAuthorization()
+        .RequireAuthorization(AuthConstants.RequireViewer)
         .WithName("ListPipelines")
         .WithSummary("List all available modular upgrade and maintenance pipeline profiles");
 
         var group = routes.MapGroup("/api/v1/jobs")
             .WithTags("Jobs & Orchestration")
-            .RequireAuthorization();
+            .RequireAuthorization(AuthConstants.RequireViewer);
 
         group.MapPost("/", async (
             [FromBody] CreateJobRequest request,
@@ -87,7 +88,8 @@ public static class JobEndpoints
             ));
         })
         .WithName("CreateJob")
-        .WithSummary("Trigger a new update job using the DAG orchestration pipeline");
+        .WithSummary("Trigger a new update job using the DAG orchestration pipeline")
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         group.MapGet("/", async (
             [FromQuery] Guid? hostId,

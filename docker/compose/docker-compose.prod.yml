@@ -1,0 +1,104 @@
+services:
+  controlplane-postgres:
+    image: postgres:16-alpine
+    container_name: controlplane-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-controlplane}
+      POSTGRES_USER: ${POSTGRES_USER:-controlplane}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password must be set}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - controlplane-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-controlplane} -d $${POSTGRES_DB:-controlplane}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  controlplane-temporal:
+    image: temporalio/temporal:latest
+    container_name: controlplane-temporal
+    restart: unless-stopped
+    command:
+      - server
+      - start-dev
+      - --ip
+      - 0.0.0.0
+      - --port
+      - "7233"
+      - --ui-port
+      - "8233"
+      - --db-filename
+      - /home/temporal/temporal.db
+    volumes:
+      - temporal_data:/home/temporal
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8233"
+    networks:
+      - controlplane-network
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  controlplane-api:
+    build:
+      context: ../../
+      dockerfile: docker/api/Dockerfile
+    image: controlplane-api:prod
+    container_name: controlplane-api
+    restart: unless-stopped
+    depends_on:
+      controlplane-postgres:
+        condition: service_healthy
+      controlplane-temporal:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__ControlPlaneDatabase: "Host=controlplane-postgres;Port=5432;Database=${POSTGRES_DB:-controlplane};Username=${POSTGRES_USER:-controlplane};Password=${POSTGRES_PASSWORD}"
+      Temporal__ServerUrl: "controlplane-temporal:7233"
+      Temporal__Enabled: "true"
+      ControlPlane__ApiKey: "${CONTROLPLANE_API_KEY}"
+      CONTROLPLANE_MASTER_KEY: "${CONTROLPLANE_MASTER_KEY}"
+      ENABLE_MCP_SERVER: "${ENABLE_MCP_SERVER:-true}"
+    ports:
+      - "${API_PORT:-8080}:8080"
+    networks:
+      - controlplane-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  controlplane-frontend:
+    build:
+      context: ../../
+      dockerfile: docker/frontend/Dockerfile
+    image: controlplane-frontend:prod
+    container_name: controlplane-frontend
+    restart: unless-stopped
+    depends_on:
+      controlplane-api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:8080"
+    networks:
+      - controlplane-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  temporal_data:
+
+networks:
+  controlplane-network:
+    driver: bridge

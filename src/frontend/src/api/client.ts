@@ -12,6 +12,12 @@ export function setApiKey(key: string): void {
   localStorage.setItem(API_KEY_STORAGE_KEY, key.trim())
 }
 
+let getAuthTokenFn: (() => string | null) | null = null
+
+export function setAuthTokenProvider(fn: (() => string | null) | null): void {
+  getAuthTokenFn = fn
+}
+
 export interface ApiErrorResponse {
   message?: string
   errorMessage?: string
@@ -43,6 +49,11 @@ export async function apiClient<T>(
 
   const headers = new Headers(options.headers || {})
   
+  const token = getAuthTokenFn ? getAuthTokenFn() : null
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
   if (!headers.has('X-ControlPlane-Key')) {
     headers.set('X-ControlPlane-Key', getApiKey())
   }

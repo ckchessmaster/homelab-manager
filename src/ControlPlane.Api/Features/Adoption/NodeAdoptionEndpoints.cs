@@ -1,3 +1,4 @@
+using ControlPlane.Api.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ControlPlane.Api.Features.Adoption;
@@ -7,7 +8,8 @@ public static class NodeAdoptionEndpoints
     public static IEndpointRouteBuilder MapNodeAdoptionEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/v1/hosts")
-            .WithTags("Host Adoption");
+            .WithTags("Host Adoption")
+            .RequireAuthorization(AuthConstants.RequireAdmin);
 
         group.MapPost("/adopt", async (
             [FromBody] AdoptNodeRequest request,

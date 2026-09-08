@@ -71,6 +71,8 @@ standby-state.db
 !.env.example
 appsettings.Local.json
 appsettings.Development.local.json
+*.pat
+docker/compose/zitadel/bootstrap/
 
 ## Editor & IDE
 .vscode/

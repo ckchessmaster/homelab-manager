@@ -164,6 +164,8 @@ app.MapGet("/", () => Results.Ok(new
     timestamp = DateTimeOffset.UtcNow
 })).AllowAnonymous();
 
+app.MapHealthChecks("/healthz").AllowAnonymous();
+
 app.MapGet("/api/storage/status", async (ControlPlaneDbContext db) =>
 {
     var provider = db.Database.ProviderName;
@@ -191,14 +193,14 @@ app.MapGet("/api/v1/auth/me", (ClaimsPrincipal user) =>
         roles = user.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList(),
         claims
     });
-}).RequireAuthorization();
+}).RequireAuthorization(AuthConstants.RequireViewer);
 
 app.MapGet("/api/v1/admin/ping", (ClaimsPrincipal user) => Results.Ok(new
 {
     message = "pong",
     user = user.Identity?.Name,
     role = "Admin"
-})).RequireAuthorization("RequireAdmin");
+})).RequireAuthorization(AuthConstants.RequireAdmin);
 
 app.MapHostEndpoints();
 app.MapProxmoxEndpoints();
@@ -273,7 +275,7 @@ app.MapPost("/api/v1/debug/test-reboot", async (
         status = UpdateJobState.AwaitingReconnect,
         message = $"Deterministic reboot initiated for {host.Hostname}"
     });
-}).RequireAuthorization();
+}).RequireAuthorization(AuthConstants.RequireAdmin);
 
 app.Run();
 

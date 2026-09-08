@@ -36,6 +36,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
                 new Claim(ClaimTypes.Name, "DevAdmin"),
                 new Claim(ClaimTypes.Role, "Admin"),
                 new Claim(ClaimTypes.Role, "Operator"),
+                new Claim(ClaimTypes.Role, "Viewer"),
                 new Claim("auth_method", "bypass")
             };
 
@@ -75,6 +76,7 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
             new Claim(ClaimTypes.Name, "ApiKeyUser"),
             new Claim(ClaimTypes.Role, "Admin"),
             new Claim(ClaimTypes.Role, "Operator"),
+            new Claim(ClaimTypes.Role, "Viewer"),
             new Claim("auth_method", "api_key")
         };
 

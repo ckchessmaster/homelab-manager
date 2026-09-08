@@ -1,5 +1,6 @@
 using ControlPlane.Api.Features.Orchestration.Temporal.Workflows;
 using ControlPlane.Api.Features.Orchestration.Temporal.Workflows.Models;
+using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -55,7 +56,8 @@ public static class TemporalWorkflowEndpoints
     public static IEndpointRouteBuilder MapTemporalWorkflowEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/orchestration/temporal/workflows")
-            .WithTags("Temporal Orchestration");
+            .WithTags("Temporal Orchestration")
+            .RequireAuthorization(AuthConstants.RequireViewer);
 
         group.MapPost("/start", async (
             [FromBody] StartWorkflowRequest request,
@@ -110,7 +112,8 @@ public static class TemporalWorkflowEndpoints
             );
 
             return Results.Ok(new StartWorkflowResponse(handle.Id, handle.ResultRunId, job.Id, host.Id));
-        });
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         group.MapPost("/{workflowId}/signals/{signalName}", async (
             string workflowId,
@@ -146,7 +149,8 @@ public static class TemporalWorkflowEndpoints
             {
                 error = $"Unsupported signal '{signalName}'. Supported signals: 'approve-reboot', 'cancel'."
             });
-        });
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         group.MapGet("/{workflowId}/status", async (
             string workflowId,
@@ -182,7 +186,8 @@ public static class TemporalWorkflowEndpoints
 
         // Batch Rolling Upgrade Endpoints
         var batchGroup = app.MapGroup("/api/v1/orchestration/temporal/batch")
-            .WithTags("Temporal Batch Orchestration");
+            .WithTags("Temporal Batch Orchestration")
+            .RequireAuthorization(AuthConstants.RequireViewer);
 
         batchGroup.MapPost("/rolling-upgrade", async (
             [FromBody] StartRollingUpgradeRequest request,
@@ -248,7 +253,8 @@ public static class TemporalWorkflowEndpoints
                 targets.Count,
                 targets.Select(t => t.HostId).ToList()
             ));
-        });
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         batchGroup.MapGet("/{batchId}/status", async (
             string batchId,
@@ -330,7 +336,8 @@ public static class TemporalWorkflowEndpoints
             {
                 error = $"Unsupported batch signal '{signalName}'. Supported: 'pause', 'resume', 'cancel'."
             });
-        });
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         return app;
     }

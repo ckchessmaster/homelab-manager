@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Badge } from './components/ui/badge'
 import { getApiKey } from './api/client'
+import { CallbackPage } from './features/auth/CallbackPage'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('hosts')
@@ -22,6 +23,10 @@ export default function App() {
   const { data: allHosts } = useHosts()
   const totalHosts = allHosts?.length ?? 0
   const rebootPendingCount = allHosts?.filter((h) => h.agent?.pendingReboot).length ?? 0
+
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/auth/callback')) {
+    return <CallbackPage />
+  }
 
   return (
     <Layout

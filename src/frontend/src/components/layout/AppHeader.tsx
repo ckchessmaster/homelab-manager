@@ -7,6 +7,7 @@ import {
   Server,
 } from 'lucide-react'
 import type { NavTab } from './AppSidebar'
+import { UserProfileDropdown } from '../../features/auth/UserProfileDropdown'
 
 interface StorageStatus {
   provider?: string
@@ -104,6 +105,9 @@ export function AppHeader({
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
           <span className="hidden sm:inline">API Key Connected</span>
         </button>
+
+        {/* Zitadel User Profile & Role Menu */}
+        <UserProfileDropdown />
       </div>
     </header>
   )

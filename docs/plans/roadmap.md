@@ -35,9 +35,9 @@ Phase 4: Productionization, Zitadel Identity & Deployment Architecture
 
 | Phase / Plan | Description | Status |
 | :--- | :--- | :--- |
-| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md)** | Multi-Stage OCI Containerization & Production Compose Stack | ⏳ Not Started |
-| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-zitadel-identity-setup-and-backend-rbac.md)** | Zitadel Identity Provider Setup & Backend JWT / RBAC Engine | ⏳ Not Started |
-| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-frontend-oidc-pkce-and-user-profile.md)** | Frontend OIDC Authentication Flow (PKCE) & User Profile Context | ⏳ Not Started |
+| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md)** | Multi-Stage OCI Containerization & Production Compose Stack | ✅ Completed |
+| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-zitadel-identity-setup-and-backend-rbac.md)** | Zitadel Identity Provider Setup & Backend JWT / RBAC Engine | ✅ Completed |
+| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-frontend-oidc-pkce-and-user-profile.md)** | Frontend OIDC Authentication Flow (PKCE) & User Profile Context | ✅ Completed |
 | **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/04-agent-cross-compilation-and-systemd-installer.md)** | Agent Cross-Platform Compilation & Automated Systemd Installer | ⏳ Not Started |
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-kubernetes-production-packaging-and-helm.md)** | Kubernetes Production Packaging & Helm Chart (`charts/controlplane`) | ⏳ Not Started |
 | **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-cicd-github-actions-and-release-pipeline.md)** | CI/CD GitHub Actions Automation & Release Pipeline | ⏳ Not Started |

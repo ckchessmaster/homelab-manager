@@ -30,6 +30,7 @@ import {
 import { HostTerminalDrawer } from '../hosts/HostTerminalDrawer'
 import { WorkflowCanvasModal } from './canvas/WorkflowCanvasModal'
 import { FleetRollingLauncherModal, FleetRollingDashboardModal } from './fleet'
+import { RoleGate } from '../auth/RoleGate'
 import type { Host } from '../../api/hosts'
 import type { JobSummary } from '../../api/jobs'
 
@@ -206,24 +207,29 @@ export function WorkflowsView() {
             <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsFleetLauncherOpen(true)}
-            className="text-xs h-9 gap-1.5 border-indigo-700/80 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white font-medium shadow-md shadow-indigo-950/40"
-          >
-            <Layers className="w-3.5 h-3.5 text-indigo-400" />
-            Rolling Fleet Upgrade
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setIsTriggerModalOpen(true)}
-            className="text-xs h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-md shadow-emerald-950/50"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            Launch Workflow
-          </Button>
+          <RoleGate requiredRole="Operator" mode="disable">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFleetLauncherOpen(true)}
+              className="text-xs h-9 gap-1.5 border-indigo-700/80 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white font-medium shadow-md shadow-indigo-950/40"
+            >
+              <Layers className="w-3.5 h-3.5 text-indigo-400" />
+              Rolling Fleet Upgrade
+            </Button>
+          </RoleGate>
+
+          <RoleGate requiredRole="Operator" mode="disable">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsTriggerModalOpen(true)}
+              className="text-xs h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-md shadow-emerald-950/50"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              Launch Workflow
+            </Button>
+          </RoleGate>
         </div>
       </div>
 

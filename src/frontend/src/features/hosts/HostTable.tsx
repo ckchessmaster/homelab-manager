@@ -24,6 +24,8 @@ import { AdoptNodeModal } from './AdoptNodeModal'
 import { MassAgentUpdateModal } from './MassAgentUpdateModal'
 import { useDeleteHost, useHosts } from './useHosts'
 import { useAgentVersionInfo } from './useAgentUpdates'
+import { useAuthUser } from '../auth/useAuthUser'
+import { RoleGate } from '../auth/RoleGate'
 import {
   Search,
   Plus,
@@ -83,6 +85,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [isMassUpdateModalOpen, setIsMassUpdateModalOpen] = useState(false)
 
   const { data: agentVersionInfo } = useAgentVersionInfo()
+  const { isAdmin, isOperator } = useAuthUser()
 
   // Selection & Reboot state
   const [selectedHostIds, setSelectedHostIds] = useState<Set<string>>(new Set())
@@ -319,28 +322,32 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             <span>Snapshots</span>
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setAdoptHost(null)
-              setIsAdoptModalOpen(true)
-            }}
-            className="gap-1.5 border-sky-800/80 bg-sky-950/40 text-sky-300 hover:bg-sky-900/60"
-          >
-            <Shield className="h-4 w-4" />
-            Adopt Server
-          </Button>
+          <RoleGate requiredRole="Admin" mode="disable">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAdoptHost(null)
+                setIsAdoptModalOpen(true)
+              }}
+              className="gap-1.5 border-sky-800/80 bg-sky-950/40 text-sky-300 hover:bg-sky-900/60"
+            >
+              <Shield className="h-4 w-4" />
+              Adopt Server
+            </Button>
+          </RoleGate>
 
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onOpenAddModal}
-            className="gap-1.5"
-          >
-            <Plus className="h-4 w-4" />
-            Add Host
-          </Button>
+          <RoleGate requiredRole="Admin" mode="disable">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onOpenAddModal}
+              className="gap-1.5"
+            >
+              <Plus className="h-4 w-4" />
+              Add Host
+            </Button>
+          </RoleGate>
         </div>
       </div>
 
@@ -539,38 +546,44 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                   <div className="flex items-center justify-end gap-1">
                     {/* Contextual Quick Action */}
                     {!host.agent.installed ? (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-sky-400 hover:text-sky-300 hover:bg-sky-950/50"
-                        onClick={() => {
-                          setAdoptHost(host)
-                          setIsAdoptModalOpen(true)
-                        }}
-                        title="Adopt Server via SSH"
-                      >
-                        <Shield className="h-4 w-4" />
-                      </Button>
+                      <RoleGate requiredRole="Admin" mode="disable">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-sky-400 hover:text-sky-300 hover:bg-sky-950/50"
+                          onClick={() => {
+                            setAdoptHost(host)
+                            setIsAdoptModalOpen(true)
+                          }}
+                          title="Adopt Server via SSH"
+                        >
+                          <Shield className="h-4 w-4" />
+                        </Button>
+                      </RoleGate>
                     ) : host.agent.pendingReboot ? (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-amber-400 hover:text-amber-300 hover:bg-amber-950/50"
-                        onClick={() => setRebootModalHost(host)}
-                        title="Reboot Node (Kernel Pending)"
-                      >
-                        <RotateCcw className="h-4 w-4" />
-                      </Button>
+                      <RoleGate requiredRole="Operator" mode="disable">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-amber-400 hover:text-amber-300 hover:bg-amber-950/50"
+                          onClick={() => setRebootModalHost(host)}
+                          title="Reboot Node (Kernel Pending)"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                      </RoleGate>
                     ) : host.agent.upgradablePackagesCount > 0 ? (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/50"
-                        onClick={() => handleTriggerUpdate(host)}
-                        title="Run DAG Update Pipeline"
-                      >
-                        <Sparkles className="h-4 w-4" />
-                      </Button>
+                      <RoleGate requiredRole="Operator" mode="disable">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/50"
+                          onClick={() => handleTriggerUpdate(host)}
+                          title="Run DAG Update Pipeline"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                        </Button>
+                      </RoleGate>
                     ) : null}
 
                     {/* Console button */}
@@ -603,7 +616,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                       <DropdownMenuContent align="right" className="w-52">
                         <DropdownMenuLabel>Operations</DropdownMenuLabel>
                         <DropdownMenuItem
-                          disabled={!host.agent.installed}
+                          disabled={!isOperator || !host.agent.installed}
                           onClick={() => handleTriggerUpdate(host)}
                           className="text-emerald-400 hover:text-emerald-300"
                         >
@@ -616,7 +629,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                           )}
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          disabled={!host.agent.installed}
+                          disabled={!isOperator || !host.agent.installed}
                           onClick={() => setRebootModalHost(host)}
                           className="text-amber-400 hover:text-amber-300"
                         >
@@ -646,11 +659,15 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                           <Eye className="h-3.5 w-3.5" />
                           <span>View Details</span>
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setHostToEdit(host)}>
+                        <DropdownMenuItem
+                          disabled={!isAdmin}
+                          onClick={() => setHostToEdit(host)}
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                           <span>Edit Host</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          disabled={!isAdmin}
                           onClick={() => {
                             setAdoptHost(host)
                             setIsAdoptModalOpen(true)
@@ -676,6 +693,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                         <DropdownMenuLabel>Danger Zone</DropdownMenuLabel>
                         <DropdownMenuItem
                           destructive
+                          disabled={!isAdmin}
                           onClick={() => setHostToDelete(host)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
