@@ -246,14 +246,15 @@ public class ControlPlaneMcpTools
     }
 
     [McpServerTool]
-    [Description("Scan infrastructure (Proxmox VE and Kubernetes) to discover unmanaged compute candidates.")]
+    [Description("Scan infrastructure (Proxmox VE, Kubernetes, UniFi, and OPNsense) to discover unmanaged compute candidates.")]
     public async Task<object> ScanDiscovery(
         [Description("Whether to include Proxmox VE scan (default true).")] bool includeProxmox = true,
         [Description("Whether to include Kubernetes cluster scan (default true).")] bool includeKubernetes = true,
         [Description("Whether to include Ubiquiti UniFi network scan (default true).")] bool includeUniFi = true,
+        [Description("Whether to include OPNsense firewall DHCP lease scan (default true).")] bool includeOPNsense = true,
         CancellationToken ct = default)
     {
-        var result = await _discoveryService.ScanAsync(includeProxmox, includeKubernetes, includeUniFi, ct);
+        var result = await _discoveryService.ScanAsync(includeProxmox, includeKubernetes, includeUniFi, includeOPNsense, ct);
         return result;
     }
 

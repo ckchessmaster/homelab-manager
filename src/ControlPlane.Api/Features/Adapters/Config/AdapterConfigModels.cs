@@ -159,3 +159,88 @@ public record UniFiTestResultDto(
     string? Message
 );
 
+public record OPNsenseInstanceDto(
+    string Id,
+    string Name,
+    string BaseUrl,
+    string ApiKey,
+    string ApiSecretMasked,
+    bool HasSecret,
+    bool AllowSelfSignedCert,
+    DateTimeOffset? UpdatedAt
+);
+
+public record SaveOPNsenseInstanceRequest(
+    string? Id,
+    string Name,
+    string BaseUrl,
+    string ApiKey,
+    string? ApiSecret,
+    bool AllowSelfSignedCert = true
+);
+
+public class OPNsenseStoredInstance
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string BaseUrl { get; set; } = string.Empty;
+    public string ApiKey { get; set; } = string.Empty;
+    public string EncryptedApiSecret { get; set; } = string.Empty;
+    public bool AllowSelfSignedCert { get; set; } = true;
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public record OPNsenseTestResultDto(
+    bool Success,
+    string? Hostname,
+    string? Version,
+    string? Status,
+    long LatencyMs,
+    string? Message
+);
+
+public record IdracInstanceDto(
+    string Id,
+    string Name,
+    string BmcUrl,
+    string Username,
+    string PasswordMasked,
+    bool HasPassword,
+    string? HostnameOrIp,
+    bool AllowSelfSignedCert,
+    DateTimeOffset? UpdatedAt
+);
+
+public record SaveIdracInstanceRequest(
+    string? Id,
+    string Name,
+    string BmcUrl,
+    string Username,
+    string? Password,
+    string? HostnameOrIp = null,
+    bool AllowSelfSignedCert = true
+);
+
+public class IdracStoredInstance
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string BmcUrl { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string EncryptedPassword { get; set; } = string.Empty;
+    public string? HostnameOrIp { get; set; }
+    public bool AllowSelfSignedCert { get; set; } = true;
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public record IdracTestResultDto(
+    bool Success,
+    string? PowerState,
+    string? Model,
+    string? BiosVersion,
+    string? HealthStatus,
+    string? SerialNumber,
+    long LatencyMs,
+    string? Message
+);
+

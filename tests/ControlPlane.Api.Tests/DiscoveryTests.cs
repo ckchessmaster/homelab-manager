@@ -1,5 +1,7 @@
 using System.Net;
+using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
+using ControlPlane.Api.Features.Adapters.OPNsense;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
@@ -571,5 +573,85 @@ public class DiscoveryTests
         private readonly HttpClient _client;
         public MockHttpClientFactory(HttpClient client) => _client = client;
         public HttpClient CreateClient(string name) => _client;
+    }
+
+    private class FakeOPNsenseClient : IOPNsenseClient
+    {
+        public List<OPNsenseDhcpLease> Leases { get; set; } = new();
+        public Task<OPNsenseTestResultDto> TestConnectionAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseTestResultDto(true, "opn", "1.0", "OK", 10, null));
+        public Task<OPNsenseTelemetryResponse> GetTelemetryAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseTelemetryResponse("opn", "1.0", "OK", new(), new(), new(), DateTimeOffset.UtcNow));
+        public Task<List<OPNsenseGatewayStatus>> GetGatewaysAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new List<OPNsenseGatewayStatus>());
+        public Task<List<OPNsenseInterfaceInfo>> GetInterfacesAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new List<OPNsenseInterfaceInfo>());
+        public Task<List<OPNsenseServiceItem>> GetServicesAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new List<OPNsenseServiceItem>());
+        public Task<OPNsenseServiceActionResult> RestartServiceAsync(string baseUrl, string apiKey, string apiSecret, string serviceName, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseServiceActionResult(true, "OK"));
+        public Task<List<OPNsenseDhcpLease>> GetDhcpLeasesAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(Leases);
+        public Task<OPNsenseFirmwareInfo> GetFirmwareStatusAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseFirmwareInfo("1.0", "OK", 0, null, null));
+    }
+
+    private class FakeOPNsenseClientFactory : IOPNsenseClientFactory
+    {
+        public FakeOPNsenseClient Client { get; } = new();
+        public List<OPNsenseStoredInstance> Instances { get; set; } = new();
+
+        public Task<(IOPNsenseClient Client, OPNsenseStoredInstance Config, string ApiSecret)> ResolveAsync(string instanceId, CancellationToken ct = default)
+        {
+            var match = Instances.First(i => i.Id == instanceId);
+            return Task.FromResult<(IOPNsenseClient, OPNsenseStoredInstance, string)>((Client, match, "secret"));
+        }
+
+        public Task<List<(OPNsenseStoredInstance Config, string ApiSecret)>> ResolveAllAsync(CancellationToken ct = default)
+        {
+            return Task.FromResult(Instances.Select(i => (i, "secret")).ToList());
+        }
+
+        public IOPNsenseClient GetClient() => Client;
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithOPNsense_DiscoversDhcpLeasesAsCandidates()
+    {
+        var (db, conn) = CreateInMemoryDbContext();
+        using var _ = conn;
+
+        var hostService = new HostService(db, NullLogger<HostService>.Instance);
+        var fakePve = new FakeProxmoxClient();
+        var fakeK8s = new FakeKubernetesAdapter();
+        var fakeOpnFactory = new FakeOPNsenseClientFactory();
+        fakeOpnFactory.Instances.Add(new OPNsenseStoredInstance
+        {
+            Id = "opn-core",
+            Name = "Core Firewall",
+            BaseUrl = "https://192.168.1.1",
+            ApiKey = "key",
+            EncryptedApiSecret = "sec"
+        });
+        fakeOpnFactory.Client.Leases.Add(new OPNsenseDhcpLease(
+            Ip: "192.168.1.88",
+            Mac: "11:22:33:44:55:66",
+            Hostname: "nas-storage",
+            Starts: null,
+            Ends: null,
+            Status: "active"
+        ));
+
+        var pveOpts = Options.Create(new ProxmoxOptions());
+        var service = new DiscoveryService(
+            db,
+            fakePve,
+            fakeK8s,
+            hostService,
+            pveOpts,
+            NullLogger<DiscoveryService>.Instance,
+            opnsenseClientFactory: fakeOpnFactory);
+
+        var result = await service.ScanAsync(includeProxmox: false, includeKubernetes: false, includeUniFi: false, includeOPNsense: true);
+
+        Assert.Single(result.Candidates);
+        var cand = result.Candidates[0];
+        Assert.Equal("OPNsense", cand.Source);
+        Assert.Equal("nas-storage", cand.Name);
+        Assert.Equal("192.168.1.88", cand.IpAddress);
+        Assert.Equal("opnsense:opn-core:112233445566", cand.Id);
+        Assert.False(cand.IsManaged);
     }
 }

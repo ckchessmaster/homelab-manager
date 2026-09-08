@@ -91,6 +91,18 @@ public class WorkloadServiceTests
         public Task<UniFiStoredInstance?> GetRawUniFiInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<UniFiStoredInstance?>(null);
         public Task<UniFiInstanceDto> SaveUniFiInstanceAsync(SaveUniFiInstanceRequest request, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteUniFiInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<List<OPNsenseInstanceDto>> GetOPNsenseInstancesAsync(CancellationToken ct = default) => Task.FromResult(new List<OPNsenseInstanceDto>());
+        public Task<OPNsenseInstanceDto?> GetOPNsenseInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<OPNsenseInstanceDto?>(null);
+        public Task<OPNsenseStoredInstance?> GetRawOPNsenseInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<OPNsenseStoredInstance?>(null);
+        public Task<OPNsenseInstanceDto> SaveOPNsenseInstanceAsync(SaveOPNsenseInstanceRequest request, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteOPNsenseInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<List<IdracInstanceDto>> GetIdracInstancesAsync(CancellationToken ct = default) => Task.FromResult(new List<IdracInstanceDto>());
+        public Task<IdracInstanceDto?> GetIdracInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<IdracInstanceDto?>(null);
+        public Task<IdracStoredInstance?> GetRawIdracInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<IdracStoredInstance?>(null);
+        public Task<IdracInstanceDto> SaveIdracInstanceAsync(SaveIdracInstanceRequest request, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteIdracInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult(true);
     }
 
     [Fact]

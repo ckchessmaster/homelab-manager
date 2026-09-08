@@ -16,6 +16,8 @@ public class AdapterConfigService : IAdapterConfigService
     public const string ProxmoxInstancesSettingKey = "adapters:proxmox:instances";
     public const string KubernetesClustersKey = "adapters:kubernetes:clusters";
     public const string UniFiInstancesKey = "adapters:unifi:instances";
+    public const string OPNsenseInstancesKey = "adapters:opnsense:instances";
+    public const string IdracInstancesKey = "adapters:idrac:instances";
     public const string MaskedPlaceholder = "••••••••";
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -848,6 +850,327 @@ public class AdapterConfigService : IAdapterConfigService
         if (string.IsNullOrWhiteSpace(clean))
         {
             clean = "unifi";
+        }
+        return $"{clean}-{Guid.NewGuid():N}"[..Math.Min(16, clean.Length + 9)];
+    }
+
+    public async Task<List<OPNsenseInstanceDto>> GetOPNsenseInstancesAsync(CancellationToken ct = default)
+    {
+        var stored = await LoadStoredOPNsenseInstancesAsync(ct);
+        return stored.Select(MapToOPNsenseDto).ToList();
+    }
+
+    public async Task<OPNsenseInstanceDto?> GetOPNsenseInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredOPNsenseInstancesAsync(ct);
+        var match = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        return match != null ? MapToOPNsenseDto(match) : null;
+    }
+
+    public async Task<OPNsenseStoredInstance?> GetRawOPNsenseInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredOPNsenseInstancesAsync(ct);
+        var match = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (match == null) return null;
+
+        return new OPNsenseStoredInstance
+        {
+            Id = match.Id,
+            Name = match.Name,
+            BaseUrl = match.BaseUrl,
+            ApiKey = match.ApiKey,
+            EncryptedApiSecret = match.EncryptedApiSecret,
+            AllowSelfSignedCert = match.AllowSelfSignedCert,
+            UpdatedAt = match.UpdatedAt
+        };
+    }
+
+    public async Task<OPNsenseInstanceDto> SaveOPNsenseInstanceAsync(SaveOPNsenseInstanceRequest request, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredOPNsenseInstancesAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        var id = string.IsNullOrWhiteSpace(request.Id) ? GenerateOPNsenseInstanceId(request.Name) : request.Id.Trim();
+
+        var existing = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+
+        string encryptedSecret = existing?.EncryptedApiSecret ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(request.ApiSecret) && request.ApiSecret != MaskedPlaceholder)
+        {
+            encryptedSecret = _encryptionService.Encrypt(request.ApiSecret.Trim());
+        }
+
+        var entry = new OPNsenseStoredInstance
+        {
+            Id = id,
+            Name = string.IsNullOrWhiteSpace(request.Name) ? id : request.Name.Trim(),
+            BaseUrl = (request.BaseUrl ?? string.Empty).Trim().TrimEnd('/'),
+            ApiKey = (request.ApiKey ?? string.Empty).Trim(),
+            EncryptedApiSecret = encryptedSecret,
+            AllowSelfSignedCert = request.AllowSelfSignedCert,
+            UpdatedAt = now
+        };
+
+        if (existing != null)
+        {
+            var idx = stored.IndexOf(existing);
+            stored[idx] = entry;
+        }
+        else
+        {
+            stored.Add(entry);
+        }
+
+        await PersistOPNsenseInstancesAsync(stored, ct);
+        _logger.LogInformation("Saved OPNsense instance '{InstanceId}' ({Name})", entry.Id, entry.Name);
+        return MapToOPNsenseDto(entry);
+    }
+
+    public async Task<bool> DeleteOPNsenseInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredOPNsenseInstancesAsync(ct);
+        var existing = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (existing == null) return false;
+
+        stored.Remove(existing);
+        await PersistOPNsenseInstancesAsync(stored, ct);
+        _logger.LogInformation("Deleted OPNsense instance '{InstanceId}'", id);
+        return true;
+    }
+
+    private async Task<List<OPNsenseStoredInstance>> LoadStoredOPNsenseInstancesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var setting = await _dbContext.SystemSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Key == OPNsenseInstancesKey, ct);
+
+            if (setting != null && !string.IsNullOrWhiteSpace(setting.ValueJson))
+            {
+                return JsonSerializer.Deserialize<List<OPNsenseStoredInstance>>(setting.ValueJson, SerializerOptions)
+                    ?? new List<OPNsenseStoredInstance>();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load OPNsense instances from system settings.");
+        }
+
+        return new List<OPNsenseStoredInstance>();
+    }
+
+    private async Task PersistOPNsenseInstancesAsync(List<OPNsenseStoredInstance> instances, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var json = JsonSerializer.Serialize(instances, SerializerOptions);
+
+        var setting = await _dbContext.SystemSettings
+            .FirstOrDefaultAsync(s => s.Key == OPNsenseInstancesKey, ct);
+
+        if (setting == null)
+        {
+            _dbContext.SystemSettings.Add(new SystemSetting
+            {
+                Key = OPNsenseInstancesKey,
+                ValueJson = json,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            setting.ValueJson = json;
+            setting.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync(ct);
+    }
+
+    private static OPNsenseInstanceDto MapToOPNsenseDto(OPNsenseStoredInstance inst)
+    {
+        return new OPNsenseInstanceDto(
+            Id: inst.Id,
+            Name: inst.Name,
+            BaseUrl: inst.BaseUrl,
+            ApiKey: inst.ApiKey,
+            ApiSecretMasked: string.IsNullOrWhiteSpace(inst.EncryptedApiSecret) ? string.Empty : MaskedPlaceholder,
+            HasSecret: !string.IsNullOrWhiteSpace(inst.EncryptedApiSecret),
+            AllowSelfSignedCert: inst.AllowSelfSignedCert,
+            UpdatedAt: inst.UpdatedAt
+        );
+    }
+
+    private static string GenerateOPNsenseInstanceId(string name)
+    {
+        var clean = new string(name.ToLowerInvariant()
+            .Replace(' ', '-')
+            .Where(c => char.IsLetterOrDigit(c) || c == '-')
+            .ToArray()).Trim('-');
+
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            clean = "opnsense";
+        }
+        return $"{clean}-{Guid.NewGuid():N}"[..Math.Min(16, clean.Length + 9)];
+    }
+
+    public async Task<List<IdracInstanceDto>> GetIdracInstancesAsync(CancellationToken ct = default)
+    {
+        var stored = await LoadStoredIdracInstancesAsync(ct);
+        return stored.Select(MapToIdracDto).ToList();
+    }
+
+    public async Task<IdracInstanceDto?> GetIdracInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredIdracInstancesAsync(ct);
+        var match = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        return match != null ? MapToIdracDto(match) : null;
+    }
+
+    public async Task<IdracStoredInstance?> GetRawIdracInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredIdracInstancesAsync(ct);
+        var match = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (match == null) return null;
+
+        return new IdracStoredInstance
+        {
+            Id = match.Id,
+            Name = match.Name,
+            BmcUrl = match.BmcUrl,
+            Username = match.Username,
+            EncryptedPassword = match.EncryptedPassword,
+            HostnameOrIp = match.HostnameOrIp,
+            AllowSelfSignedCert = match.AllowSelfSignedCert,
+            UpdatedAt = match.UpdatedAt
+        };
+    }
+
+    public async Task<IdracInstanceDto> SaveIdracInstanceAsync(SaveIdracInstanceRequest request, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredIdracInstancesAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        var id = string.IsNullOrWhiteSpace(request.Id) ? GenerateIdracInstanceId(request.Name) : request.Id.Trim();
+
+        var existing = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+
+        string encryptedPassword = existing?.EncryptedPassword ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(request.Password) && request.Password != MaskedPlaceholder)
+        {
+            encryptedPassword = _encryptionService.Encrypt(request.Password.Trim());
+        }
+
+        var entry = new IdracStoredInstance
+        {
+            Id = id,
+            Name = string.IsNullOrWhiteSpace(request.Name) ? id : request.Name.Trim(),
+            BmcUrl = (request.BmcUrl ?? string.Empty).Trim().TrimEnd('/'),
+            Username = (request.Username ?? string.Empty).Trim(),
+            EncryptedPassword = encryptedPassword,
+            HostnameOrIp = string.IsNullOrWhiteSpace(request.HostnameOrIp) ? null : request.HostnameOrIp.Trim(),
+            AllowSelfSignedCert = request.AllowSelfSignedCert,
+            UpdatedAt = now
+        };
+
+        if (existing != null)
+        {
+            var idx = stored.IndexOf(existing);
+            stored[idx] = entry;
+        }
+        else
+        {
+            stored.Add(entry);
+        }
+
+        await PersistIdracInstancesAsync(stored, ct);
+        _logger.LogInformation("Saved iDRAC instance '{InstanceId}' ({Name})", entry.Id, entry.Name);
+        return MapToIdracDto(entry);
+    }
+
+    public async Task<bool> DeleteIdracInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredIdracInstancesAsync(ct);
+        var existing = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (existing == null) return false;
+
+        stored.Remove(existing);
+        await PersistIdracInstancesAsync(stored, ct);
+        _logger.LogInformation("Deleted iDRAC instance '{InstanceId}'", id);
+        return true;
+    }
+
+    private async Task<List<IdracStoredInstance>> LoadStoredIdracInstancesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var setting = await _dbContext.SystemSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Key == IdracInstancesKey, ct);
+
+            if (setting != null && !string.IsNullOrWhiteSpace(setting.ValueJson))
+            {
+                return JsonSerializer.Deserialize<List<IdracStoredInstance>>(setting.ValueJson, SerializerOptions)
+                    ?? new List<IdracStoredInstance>();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load iDRAC instances from system settings.");
+        }
+
+        return new List<IdracStoredInstance>();
+    }
+
+    private async Task PersistIdracInstancesAsync(List<IdracStoredInstance> instances, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var json = JsonSerializer.Serialize(instances, SerializerOptions);
+
+        var setting = await _dbContext.SystemSettings
+            .FirstOrDefaultAsync(s => s.Key == IdracInstancesKey, ct);
+
+        if (setting == null)
+        {
+            _dbContext.SystemSettings.Add(new SystemSetting
+            {
+                Key = IdracInstancesKey,
+                ValueJson = json,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            setting.ValueJson = json;
+            setting.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync(ct);
+    }
+
+    private static IdracInstanceDto MapToIdracDto(IdracStoredInstance inst)
+    {
+        return new IdracInstanceDto(
+            Id: inst.Id,
+            Name: inst.Name,
+            BmcUrl: inst.BmcUrl,
+            Username: inst.Username,
+            PasswordMasked: string.IsNullOrWhiteSpace(inst.EncryptedPassword) ? string.Empty : MaskedPlaceholder,
+            HasPassword: !string.IsNullOrWhiteSpace(inst.EncryptedPassword),
+            HostnameOrIp: inst.HostnameOrIp,
+            AllowSelfSignedCert: inst.AllowSelfSignedCert,
+            UpdatedAt: inst.UpdatedAt
+        );
+    }
+
+    private static string GenerateIdracInstanceId(string name)
+    {
+        var clean = new string(name.ToLowerInvariant()
+            .Replace(' ', '-')
+            .Where(c => char.IsLetterOrDigit(c) || c == '-')
+            .ToArray()).Trim('-');
+
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            clean = "idrac";
         }
         return $"{clean}-{Guid.NewGuid():N}"[..Math.Min(16, clean.Length + 9)];
     }

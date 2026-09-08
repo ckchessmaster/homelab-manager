@@ -25,5 +25,17 @@ public interface IAdapterConfigService
     Task<UniFiStoredInstance?> GetRawUniFiInstanceAsync(string id, CancellationToken ct = default);
     Task<UniFiInstanceDto> SaveUniFiInstanceAsync(SaveUniFiInstanceRequest request, CancellationToken ct = default);
     Task<bool> DeleteUniFiInstanceAsync(string id, CancellationToken ct = default);
+
+    Task<List<OPNsenseInstanceDto>> GetOPNsenseInstancesAsync(CancellationToken ct = default);
+    Task<OPNsenseInstanceDto?> GetOPNsenseInstanceAsync(string id, CancellationToken ct = default);
+    Task<OPNsenseStoredInstance?> GetRawOPNsenseInstanceAsync(string id, CancellationToken ct = default);
+    Task<OPNsenseInstanceDto> SaveOPNsenseInstanceAsync(SaveOPNsenseInstanceRequest request, CancellationToken ct = default);
+    Task<bool> DeleteOPNsenseInstanceAsync(string id, CancellationToken ct = default);
+
+    Task<List<IdracInstanceDto>> GetIdracInstancesAsync(CancellationToken ct = default);
+    Task<IdracInstanceDto?> GetIdracInstanceAsync(string id, CancellationToken ct = default);
+    Task<IdracStoredInstance?> GetRawIdracInstanceAsync(string id, CancellationToken ct = default);
+    Task<IdracInstanceDto> SaveIdracInstanceAsync(SaveIdracInstanceRequest request, CancellationToken ct = default);
+    Task<bool> DeleteIdracInstanceAsync(string id, CancellationToken ct = default);
 }
 

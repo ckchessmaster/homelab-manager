@@ -13,9 +13,10 @@ import {
   RebootBadge,
   UpdatesBadge,
 } from './HostStatusBadge'
-import { Server, Shield, Network, Calendar, Copy, Check, Pencil, Sparkles, RotateCcw } from 'lucide-react'
+import { Server, Shield, Network, Calendar, Copy, Check, Pencil, Sparkles, RotateCcw, ExternalLink } from 'lucide-react'
 import { useState } from 'react'
 import type { Host } from '../../api/hosts'
+import { useIdracPowerActionByIp } from '../adapters/idrac/useIdrac'
 
 interface HostDetailsModalProps {
   host: Host | null
@@ -37,6 +38,7 @@ export function HostDetailsModal({
   onReboot,
 }: HostDetailsModalProps) {
   const [copied, setCopied] = useState(false)
+  const bmcPowerMutation = useIdracPowerActionByIp()
 
   if (!host) return null
 
@@ -44,6 +46,21 @@ export function HostDetailsModal({
     navigator.clipboard.writeText(host.ipAddress)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleBmcPower = async (resetType: string, label: string) => {
+    if (!host.idrac?.ipAddress) return
+    if (confirm(`Send hardware power action '${label}' to BMC at ${host.idrac.ipAddress}?`)) {
+      try {
+        await bmcPowerMutation.mutateAsync({
+          idracIp: host.idrac.ipAddress,
+          resetType,
+        })
+        alert(`Hardware power command '${label}' dispatched successfully.`)
+      } catch (err: unknown) {
+        alert(err instanceof Error ? err.message : 'Power command failed.')
+      }
+    }
   }
 
   return (
@@ -119,14 +136,56 @@ export function HostDetailsModal({
             </div>
 
             {/* iDRAC */}
-            <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-lg">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-amber-300 mb-1.5">
-                <Shield className="h-3.5 w-3.5" />
-                Dell iDRAC / BMC
+            <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-lg space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-medium text-amber-300">
+                <div className="flex items-center gap-1.5">
+                  <Shield className="h-3.5 w-3.5" />
+                  Dell iDRAC / BMC
+                </div>
+                {host.idrac?.ipAddress && (
+                  <a
+                    href={`https://${host.idrac.ipAddress}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-zinc-500 hover:text-zinc-300 text-[10px] flex items-center gap-0.5"
+                    title="Open iDRAC Web Interface"
+                  >
+                    <span>WebGUI</span>
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                )}
               </div>
               {host.idrac?.ipAddress ? (
-                <div className="text-xs text-zinc-300">
-                  IP: <span className="font-mono text-zinc-100">{host.idrac.ipAddress}</span>
+                <div className="space-y-1.5">
+                  <div className="text-xs text-zinc-300">
+                    IP: <span className="font-mono text-zinc-100">{host.idrac.ipAddress}</span>
+                  </div>
+                  <div className="flex items-center gap-1 pt-1 border-t border-zinc-800/60">
+                    <button
+                      onClick={() => handleBmcPower('On', 'Power On')}
+                      disabled={bmcPowerMutation.isPending}
+                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/40 text-emerald-400 border border-emerald-800/50 hover:bg-emerald-900/60 transition-colors"
+                      title="Power On Hardware"
+                    >
+                      On
+                    </button>
+                    <button
+                      onClick={() => handleBmcPower('PowerCycle', 'Cold Power Cycle')}
+                      disabled={bmcPowerMutation.isPending}
+                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-950/40 text-sky-400 border border-sky-800/50 hover:bg-sky-900/60 transition-colors"
+                      title="Cold Hardware Power Cycle"
+                    >
+                      Cycle
+                    </button>
+                    <button
+                      onClick={() => handleBmcPower('ForceOff', 'Immediate Force Off')}
+                      disabled={bmcPowerMutation.isPending}
+                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-950/40 text-red-400 border border-red-800/50 hover:bg-red-900/60 transition-colors"
+                      title="Force Off (Hard Power Cut)"
+                    >
+                      Off
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <span className="text-xs text-zinc-500">Not configured</span>

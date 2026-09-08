@@ -92,15 +92,15 @@ src/frontend/src/
 
 ## 📋 Task Checklist
 
-- [ ] Define OPNsense DTOs (`OPNsenseInstanceDto`, `OPNsenseServiceDto`, `OPNsenseDhcpLeaseDto`) in `OPNsenseModels.cs`.
-- [ ] Implement `IOPNsenseClientFactory` and `OPNsenseClient` using API key + secret Basic auth and self-signed SSL handler.
-- [ ] Implement OPNsense CRUD endpoints, `/test-connection`, and `/services/{service}/restart` in `OPNsenseEndpoints.cs`.
-- [ ] Update `DiscoveryService.cs` to ingest active DHCP leases from OPNsense as candidate hosts.
-- [ ] Define BMC/Redfish DTOs (`IdracInstanceDto`, `ChassisPowerState`, `ThermalSensorDto`) in `IdracModels.cs`.
-- [ ] Implement `IIdracClientFactory` and `IdracClient` with standard Redfish power and sensor endpoints.
-- [ ] Implement iDRAC CRUD and power control endpoints (`/power`) in `IdracEndpoints.cs`.
-- [ ] Create frontend API clients `src/frontend/src/api/opnsense.ts` and `src/frontend/src/api/idrac.ts`.
-- [ ] Build `OPNsenseAdaptersView.tsx`, `AddOPNsenseModal.tsx`, `IdracAdaptersView.tsx`, and `AddIdracModal.tsx`.
-- [ ] Connect BMC power actions to physical host details in the inventory view.
-- [ ] Write backend unit tests in `ControlPlane.Api.Tests` for OPNsense and Redfish clients.
-- [ ] Verify `dotnet test` and `npm run build`.
+- [x] Define OPNsense DTOs (`OPNsenseInstanceDto`, `OPNsenseServiceDto`, `OPNsenseDhcpLeaseDto`) in `OPNsenseModels.cs`.
+- [x] Implement `IOPNsenseClientFactory` and `OPNsenseClient` using API key + secret Basic auth and self-signed SSL handler.
+- [x] Implement OPNsense CRUD endpoints, `/test-connection`, and `/services/{service}/restart` in `OPNsenseEndpoints.cs`.
+- [x] Update `DiscoveryService.cs` to ingest active DHCP leases from OPNsense as candidate hosts.
+- [x] Define BMC/Redfish DTOs (`IdracInstanceDto`, `ChassisPowerState`, `ThermalSensorDto`) in `IdracModels.cs`.
+- [x] Implement `IIdracClientFactory` and `IdracClient` with standard Redfish power and sensor endpoints.
+- [x] Implement iDRAC CRUD and power control endpoints (`/power`) in `IdracEndpoints.cs`.
+- [x] Create frontend API clients `src/frontend/src/api/opnsense.ts` and `src/frontend/src/api/idrac.ts`.
+- [x] Build `OPNsenseAdaptersView.tsx`, `AddOPNsenseModal.tsx`, `IdracAdaptersView.tsx`, and `AddIdracModal.tsx`.
+- [x] Connect BMC power actions to physical host details in the inventory view.
+- [x] Write backend unit tests in `ControlPlane.Api.Tests` for OPNsense and Redfish clients.
+- [x] Verify `dotnet test` and `npm run build`.

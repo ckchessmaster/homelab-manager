@@ -13,10 +13,11 @@ public static class DiscoveryEndpoints
             bool includeProxmox = true,
             bool includeKubernetes = true,
             bool includeUniFi = true,
+            bool includeOPNsense = true,
             IDiscoveryService discoveryService = null!,
             CancellationToken ct = default) =>
         {
-            var result = await discoveryService.ScanAsync(includeProxmox, includeKubernetes, includeUniFi, ct);
+            var result = await discoveryService.ScanAsync(includeProxmox, includeKubernetes, includeUniFi, includeOPNsense, ct);
             return Results.Ok(result);
         });
 

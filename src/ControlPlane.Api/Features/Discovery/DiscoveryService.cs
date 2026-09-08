@@ -21,6 +21,7 @@ public class DiscoveryService : IDiscoveryService
     private readonly ProxmoxOptions _fallbackProxmoxOptions;
     private readonly Features.Adapters.Config.IAdapterConfigService? _adapterConfigService;
     private readonly Features.Adapters.UniFi.IUniFiClientFactory? _unifiClientFactory;
+    private readonly Features.Adapters.OPNsense.IOPNsenseClientFactory? _opnsenseClientFactory;
     private readonly ILogger<DiscoveryService> _logger;
 
     public DiscoveryService(
@@ -33,7 +34,8 @@ public class DiscoveryService : IDiscoveryService
         Features.Adapters.Config.IAdapterConfigService? adapterConfigService = null,
         IProxmoxClientFactory? proxmoxClientFactory = null,
         IKubernetesClientFactory? kubernetesClientFactory = null,
-        Features.Adapters.UniFi.IUniFiClientFactory? unifiClientFactory = null)
+        Features.Adapters.UniFi.IUniFiClientFactory? unifiClientFactory = null,
+        Features.Adapters.OPNsense.IOPNsenseClientFactory? opnsenseClientFactory = null)
     {
         _db = db;
         _proxmoxClient = proxmoxClient;
@@ -45,16 +47,18 @@ public class DiscoveryService : IDiscoveryService
         _adapterConfigService = adapterConfigService;
         _proxmoxClientFactory = proxmoxClientFactory;
         _unifiClientFactory = unifiClientFactory;
+        _opnsenseClientFactory = opnsenseClientFactory;
     }
 
     public async Task<DiscoveryScanResult> ScanAsync(
         bool includeProxmox = true,
         bool includeKubernetes = true,
         bool includeUniFi = true,
+        bool includeOPNsense = true,
         CancellationToken ct = default)
     {
-        _logger.LogInformation("Beginning infrastructure service discovery (Proxmox: {Proxmox}, Kubernetes: {K8s}, UniFi: {UniFi})...",
-            includeProxmox, includeKubernetes, includeUniFi);
+        _logger.LogInformation("Beginning infrastructure service discovery (Proxmox: {Proxmox}, Kubernetes: {K8s}, UniFi: {UniFi}, OPNsense: {OPNsense})...",
+            includeProxmox, includeKubernetes, includeUniFi, includeOPNsense);
 
         var candidates = new List<DiscoveredCandidateDto>();
         var errors = new List<string>();
@@ -199,6 +203,70 @@ public class DiscoveryService : IDiscoveryService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to resolve UniFi instances for discovery.");
+            }
+        }
+
+        // 4. Scan OPNsense DHCP leases
+        if (includeOPNsense && _opnsenseClientFactory != null)
+        {
+            try
+            {
+                var opnsenseInstances = await _opnsenseClientFactory.ResolveAllAsync(ct);
+                foreach (var (config, secret) in opnsenseInstances)
+                {
+                    try
+                    {
+                        var leases = await _opnsenseClientFactory.GetClient().GetDhcpLeasesAsync(
+                            config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+
+                        foreach (var lease in leases)
+                        {
+                            if (string.IsNullOrWhiteSpace(lease.Ip)) continue;
+
+                            var matchedHost = existingHosts.FirstOrDefault(h =>
+                                string.Equals(h.IpAddress, lease.Ip, StringComparison.OrdinalIgnoreCase) ||
+                                (h.NetworkPort != null && !string.IsNullOrWhiteSpace(lease.Mac) &&
+                                 string.Equals(h.NetworkPort.SwitchMac, lease.Mac, StringComparison.OrdinalIgnoreCase)));
+
+                            if (candidates.Any(c => c.IpAddress == lease.Ip)) continue;
+
+                            var cleanMac = (lease.Mac ?? string.Empty).Replace(":", "").Replace("-", "").ToLowerInvariant();
+                            var candidateName = !string.IsNullOrWhiteSpace(lease.Hostname)
+                                ? lease.Hostname
+                                : (!string.IsNullOrWhiteSpace(cleanMac) ? $"dhcp-{cleanMac[..Math.Min(6, cleanMac.Length)]}" : $"host-{lease.Ip.Replace('.', '-')}");
+
+                            candidates.Add(new DiscoveredCandidateDto(
+                                Id: $"opnsense:{config.Id}:{cleanMac}",
+                                Source: "OPNsense",
+                                Name: candidateName,
+                                IpAddress: lease.Ip,
+                                TargetType: "baremetal",
+                                OsFamily: "linux_debian",
+                                Status: lease.Status ?? "active",
+                                ProxmoxNode: null,
+                                ProxmoxVmid: null,
+                                ProxmoxInstanceId: null,
+                                K8sClusterId: null,
+                                K8sNodeName: null,
+                                UnifiSwitchMac: null,
+                                UnifiSwitchPort: null,
+                                Roles: new List<string> { "dhcp-lease" },
+                                IsManaged: matchedHost != null,
+                                ExistingHostId: matchedHost?.Id,
+                                ExistingHostname: matchedHost?.Hostname
+                            ));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to scan DHCP leases from OPNsense instance '{InstanceId}'", config.Id);
+                        errors.Add($"Failed to scan OPNsense instance '{config.Name}': {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve OPNsense instances for discovery.");
             }
         }
 

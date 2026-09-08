@@ -5,6 +5,8 @@ using ControlPlane.Api.Features.Adapters.Kubernetes;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Adapters.Redfish;
 using ControlPlane.Api.Features.Adapters.UniFi;
+using ControlPlane.Api.Features.Adapters.OPNsense;
+using ControlPlane.Api.Features.Adapters.Idrac;
 using ControlPlane.Api.Features.Adoption;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Cluster;
@@ -213,8 +215,12 @@ public static class ServeCommand
         builder.Services.AddScoped<IProxmoxClient, ProxmoxClient>();
         builder.Services.AddScoped<ISnapshotRetentionService, SnapshotRetentionService>();
         builder.Services.AddScoped<IRedfishClient, RedfishClient>();
+        builder.Services.AddScoped<IIdracClient, IdracClient>();
+        builder.Services.AddScoped<IIdracClientFactory, IdracClientFactory>();
         builder.Services.AddScoped<IUniFiClient, UniFiClient>();
         builder.Services.AddScoped<IUniFiClientFactory, UniFiClientFactory>();
+        builder.Services.AddScoped<IOPNsenseClient, OPNsenseClient>();
+        builder.Services.AddScoped<IOPNsenseClientFactory, OPNsenseClientFactory>();
         builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 
         builder.Services.Configure<KubernetesConfigOptions>(builder.Configuration.GetSection(KubernetesConfigOptions.SectionName));
@@ -343,7 +349,9 @@ public static class ServeCommand
         app.MapJobLogEndpoints();
         app.MapClusterEndpoints();
         app.MapRedfishEndpoints();
+        app.MapIdracEndpoints();
         app.MapUniFiEndpoints();
+        app.MapOPNsenseEndpoints();
         app.MapKubernetesEndpoints();
         app.MapDiscoveryEndpoints();
         app.MapSecurityEndpoints();
