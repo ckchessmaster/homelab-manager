@@ -19,5 +19,18 @@ These architectural constraints must be adhered to at all times when designing, 
 
 ## 3. Communication Boundary Rules
 * **Compute Nodes:** Outbound-only. No inbound SSH or HTTP ports may be required for ongoing operations. All communication is over client-initiated WebSocket (`wss://`).
-* **Appliances:** Hypervisors (Proxmox), BMCs (iDRAC), Switches (UniFi), and Orchestrators (Kubernetes) are agentless. Their credentials must be stored encrypted and accessed only from the backend.
+* **Appliances & Adapters:** Hypervisors (Proxmox), BMCs (iDRAC / Redfish), Switches (UniFi), Firewalls (OPNsense), and Orchestrators (Kubernetes) are agentless. Their credentials must be stored encrypted with `AES-256-GCM` in `system_settings` and accessed only from the backend.
 * **Process Output Streaming:** Output from long-running package managers (`apt`, `dnf`) must be framed monotonically: `(job_id, sequence_id, stream_type, log_line, timestamp)` so that network drops do not duplicate or jumble log streams.
+
+## 4. Security & Role-Based Access Control (RBAC)
+* **Identity Provider:** Zitadel OIDC provides centralized identity and user directory.
+* **Backend RBAC:** ASP.NET Core JWT Bearer authentication validates tokens and extracts roles:
+  * `Viewer`: Read-only access to inventory, logs, and telemetry.
+  * `Operator`: May initiate maintenance pipelines, restart workloads, and dispatch commands.
+  * `Admin`: Full configuration control (adapters, credentials, user management).
+* **Dev Bypass:** In local environments, `AUTH_BYPASS=true` automatically assigns the `Admin` role for seamless development.
+
+## 5. Model Context Protocol (MCP) Server Boundaries
+* The embedded MCP server in `Features/Mcp` exposes safe operational interfaces to AI agents.
+* All tool actions must enforce role safety and include parameter descriptions with descriptive error messages.
+* When mutations occur via MCP tools, the audit fields must record `InitiatedBy = "AI Agent via MCP"`.

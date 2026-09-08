@@ -2,7 +2,7 @@
 
 **Phase:** Phase 4: Productionization & Deployment  
 **Status:** ✅ Completed  
-**Dependencies:** [Plan 01: Production Containerization & Compose](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md)  
+**Dependencies:** [Plan 01: Production Containerization & Compose](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/01-production-containerization-and-compose.md)  
 
 ---
 

@@ -64,15 +64,58 @@ The workspace is pre-configured via `.agents/mcp_config.json`:
 
 ## 4. Available MCP Tools
 
+### Host Management & Discovery
 | Tool Name | Category | Description |
 | :--- | :--- | :--- |
-| `query_job_logs` | Logs | Queries sequence-ordered console logs (stdout, stderr, system) for an update or debug job, with pagination support (`fromSequenceId`, `limit`). |
-| `get_job` | Jobs | Retrieves current state, active step, failure reason, and execution timing for an update job. |
-| `list_jobs` | Jobs | Lists recent update jobs across the fleet with optional status or target host filtering. |
 | `list_hosts` | Inventory | Lists managed hosts with IP address, agent state (online, installed, pending reboot, updates count). |
 | `get_host_details` | Inventory | Returns comprehensive host details, active jobs, Proxmox VM/node, and iDRAC targets. |
-| `scan_discovery` | Discovery | Scans infrastructure (Proxmox VE hypervisors and Kubernetes nodes) for unmanaged compute candidates. |
+| `scan_discovery` | Discovery | Scans infrastructure (Proxmox VE, Kubernetes, UniFi, OPNsense) for unmanaged compute candidates. |
 | `import_candidate_host` | Discovery | Imports a discovered candidate host into managed inventory with DNS/IP resolution. |
+
+### Jobs, Logs & Shell Execution
+| Tool Name | Category | Description |
+| :--- | :--- | :--- |
 | `list_pipelines` | Orchestration | Lists all modular upgrade and maintenance pipeline profiles in the catalog. |
 | `trigger_upgrade_job` | Orchestration | Starts an upgrade workflow on a target host using a selected pipeline profile. |
+| `list_jobs` | Jobs | Lists recent update jobs across the fleet with optional status or target host filtering. |
+| `get_job` | Jobs | Retrieves current state, active step, failure reason, and execution timing for an update job. |
+| `query_job_logs` | Logs | Queries sequence-ordered console logs (stdout, stderr, system) for an update or debug job with pagination (`fromSequenceId`, `limit`). |
 | `execute_debug_command` | Debug | Dispatches an ad-hoc shell command (e.g. `uptime`, `df -h`) to an online agent and streams output. |
+
+### Infrastructure Adapters & Network (Phase 5)
+| Tool Name | Category | Description |
+| :--- | :--- | :--- |
+| `list_adapters` | Adapters | Summarizes configured adapters across Proxmox, Kubernetes, UniFi, OPNsense, and iDRAC with instance counts and health. |
+| `test_adapter_connection` | Adapters | Tests connectivity to a specific adapter instance and returns latency, detected version, and node count. |
+| `list_unifi_devices` | Network | Lists UniFi network devices (switches, APs, gateways) with port PoE status and power consumption. |
+| `power_cycle_unifi_port` | Network | Power-cycles a PoE port on a UniFi switch to reboot a connected device (camera, AP, Pi). |
+| `get_opnsense_status` | Firewall | Queries OPNsense firewall gateway status, WAN/LAN health, firmware version, and active DHCP leases. |
+
+### Kubernetes Workloads (Phase 5)
+| Tool Name | Category | Description |
+| :--- | :--- | :--- |
+| `list_workloads` | Workloads | Queries aggregated Kubernetes workloads (Deployments, StatefulSets, DaemonSets) across clusters with replica counts. |
+| `restart_workload` | Workloads | Triggers a rolling rollout restart of a Kubernetes deployment. |
+| `scale_workload` | Workloads | Adjusts the desired replica count for a Kubernetes deployment. |
+
+### Out-of-Band Hardware & BMC (Phase 5)
+| Tool Name | Category | Description |
+| :--- | :--- | :--- |
+| `get_hardware_sensors` | BMC / Hardware | Queries Dell iDRAC / DMTF Redfish power state, temperature sensors, and fan telemetry. |
+| `execute_hardware_power_action` | BMC / Hardware | Dispatches hardware power actions (`On`, `GracefulShutdown`, `ForceRestart`, `PowerCycle`) via BMC. |
+
+---
+
+## 5. AI Agent Operational Guidelines & Best Practices
+
+1. **Investigation Before Mutation:**
+   * Always inspect current system or host state before triggering destructive actions.
+   * Check `get_host_details` and verify that the target agent `isOnline: true` before executing commands or upgrade jobs.
+2. **Safe Staged Operations:**
+   * When modifying Kubernetes workloads or rebooting nodes, verify workload health first via `list_workloads`.
+   * For hardware power cycling, verify sensor health via `get_hardware_sensors` first.
+3. **Monotonic Sequence Log Tracking:**
+   * After launching a job (`trigger_upgrade_job` or `execute_debug_command`), track execution by polling `query_job_logs` with `fromSequenceId` set to the last received sequence number to avoid duplicate processing.
+4. **Audit Trail:**
+   * All actions dispatched via MCP tools are recorded in `update_jobs` with `InitiatedBy = "AI Agent via MCP"`.
+

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: controlplane-config
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_HTTP_PORTS: "8080"
+  ENABLE_MCP_SERVER: "true"
+  Temporal__Enabled: "true"
+  Temporal__ServerUrl: "controlplane-temporal:7233"
+  Temporal__Namespace: "default"
+  Temporal__TaskQueue: "controlplane-orchestration"

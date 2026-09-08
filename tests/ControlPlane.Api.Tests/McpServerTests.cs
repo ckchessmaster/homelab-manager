@@ -179,6 +179,61 @@ public class McpServerTests
         Assert.True(pipelines.GetArrayLength() > 0);
     }
 
+    [Fact]
+    public async Task ListAdapters_WithoutConfigService_ReturnsError()
+    {
+        var (db, conn, sp) = CreateTestServiceProvider();
+        using var _ = conn;
+        using var __ = db;
+
+        using var scope = sp.CreateScope();
+        var tools = scope.ServiceProvider.GetRequiredService<ControlPlaneMcpTools>();
+        var result = await tools.ListAdapters();
+        var json = JsonSerializer.Serialize(result);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.True(root.TryGetProperty("error", out var err));
+        Assert.Contains("not available", err.GetString());
+    }
+
+    [Fact]
+    public async Task ListWorkloads_WithoutWorkloadService_ReturnsError()
+    {
+        var (db, conn, sp) = CreateTestServiceProvider();
+        using var _ = conn;
+        using var __ = db;
+
+        using var scope = sp.CreateScope();
+        var tools = scope.ServiceProvider.GetRequiredService<ControlPlaneMcpTools>();
+        var result = await tools.ListWorkloads();
+        var json = JsonSerializer.Serialize(result);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.True(root.TryGetProperty("error", out var err));
+        Assert.Contains("not available", err.GetString());
+    }
+
+    [Fact]
+    public async Task TestAdapterConnection_UnknownType_ReturnsError()
+    {
+        var (db, conn, sp) = CreateTestServiceProvider();
+        using var _ = conn;
+        using var __ = db;
+
+        using var scope = sp.CreateScope();
+        var tools = scope.ServiceProvider.GetRequiredService<ControlPlaneMcpTools>();
+        var result = await tools.TestAdapterConnection("invalid_type");
+        var json = JsonSerializer.Serialize(result);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("success").GetBoolean());
+        Assert.Contains("Unknown adapter type", root.GetProperty("error").GetString());
+    }
+
+
     private class FakeProxmoxClient : Features.Adapters.Proxmox.IProxmoxClient
     {
         public Task<List<Features.Adapters.Proxmox.ProxmoxClusterResourceDto>> DiscoverClusterResourcesAsync(CancellationToken ct = default) => Task.FromResult(new List<Features.Adapters.Proxmox.ProxmoxClusterResourceDto>());

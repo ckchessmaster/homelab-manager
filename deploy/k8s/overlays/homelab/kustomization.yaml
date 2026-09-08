@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: controlplane
+
+resources:
+  - ../../base
+
+patches:
+  - path: patches/ingress-host.yaml
+  - path: patches/resources.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/environment: homelab

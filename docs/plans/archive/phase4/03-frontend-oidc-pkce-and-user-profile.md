@@ -2,7 +2,7 @@
 
 **Phase:** Phase 4: Productionization & Deployment  
 **Status:** ✅ Completed  
-**Dependencies:** [Plan 02: Zitadel Identity Setup & Backend RBAC](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-zitadel-identity-setup-and-backend-rbac.md)  
+**Dependencies:** [Plan 02: Zitadel Identity Setup & Backend RBAC](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/02-zitadel-identity-setup-and-backend-rbac.md)  
 
 ---
 

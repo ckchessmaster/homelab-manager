@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "controlplane.configMapName" . }}
+  labels:
+    {{- include "controlplane.labels" . | nindent 4 }}
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_HTTP_PORTS: "8080"
+  ENABLE_MCP_SERVER: {{ .Values.mcp.enabled | quote }}
+  Temporal__Enabled: {{ .Values.temporal.enabled | quote }}
+  Temporal__ServerUrl: {{ .Values.temporal.serverUrl | quote }}
+  Temporal__Namespace: {{ .Values.temporal.namespace | quote }}
+  Temporal__TaskQueue: {{ .Values.temporal.taskQueue | quote }}
+  {{- if .Values.zitadel.enabled }}
+  Zitadel__Authority: {{ .Values.zitadel.authority | quote }}
+  Zitadel__Audience: {{ .Values.zitadel.audience | quote }}
+  Zitadel__RequireHttpsMetadata: {{ .Values.zitadel.requireHttpsMetadata | quote }}
+  {{- end }}

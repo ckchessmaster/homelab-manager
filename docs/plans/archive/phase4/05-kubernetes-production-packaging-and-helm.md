@@ -1,8 +1,8 @@
 # Plan 05: Kubernetes Production Packaging & Helm Chart
 
 **Phase:** Phase 4: Productionization & Deployment  
-**Status:** ⏳ Not Started  
-**Dependencies:** [Plan 01: Production Containerization](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md), [Plan 02: Zitadel Setup](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-zitadel-identity-setup-and-backend-rbac.md)  
+**Status:** ✅ Completed  
+**Dependencies:** [Plan 01: Production Containerization](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/01-production-containerization-and-compose.md), [Plan 02: Zitadel Setup](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/02-zitadel-identity-setup-and-backend-rbac.md)  
 
 ---
 
@@ -87,7 +87,7 @@ deploy/
 
 ## 4. Acceptance Criteria
 
-- [ ] `helm lint charts/controlplane` passes with zero errors or warnings.
-- [ ] Rendered templates include health probes, non-root security contexts, and WebSocket ingress rules.
-- [ ] Chart supports both internal containerized PostgreSQL/Temporal and external managed endpoints.
-- [ ] Kustomize manifests validate cleanly via `kubectl kustomize`.
+- [x] `helm lint charts/controlplane` passes with zero errors or warnings.
+- [x] Rendered templates include health probes, non-root security contexts, and WebSocket ingress rules.
+- [x] Chart supports both internal containerized PostgreSQL/Temporal and external managed endpoints.
+- [x] Kustomize manifests validate cleanly via `kubectl kustomize`.

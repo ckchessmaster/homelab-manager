@@ -1,10 +1,17 @@
 using System.ComponentModel;
+using ControlPlane.Api.Features.Adapters.Config;
+using ControlPlane.Api.Features.Adapters.Idrac;
+using ControlPlane.Api.Features.Adapters.Kubernetes;
+using ControlPlane.Api.Features.Adapters.OPNsense;
+using ControlPlane.Api.Features.Adapters.Proxmox;
+using ControlPlane.Api.Features.Adapters.UniFi;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Features.Orchestration.Pipelines;
+using ControlPlane.Api.Features.Workloads;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -13,7 +20,7 @@ using ModelContextProtocol.Server;
 namespace ControlPlane.Api.Features.Mcp;
 
 /// <summary>
-/// Tools exposed over the Model Context Protocol (MCP) enabling AI agents to query logs and interact with the ControlPlane API.
+/// Tools exposed over the Model Context Protocol (MCP) enabling AI agents to query logs, interact with compute hosts, and orchestrate infrastructure adapters.
 /// </summary>
 [McpServerToolType]
 public class ControlPlaneMcpTools
@@ -24,6 +31,13 @@ public class ControlPlaneMcpTools
     private readonly IPipelineCatalog _pipelineCatalog;
     private readonly JobOrchestratorService _jobOrchestrator;
     private readonly AgentConnectionManager _connectionManager;
+    private readonly IAdapterConfigService? _adapterConfigService;
+    private readonly IWorkloadService? _workloadService;
+    private readonly IUniFiClientFactory? _unifiClientFactory;
+    private readonly IOPNsenseClientFactory? _opnsenseClientFactory;
+    private readonly IIdracClientFactory? _idracClientFactory;
+    private readonly IKubernetesClientFactory? _kubernetesClientFactory;
+    private readonly IProxmoxClientFactory? _proxmoxClientFactory;
 
     public ControlPlaneMcpTools(
         ControlPlaneDbContext db,
@@ -31,7 +45,14 @@ public class ControlPlaneMcpTools
         IDiscoveryService discoveryService,
         IPipelineCatalog pipelineCatalog,
         JobOrchestratorService jobOrchestrator,
-        AgentConnectionManager connectionManager)
+        AgentConnectionManager connectionManager,
+        IAdapterConfigService? adapterConfigService = null,
+        IWorkloadService? workloadService = null,
+        IUniFiClientFactory? unifiClientFactory = null,
+        IOPNsenseClientFactory? opnsenseClientFactory = null,
+        IIdracClientFactory? idracClientFactory = null,
+        IKubernetesClientFactory? kubernetesClientFactory = null,
+        IProxmoxClientFactory? proxmoxClientFactory = null)
     {
         _db = db;
         _hostService = hostService;
@@ -39,6 +60,13 @@ public class ControlPlaneMcpTools
         _pipelineCatalog = pipelineCatalog;
         _jobOrchestrator = jobOrchestrator;
         _connectionManager = connectionManager;
+        _adapterConfigService = adapterConfigService;
+        _workloadService = workloadService;
+        _unifiClientFactory = unifiClientFactory;
+        _opnsenseClientFactory = opnsenseClientFactory;
+        _idracClientFactory = idracClientFactory;
+        _kubernetesClientFactory = kubernetesClientFactory;
+        _proxmoxClientFactory = proxmoxClientFactory;
     }
 
     [McpServerTool]
@@ -406,4 +434,252 @@ public class ControlPlaneMcpTools
             status = "Running"
         };
     }
+
+    [McpServerTool]
+    [Description("List all configured infrastructure adapters (Proxmox, Kubernetes, UniFi, OPNsense, iDRAC) with target counts and connection status.")]
+    public async Task<object> ListAdapters(CancellationToken ct = default)
+    {
+        if (_adapterConfigService == null)
+        {
+            return new { error = "Adapter configuration service is not available." };
+        }
+
+        var proxmox = await _adapterConfigService.GetProxmoxInstancesAsync(ct);
+        var k8s = await _adapterConfigService.GetKubernetesClustersAsync(ct);
+        var unifi = await _adapterConfigService.GetUniFiInstancesAsync(ct);
+        var opnsense = await _adapterConfigService.GetOPNsenseInstancesAsync(ct);
+        var idrac = await _adapterConfigService.GetIdracInstancesAsync(ct);
+
+        return new
+        {
+            summary = new
+            {
+                totalAdapters = proxmox.Count + k8s.Count + unifi.Count + opnsense.Count + idrac.Count,
+                proxmoxCount = proxmox.Count,
+                k8sClusterCount = k8s.Count,
+                unifiControllerCount = unifi.Count,
+                opnsenseFirewallCount = opnsense.Count,
+                idracBmcCount = idrac.Count
+            },
+            adapters = new
+            {
+                proxmox = proxmox.Select(p => new { p.Id, p.Name, p.BaseUrl, p.HasSecret }),
+                kubernetes = k8s.Select(k => new { k.Id, k.Name, k.HasKubeConfig, k.HasToken }),
+                unifi = unifi.Select(u => new { u.Id, u.Name, u.ControllerUrl, u.Site, u.AuthType, u.HasPassword, u.HasApiKey }),
+                opnsense = opnsense.Select(o => new { o.Id, o.Name, o.BaseUrl, o.HasSecret }),
+                idrac = idrac.Select(i => new { i.Id, i.Name, i.BmcUrl, i.Username, i.HasPassword })
+            }
+        };
+    }
+
+    [McpServerTool]
+    [Description("Test connectivity and health for a specific infrastructure adapter instance.")]
+    public async Task<object> TestAdapterConnection(
+        [Description("Adapter category: 'proxmox', 'kubernetes' (or 'k8s'), 'unifi', 'opnsense', or 'idrac' (or 'redfish').")] string adapterType,
+        [Description("ID of the instance to test. If omitted or 'default', tests the primary instance.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        var type = adapterType.Trim().ToLowerInvariant();
+        try
+        {
+            switch (type)
+            {
+                case "proxmox":
+                    if (_proxmoxClientFactory == null) return new { success = false, error = "Proxmox factory not available." };
+                    var pClient = await _proxmoxClientFactory.GetClientAsync(instanceId, ct);
+                    var nodes = await pClient.ListNodesAsync(ct);
+                    return new { success = true, adapterType = "proxmox", instanceId, nodeCount = nodes.Count, nodes = nodes.Select(n => n.Node) };
+
+                case "kubernetes":
+                case "k8s":
+                    if (_kubernetesClientFactory == null) return new { success = false, error = "Kubernetes factory not available." };
+                    var kAdapter = await _kubernetesClientFactory.CreateAdapterAsync(instanceId, ct);
+                    var kRes = await kAdapter.TestConnectionAsync(ct);
+                    return new { success = kRes.Success, adapterType = "kubernetes", instanceId, serverVersion = kRes.ServerVersion, nodeCount = kRes.NodeCount, latencyMs = kRes.LatencyMs, message = kRes.Message };
+
+                case "unifi":
+                    if (_unifiClientFactory == null) return new { success = false, error = "UniFi factory not available." };
+                    var (uClient, uConfig, uPass, uApiKey) = await _unifiClientFactory.ResolveAsync(instanceId ?? "default", ct);
+                    var uRes = await uClient.TestConnectionAsync(uConfig.ControllerUrl, uConfig.Username, uPass, uConfig.Site, uApiKey, ct);
+                    return new { success = uRes.Success, adapterType = "unifi", instanceId = uConfig.Id, latencyMs = uRes.LatencyMs, message = uRes.Message, version = uRes.ControllerVersion };
+
+                case "opnsense":
+                    if (_opnsenseClientFactory == null) return new { success = false, error = "OPNsense factory not available." };
+                    var (oClient, oConfig, oSecret) = await _opnsenseClientFactory.ResolveAsync(instanceId ?? "default", ct);
+                    var oRes = await oClient.TestConnectionAsync(oConfig.BaseUrl, oConfig.ApiKey, oSecret, oConfig.AllowSelfSignedCert, ct);
+                    return new { success = oRes.Success, adapterType = "opnsense", instanceId = oConfig.Id, latencyMs = oRes.LatencyMs, message = oRes.Message, version = oRes.Version };
+
+                case "idrac":
+                case "redfish":
+                    if (_idracClientFactory == null) return new { success = false, error = "iDRAC factory not available." };
+                    var (iClient, iConfig, iPass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+                    var iRes = await iClient.TestConnectionAsync(iConfig.BmcUrl, iConfig.Username, iPass, iConfig.AllowSelfSignedCert, ct);
+                    return new { success = iRes.Success, adapterType = "idrac", instanceId = iConfig.Id, latencyMs = iRes.LatencyMs, message = iRes.Message, model = iRes.Model };
+
+                default:
+                    return new { success = false, error = $"Unknown adapter type '{adapterType}'. Valid types: 'proxmox', 'kubernetes', 'unifi', 'opnsense', 'idrac'." };
+            }
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, adapterType, instanceId, error = ex.Message };
+        }
+    }
+
+    [McpServerTool]
+    [Description("List aggregated Kubernetes workloads (Deployments, StatefulSets, DaemonSets) across clusters and namespaces with replica status.")]
+    public async Task<object> ListWorkloads(
+        [Description("Optional Kubernetes cluster ID filter.")] string? clusterId = null,
+        [Description("Optional namespace filter (e.g. 'default', 'kube-system').")] string? namespaceName = null,
+        CancellationToken ct = default)
+    {
+        if (_workloadService == null) return new { error = "Workload service not available." };
+        var workloads = await _workloadService.GetAggregatedWorkloadsAsync(clusterId, namespaceName, ct);
+        return new { count = workloads.Items.Count, totalDeployments = workloads.TotalDeployments, healthyDeployments = workloads.HealthyDeployments, workloads = workloads.Items };
+    }
+
+    [McpServerTool]
+    [Description("Trigger a rolling rollout restart of a Kubernetes deployment.")]
+    public async Task<object> RestartWorkload(
+        [Description("Kubernetes cluster ID hosting the workload.")] string clusterId,
+        [Description("Namespace where the workload resides.")] string namespaceName,
+        [Description("Name of the deployment workload to restart.")] string name,
+        CancellationToken ct = default)
+    {
+        if (_workloadService == null) return new { success = false, error = "Workload service not available." };
+        var success = await _workloadService.RestartWorkloadAsync(clusterId, namespaceName, name, ct);
+        return new { success, clusterId, namespaceName, name, message = success ? $"Workload '{name}' restart initiated." : "Failed to restart workload." };
+    }
+
+    [McpServerTool]
+    [Description("Scale the replica count of a Kubernetes deployment workload.")]
+    public async Task<object> ScaleWorkload(
+        [Description("Kubernetes cluster ID hosting the workload.")] string clusterId,
+        [Description("Namespace where the workload resides.")] string namespaceName,
+        [Description("Name of the deployment workload to scale.")] string name,
+        [Description("Desired number of replicas.")] int replicas,
+        CancellationToken ct = default)
+    {
+        if (_workloadService == null) return new { success = false, error = "Workload service not available." };
+        var success = await _workloadService.ScaleWorkloadAsync(clusterId, namespaceName, name, replicas, ct);
+        return new { success, clusterId, namespaceName, name, replicas, message = success ? $"Workload '{name}' scaled to {replicas} replicas." : "Failed to scale workload." };
+    }
+
+    [McpServerTool]
+    [Description("List UniFi network devices (switches, access points, gateways) including PoE power draw and port status.")]
+    public async Task<object> ListUniFiDevices(
+        [Description("Optional UniFi controller instance ID.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_unifiClientFactory == null) return new { error = "UniFi factory not available." };
+        var (client, config, pass, apiKey) = await _unifiClientFactory.ResolveAsync(instanceId ?? "default", ct);
+        var devices = await client.GetDevicesAsync(config.ControllerUrl, config.Username, pass, config.Site, apiKey, ct);
+        return new { controllerId = config.Id, count = devices.Count, devices };
+    }
+
+    [McpServerTool]
+    [Description("Power-cycle a PoE port on a UniFi switch to reboot a connected device (e.g. camera, access point, Pi).")]
+    public async Task<object> PowerCycleUniFiPort(
+        [Description("MAC address of the target UniFi switch.")] string switchMac,
+        [Description("Port index/number on the switch (1-based).")] int portNumber,
+        [Description("Optional UniFi controller instance ID.")] string? instanceId = null,
+        [Description("Power bounce off duration in seconds (default 5).")] int delaySeconds = 5,
+        CancellationToken ct = default)
+    {
+        if (_unifiClientFactory == null) return new { success = false, error = "UniFi factory not available." };
+        var (client, config, pass, apiKey) = await _unifiClientFactory.ResolveAsync(instanceId ?? "default", ct);
+        var result = await client.CyclePoEPortAsync(config.ControllerUrl, config.Username, pass, switchMac, portNumber, config.Site, delaySeconds, apiKey, ct);
+        return new { success = result.Success, switchMac, portNumber, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Query OPNsense firewall gateway status, WAN/LAN health, and active DHCP leases.")]
+    public async Task<object> GetOPNsenseStatus(
+        [Description("Optional OPNsense firewall instance ID.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_opnsenseClientFactory == null) return new { error = "OPNsense factory not available." };
+        var (client, config, secret) = await _opnsenseClientFactory.ResolveAsync(instanceId ?? "default", ct);
+        var gateways = await client.GetGatewaysAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+        var leases = await client.GetDhcpLeasesAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+        var firmware = await client.GetFirmwareStatusAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+        return new
+        {
+            firewallId = config.Id,
+            firewallName = config.Name,
+            gateways,
+            dhcpLeaseCount = leases.Count,
+            dhcpLeases = leases.Take(50),
+            firmwareStatus = firmware.Status,
+            productVersion = firmware.Version
+        };
+    }
+
+    [McpServerTool]
+    [Description("Query out-of-band BMC (Redfish / Dell iDRAC) system health, power state, and thermal/fan vitals.")]
+    public async Task<object> GetHardwareSensors(
+        [Description("Optional iDRAC instance ID.")] string? instanceId = null,
+        [Description("Optional host BMC IP address to look up instance.")] string? hostBmcIp = null,
+        CancellationToken ct = default)
+    {
+        if (_idracClientFactory == null) return new { error = "iDRAC factory not available." };
+
+        IIdracClient client;
+        string bmcUrl, username, password;
+        bool allowSelfSigned;
+
+        if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        {
+            var resolved = await _idracClientFactory.ResolveByHostBmcIpAsync(hostBmcIp, ct);
+            if (resolved == null) return new { error = $"No iDRAC instance configured for BMC IP '{hostBmcIp}'." };
+            (client, bmcUrl, username, password, allowSelfSigned) = resolved.Value;
+        }
+        else
+        {
+            var (c, config, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+            client = c;
+            bmcUrl = config.BmcUrl;
+            username = config.Username;
+            password = pass;
+            allowSelfSigned = config.AllowSelfSignedCert;
+        }
+
+        var vitals = await client.GetVitalsAsync(bmcUrl, username, password, allowSelfSigned, ct);
+        return new { bmcUrl, vitals };
+    }
+
+    [McpServerTool]
+    [Description("Dispatch an out-of-band power action to server hardware via BMC/Redfish/iDRAC.")]
+    public async Task<object> ExecuteHardwarePowerAction(
+        [Description("Power action: 'On', 'ForceOff', 'GracefulShutdown', 'GracefulRestart', or 'ForceRestart'.")] string resetType,
+        [Description("Optional iDRAC instance ID.")] string? instanceId = null,
+        [Description("Optional host BMC IP address.")] string? hostBmcIp = null,
+        CancellationToken ct = default)
+    {
+        if (_idracClientFactory == null) return new { success = false, error = "iDRAC factory not available." };
+
+        IIdracClient client;
+        string bmcUrl, username, password;
+        bool allowSelfSigned;
+
+        if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        {
+            var resolved = await _idracClientFactory.ResolveByHostBmcIpAsync(hostBmcIp, ct);
+            if (resolved == null) return new { success = false, error = $"No iDRAC instance configured for BMC IP '{hostBmcIp}'." };
+            (client, bmcUrl, username, password, allowSelfSigned) = resolved.Value;
+        }
+        else
+        {
+            var (c, config, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+            client = c;
+            bmcUrl = config.BmcUrl;
+            username = config.Username;
+            password = pass;
+            allowSelfSigned = config.AllowSelfSignedCert;
+        }
+
+        var result = await client.ResetSystemAsync(bmcUrl, username, password, resetType, allowSelfSigned, ct);
+        return new { success = result.Success, bmcUrl, resetType, message = result.Message };
+    }
 }
+

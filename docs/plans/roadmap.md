@@ -1,42 +1,42 @@
-# ControlPlane Implementation Roadmap: Phase 4
+# ControlPlane Implementation Roadmap
 
-This document defines the sequential implementation plan for **Phase 4** of the **Homelab Orchestration & Management Plane (ControlPlane)**, focusing on **Productionization, Zitadel Identity Management & Deployment Architecture**.
+This document defines the master implementation roadmap and historical milestone tracking for the **Homelab Orchestration & Management Plane (ControlPlane)**.
 
-*(Historical plans are preserved in [docs/plans/archive/phase1-mvp/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase1-mvp/), [docs/plans/archive/phase2/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase2/), [docs/plans/archive/phase3/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase3/), and [docs/plans/archive/phase5/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/)).*
+*(Historical plans are preserved in [docs/plans/archive/phase1-mvp/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase1-mvp/), [docs/plans/archive/phase2/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase2/), [docs/plans/archive/phase3/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase3/), [docs/plans/archive/phase4/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/), and [docs/plans/archive/phase5/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/)).*
 
 ---
 
-## 🧭 Phase 4 Milestone & Plan Dependency Graph
+## 🧭 Phase 4 Milestone & Plan Dependency Graph (Archived)
 
 ```
 Phase 4: Productionization, Zitadel Identity & Deployment Architecture
-├── [01-production-containerization-and-compose.md]
+├── [archive/phase4/01-production-containerization-and-compose.md]
 │   └── Multi-stage OCI Dockerfiles for .NET 10 API & React 19 Frontend + Production Compose Stack
 │
-├── [02-zitadel-identity-setup-and-backend-rbac.md]
+├── [archive/phase4/02-zitadel-identity-setup-and-backend-rbac.md]
 │   └── Self-hosted Zitadel OIDC setup, ASP.NET Core JWT Bearer validation & Composite RBAC engine
 │
-├── [03-frontend-oidc-pkce-and-user-profile.md]
+├── [archive/phase4/03-frontend-oidc-pkce-and-user-profile.md]
 │   └── React 19 OIDC PKCE integration, authenticated API interceptor, user profile menu & role UI gates
 │
-├── [05-kubernetes-production-packaging-and-helm.md]
+├── [archive/phase4/05-kubernetes-production-packaging-and-helm.md]
 │   └── Complete production Helm chart (charts/controlplane) & Kustomize overlays for homelab clusters
 │
-└── [06-cicd-github-actions-and-release-pipeline.md]
+└── [archive/phase4/06-cicd-github-actions-and-release-pipeline.md]
     └── GitHub Actions CI matrix, multi-arch GHCR image publishing, agent release artifacts & Helm linting
 ```
 
 ---
 
-## 📊 Phase 4 Plan Execution Status
+## 📊 Phase 4 Plan Execution Status (Archived)
 
 | Phase / Plan | Description | Status |
 | :--- | :--- | :--- |
-| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md)** | Multi-Stage OCI Containerization & Production Compose Stack | ✅ Completed |
-| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/02-zitadel-identity-setup-and-backend-rbac.md)** | Zitadel Identity Provider Setup & Backend JWT / RBAC Engine | ✅ Completed |
-| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/03-frontend-oidc-pkce-and-user-profile.md)** | Frontend OIDC Authentication Flow (PKCE) & User Profile Context | ✅ Completed |
-| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-kubernetes-production-packaging-and-helm.md)** | Kubernetes Production Packaging & Helm Chart (`charts/controlplane`) | ⏸️ Paused (Pending Phase 5) |
-| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/06-cicd-github-actions-and-release-pipeline.md)** | CI/CD GitHub Actions Automation & Release Pipeline | ⏸️ Paused (Pending Phase 5) |
+| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/01-production-containerization-and-compose.md)** | Multi-Stage OCI Containerization & Production Compose Stack | ✅ Completed |
+| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/02-zitadel-identity-setup-and-backend-rbac.md)** | Zitadel Identity Provider Setup & Backend JWT / RBAC Engine | ✅ Completed |
+| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/03-frontend-oidc-pkce-and-user-profile.md)** | Frontend OIDC Authentication Flow (PKCE) & User Profile Context | ✅ Completed |
+| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/05-kubernetes-production-packaging-and-helm.md)** | Kubernetes Production Packaging & Helm Chart (`charts/controlplane`) | ✅ Completed |
+| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/06-cicd-github-actions-and-release-pipeline.md)** | CI/CD GitHub Actions Automation & Release Pipeline | ✅ Completed (Built Out, Triggers Paused) |
 
 ---
 

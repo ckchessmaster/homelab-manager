@@ -1,0 +1,49 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: controlplane-ingress
+  labels:
+    app.kubernetes.io/name: controlplane
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - controlplane.example.com
+      secretName: controlplane-tls
+  rules:
+    - host: controlplane.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-frontend
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-api
+                port:
+                  number: 8080
+          - path: /hubs
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-api
+                port:
+                  number: 8080
+          - path: /agent-hub
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-api
+                port:
+                  number: 8080

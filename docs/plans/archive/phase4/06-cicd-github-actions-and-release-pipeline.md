@@ -1,8 +1,8 @@
 # Plan 06: CI/CD GitHub Actions Automation & Release Pipeline
 
 **Phase:** Phase 4: Productionization & Deployment  
-**Status:** ⏳ Not Started  
-**Dependencies:** [Plan 01: Production Containerization](file:///home/ckingdon/projects/homelab-manager/docs/plans/01-production-containerization-and-compose.md), [Plan 05: Helm Chart](file:///home/ckingdon/projects/homelab-manager/docs/plans/05-kubernetes-production-packaging-and-helm.md)  
+**Status:** ✅ Completed (Built Out, Automated Triggers Paused)  
+**Dependencies:** [Plan 01: Production Containerization](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/01-production-containerization-and-compose.md), [Plan 05: Helm Chart](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase4/05-kubernetes-production-packaging-and-helm.md)  
 
 ---
 
@@ -60,7 +60,8 @@ Establish robust, enterprise-grade Continuous Integration (CI) and Continuous De
 
 ## 4. Acceptance Criteria
 
-- [ ] CI workflow runs backend tests, frontend typecheck, and Playwright E2E tests cleanly.
-- [ ] Release workflow builds multi-arch OCI images for both API and Frontend.
-- [ ] Release workflow cross-compiles Go agent binaries and generates checksums.
-- [ ] Helm chart linting is integrated into the automated PR gate.
+- [x] CI workflow runs backend tests, frontend typecheck, and Playwright E2E tests cleanly (`.github/workflows/ci.yml`).
+- [x] Release workflow builds multi-arch OCI images for both API and Frontend (`.github/workflows/release.yml`).
+- [x] Release workflow cross-compiles Go agent binaries and generates checksums (`.github/workflows/release.yml`).
+- [x] Helm chart linting is integrated into the automated PR gate (`.github/workflows/ci.yml`).
+- [x] Automated triggers are paused with `workflow_dispatch` enabled per configuration requirements.

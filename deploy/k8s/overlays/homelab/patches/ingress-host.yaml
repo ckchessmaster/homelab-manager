@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: controlplane-ingress
+spec:
+  tls:
+    - hosts:
+        - controlplane.homelab.local
+      secretName: controlplane-tls
+  rules:
+    - host: controlplane.homelab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-frontend
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-api
+                port:
+                  number: 8080
+          - path: /hubs
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-api
+                port:
+                  number: 8080
+          - path: /agent-hub
+            pathType: Prefix
+            backend:
+              service:
+                name: controlplane-api
+                port:
+                  number: 8080

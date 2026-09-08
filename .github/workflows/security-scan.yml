@@ -1,0 +1,38 @@
+name: Security & Vulnerability Scan
+
+# NOTE: Automated triggers (schedule / push) are kept commented out until ready to enable.
+# To enable automated weekly security scanning, uncomment the following block:
+# on:
+#   schedule:
+#     - cron: '0 4 * * 1'
+#   push:
+#     branches: [ main ]
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-scan:
+    name: Trivy Security & Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy Vulnerability Scanner (Repo & Dependencies)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload SARIF Security Findings
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
