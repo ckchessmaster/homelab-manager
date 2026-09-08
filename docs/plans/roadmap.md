@@ -2,7 +2,7 @@
 
 This document defines the sequential implementation plan for **Phase 4** of the **Homelab Orchestration & Management Plane (ControlPlane)**, focusing on **Productionization, Zitadel Identity Management & Deployment Architecture**.
 
-*(Historical plans are preserved in [docs/plans/archive/phase1-mvp/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase1-mvp/), [docs/plans/archive/phase2/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase2/), and [docs/plans/archive/phase3/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase3/)).*
+*(Historical plans are preserved in [docs/plans/archive/phase1-mvp/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase1-mvp/), [docs/plans/archive/phase2/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase2/), [docs/plans/archive/phase3/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase3/), and [docs/plans/archive/phase5/](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/)).*
 
 ---
 
@@ -40,37 +40,37 @@ Phase 4: Productionization, Zitadel Identity & Deployment Architecture
 
 ---
 
-## 🧭 Phase 5 Milestone & Plan Dependency Graph
+## 🧭 Phase 5 Milestone & Plan Dependency Graph (Archived)
 
 ```
 Phase 5: Unified Infrastructure Adapters & Multi-Platform Management Plane
-├── [phase5-01-adapters-hub-and-multi-proxmox.md]
+├── [archive/phase5/phase5-01-adapters-hub-and-multi-proxmox.md]
 │   └── Retire "probes" terminology, create modular AdaptersView, multi-instance Proxmox VE configs & discovery
 │
-├── [phase5-02-kubernetes-adapter-and-workloads.md]
+├── [archive/phase5/phase5-02-kubernetes-adapter-and-workloads.md]
 │   └── Multi-cluster K8s adapter, dynamic kubeconfig, cluster health, node cordon/drain & workload engine
 │
-├── [phase5-03-ubiquiti-unifi-adapter.md]
+├── [archive/phase5/phase5-03-ubiquiti-unifi-adapter.md]
 │   └── UniFi Network Application session auth, device inventory, firmware upgrade, reboot & switch PoE control
 │
-├── [phase5-04-grouped-inventory-and-apps.md]
+├── [archive/phase5/phase5-04-grouped-inventory-and-apps.md]
 │   └── Modern segmented filter chips/grouping (no clumsy trees) & dedicated K8s Applications / Workloads view
 │
-└── [phase5-05-opnsense-and-oob-adapters.md]
+└── [archive/phase5/phase5-05-opnsense-and-oob-adapters.md]
     └── OPNsense gateway/DHCP/service control & BMC iDRAC/Redfish out-of-band power and sensor telemetry
 ```
 
 ---
 
-## 📊 Phase 5 Plan Execution Status
+## 📊 Phase 5 Plan Execution Status (Archived)
 
 | Phase / Plan | Description | Status |
 | :--- | :--- | :--- |
-| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-01-adapters-hub-and-multi-proxmox.md)** | Adapters Hub Refactor & Multi-Instance Proxmox VE Adapter | ✅ Completed |
-| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-02-kubernetes-adapter-and-workloads.md)** | Multi-Cluster Kubernetes Adapter & Workload Engine | ✅ Completed |
-| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-03-ubiquiti-unifi-adapter.md)** | Ubiquiti UniFi Network Container Adapter | ✅ Completed |
-| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-04-grouped-inventory-and-apps.md)** | Modern Grouped Inventory & Application Workloads Hub | ✅ Completed |
-| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-05-opnsense-and-oob-adapters.md)** | OPNsense & Out-of-Band (iDRAC/Redfish) Adapters | ✅ Completed |
+| **[Plan 01](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-01-adapters-hub-and-multi-proxmox.md)** | Adapters Hub Refactor & Multi-Instance Proxmox VE Adapter | ✅ Completed |
+| **[Plan 02](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-02-kubernetes-adapter-and-workloads.md)** | Multi-Cluster Kubernetes Adapter & Workload Engine | ✅ Completed |
+| **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-03-ubiquiti-unifi-adapter.md)** | Ubiquiti UniFi Network Container Adapter | ✅ Completed |
+| **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-04-grouped-inventory-and-apps.md)** | Modern Grouped Inventory & Application Workloads Hub | ✅ Completed |
+| **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-05-opnsense-and-oob-adapters.md)** | OPNsense & Out-of-Band (iDRAC/Redfish) Adapters | ✅ Completed |
 
 ---
 
