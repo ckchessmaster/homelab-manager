@@ -1,4 +1,5 @@
 using System.Net;
+using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -10,11 +11,13 @@ public class HostService
 {
     private readonly ControlPlaneDbContext _db;
     private readonly ILogger<HostService> _logger;
+    private readonly AgentConnectionManager? _connectionManager;
 
-    public HostService(ControlPlaneDbContext db, ILogger<HostService> logger)
+    public HostService(ControlPlaneDbContext db, ILogger<HostService> logger, AgentConnectionManager? connectionManager = null)
     {
         _db = db;
         _logger = logger;
+        _connectionManager = connectionManager;
     }
 
     public async Task<List<HostResponse>> ListHostsAsync(HostFilterQuery query, CancellationToken cancellationToken = default)
@@ -60,7 +63,47 @@ public class HostService
         }
 
         var list = await q.OrderBy(h => h.Hostname).ToListAsync(cancellationToken);
-        return list.Select(MapToResponse).ToList();
+        return list.Select(h =>
+        {
+            var isOnline = _connectionManager?.IsOnline(h.Id) ?? false;
+            HypervisorHostSummaryDto? hyp = null;
+            if (h.Proxmox != null && h.Proxmox.Vmid > 0 && !string.IsNullOrWhiteSpace(h.Proxmox.Node))
+            {
+                var parent = list.FirstOrDefault(p => p.Id != h.Id && (p.Proxmox == null || p.Proxmox.Vmid <= 0) && (
+                    (p.Proxmox != null && string.Equals(p.Proxmox.Node, h.Proxmox.Node, StringComparison.OrdinalIgnoreCase)) ||
+                    string.Equals(p.Hostname, h.Proxmox.Node, StringComparison.OrdinalIgnoreCase)));
+                if (parent != null)
+                {
+                    hyp = new HypervisorHostSummaryDto(parent.Id, parent.Hostname, parent.FriendlyName, h.Proxmox.Node);
+                }
+            }
+
+            var isHypervisor = (h.Proxmox == null || h.Proxmox.Vmid <= 0) &&
+                (string.Equals(h.TargetType, "proxmox_node", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(h.TargetType, "hypervisor", StringComparison.OrdinalIgnoreCase) ||
+                 (h.Proxmox != null && h.Proxmox.Vmid <= 0 && !string.IsNullOrWhiteSpace(h.Proxmox.Node)) ||
+                 list.Any(other => other.Id != h.Id && other.Proxmox != null && other.Proxmox.Vmid > 0 && string.Equals(other.Proxmox.Node, h.Hostname, StringComparison.OrdinalIgnoreCase)));
+
+            List<HostedVmSummaryDto>? hosted = null;
+            if (isHypervisor)
+            {
+                var hostedList = list.Where(vm => vm.Id != h.Id && vm.Proxmox != null && vm.Proxmox.Vmid > 0 && (
+                    string.Equals(vm.Proxmox.Node, h.Hostname, StringComparison.OrdinalIgnoreCase) ||
+                    (h.Proxmox != null && h.Proxmox.Vmid <= 0 && string.Equals(vm.Proxmox.Node, h.Proxmox.Node, StringComparison.OrdinalIgnoreCase))
+                )).Select(vm => new HostedVmSummaryDto(
+                    vm.Id,
+                    vm.Hostname,
+                    vm.FriendlyName,
+                    vm.Proxmox!.Vmid,
+                    vm.TargetType,
+                    _connectionManager?.IsOnline(vm.Id) ?? false
+                )).ToList();
+
+                if (hostedList.Count > 0) hosted = hostedList;
+            }
+
+            return MapToResponse(h, isOnline, hyp, hosted);
+        }).ToList();
     }
 
     public async Task<HostResponse?> GetHostByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -68,7 +111,43 @@ public class HostService
         var host = await _db.Hosts.AsNoTracking()
             .FirstOrDefaultAsync(h => h.Id == id, cancellationToken);
 
-        return host == null ? null : MapToResponse(host);
+        if (host == null) return null;
+
+        var isOnline = _connectionManager?.IsOnline(host.Id) ?? false;
+        HypervisorHostSummaryDto? hyp = null;
+        if (host.Proxmox != null && host.Proxmox.Vmid > 0 && !string.IsNullOrWhiteSpace(host.Proxmox.Node))
+        {
+            var parent = await _db.Hosts.AsNoTracking().FirstOrDefaultAsync(p => p.Id != host.Id && (p.Proxmox == null || p.Proxmox.Vmid <= 0) && (
+                (p.Proxmox != null && p.Proxmox.Node.ToLower() == host.Proxmox.Node.ToLower()) ||
+                p.Hostname.ToLower() == host.Proxmox.Node.ToLower()), cancellationToken);
+            if (parent != null)
+            {
+                hyp = new HypervisorHostSummaryDto(parent.Id, parent.Hostname, parent.FriendlyName, host.Proxmox.Node);
+            }
+        }
+
+        List<HostedVmSummaryDto>? hosted = null;
+        if (host.Proxmox == null || host.Proxmox.Vmid <= 0)
+        {
+            var hostedEntities = await _db.Hosts.AsNoTracking().Where(vm => vm.Id != host.Id && vm.Proxmox != null && vm.Proxmox.Vmid > 0 && (
+                vm.Proxmox.Node.ToLower() == host.Hostname.ToLower() ||
+                (host.Proxmox != null && host.Proxmox.Vmid <= 0 && vm.Proxmox.Node.ToLower() == host.Proxmox.Node.ToLower())
+            )).ToListAsync(cancellationToken);
+
+            if (hostedEntities.Count > 0)
+            {
+                hosted = hostedEntities.Select(vm => new HostedVmSummaryDto(
+                    vm.Id,
+                    vm.Hostname,
+                    vm.FriendlyName,
+                    vm.Proxmox!.Vmid,
+                    vm.TargetType,
+                    _connectionManager?.IsOnline(vm.Id) ?? false
+                )).ToList();
+            }
+        }
+
+        return MapToResponse(host, isOnline, hyp, hosted);
     }
 
     public async Task<(HostResponse? Host, IDictionary<string, string[]>? Errors, bool Conflict)> CreateHostAsync(
@@ -185,7 +264,7 @@ public class HostService
 
         _logger.LogInformation("Registered host '{Hostname}' ({Id}) with IP {IpAddress}", host.Hostname, host.Id, host.IpAddress);
 
-        return (MapToResponse(host), null, false);
+        return (MapToResponse(host, _connectionManager?.IsOnline(host.Id) ?? false), null, false);
     }
 
     public async Task<(HostResponse? Host, IDictionary<string, string[]>? Errors, bool Conflict, bool NotFound)> UpdateHostAsync(
@@ -338,7 +417,7 @@ public class HostService
 
         _logger.LogInformation("Updated host '{Hostname}' ({Id})", host.Hostname, host.Id);
 
-        return (MapToResponse(host), null, false, false);
+        return (MapToResponse(host, _connectionManager?.IsOnline(host.Id) ?? false), null, false, false);
     }
 
     public async Task<(bool Success, bool NotFound, string? ErrorMessage)> DeleteHostAsync(
@@ -378,7 +457,11 @@ public class HostService
         return (true, false, null);
     }
 
-    public static HostResponse MapToResponse(HostEntity host)
+    public static HostResponse MapToResponse(
+        HostEntity host,
+        bool isOnline = false,
+        HypervisorHostSummaryDto? hypervisor = null,
+        List<HostedVmSummaryDto>? hostedVms = null)
     {
         return new HostResponse(
             Id: host.Id,
@@ -396,10 +479,13 @@ public class HostService
                 Version: host.Agent.Version,
                 LastSeenAt: host.Agent.LastSeenAt,
                 PendingReboot: host.Agent.PendingReboot,
-                UpgradablePackagesCount: host.Agent.UpgradablePackagesCount
+                UpgradablePackagesCount: host.Agent.UpgradablePackagesCount,
+                IsOnline: isOnline
             ),
             CreatedAt: host.CreatedAt,
-            UpdatedAt: host.UpdatedAt
+            UpdatedAt: host.UpdatedAt,
+            Hypervisor: hypervisor,
+            HostedVms: hostedVms
         );
     }
 }

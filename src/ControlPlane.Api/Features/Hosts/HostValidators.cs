@@ -22,9 +22,12 @@ public static partial class HostValidators
     private static readonly HashSet<string> AllowedTargetTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "baremetal",
+        "proxmox_node",
         "proxmox_vm",
         "proxmox_lxc",
-        "kubernetes_node"
+        "hypervisor",
+        "kubernetes_node",
+        "k8s_node"
     };
 
     private static readonly Regex HostnameRegex = new(

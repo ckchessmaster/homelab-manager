@@ -21,6 +21,7 @@ export interface HostUpgradeWorkflowState {
   status: string
   activeStep?: string | null
   completedSteps: string[]
+  skippedSteps?: string[]
   awaitingApproval: boolean
   rebootApproved: boolean
   cancelled: boolean
@@ -154,4 +155,27 @@ export async function sendRollingUpgradeSignal(
       body: JSON.stringify({ reason }),
     }
   )
+}
+
+export interface RollingBatchSummary {
+  batchId: string
+  workflowId: string
+  status: string
+  totalHosts: number
+  completedHosts: number
+  failedHosts: number
+  activeHostname?: string | null
+  isPaused: boolean
+  hostIds: string[]
+  hostnames: string[]
+  initiatedBy: string
+  startedAt: string
+}
+
+export async function listRollingBatches(): Promise<RollingBatchSummary[]> {
+  return apiClient<RollingBatchSummary[]>('/api/v1/orchestration/temporal/batch')
+}
+
+export async function getActiveRollingBatch(): Promise<RollingBatchSummary | null> {
+  return apiClient<RollingBatchSummary | null>('/api/v1/orchestration/temporal/batch/active')
 }

@@ -92,7 +92,7 @@ public class MassAgentUpdateTests
                 Agent = new AgentState
                 {
                     Installed = true,
-                    Version = "1.1.0"
+                    Version = AgentBinaryService.CurrentAgentVersion
                 }
             };
 
@@ -120,7 +120,7 @@ public class MassAgentUpdateTests
         });
 
         Assert.NotNull(info);
-        Assert.Equal("1.1.0", info.ServerVersion);
+        Assert.Equal(AgentBinaryService.CurrentAgentVersion, info.ServerVersion);
         Assert.True(info.TotalInstalledAgents >= 2);
         Assert.True(info.OutdatedAgentsCount >= 1);
         Assert.Contains(info.OutdatedHosts, h => h.Hostname == "node-outdated-offline");

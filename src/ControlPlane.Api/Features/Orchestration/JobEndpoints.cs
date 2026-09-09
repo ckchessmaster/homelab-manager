@@ -18,6 +18,8 @@ public record PipelineProfileDto(
 
 public record CreateJobRequest(Guid TargetHostId, string? PipelineId = null);
 
+public record CancelJobRequest(string? Reason = null);
+
 public record JobSummaryDto(
     Guid Id,
     Guid TargetHostId,
@@ -142,6 +144,52 @@ public static class JobEndpoints
         })
         .WithName("GetJobById")
         .WithSummary("Retrieve details and status for a specific update job");
+
+        group.MapPost("/{id:guid}/cancel", async (
+            Guid id,
+            [FromBody] CancelJobRequest? request,
+            JobOrchestratorService orchestrator,
+            CancellationToken ct) =>
+        {
+            var success = await orchestrator.CancelJobAsync(id, request?.Reason, ct);
+            if (!success)
+            {
+                return Results.BadRequest(new { message = $"Job '{id}' cannot be cancelled (not found or already completed/failed)." });
+            }
+
+            return Results.Ok(new { success = true, jobId = id, message = "Job cancelled." });
+        })
+        .WithName("CancelJob")
+        .WithSummary("Cancel an active update job")
+        .RequireAuthorization(AuthConstants.RequireOperator);
+
+        group.MapDelete("/{id:guid}", async (
+            Guid id,
+            JobOrchestratorService orchestrator,
+            CancellationToken ct) =>
+        {
+            var success = await orchestrator.DeleteJobAsync(id, ct);
+            if (!success)
+            {
+                return Results.BadRequest(new { message = $"Job '{id}' cannot be deleted (running, or not found)." });
+            }
+
+            return Results.Ok(new { success = true, jobId = id, message = "Job deleted." });
+        })
+        .WithName("DeleteJob")
+        .WithSummary("Delete a finished update job and its console logs")
+        .RequireAuthorization(AuthConstants.RequireOperator);
+
+        group.MapPost("/purge", async (
+            JobOrchestratorService orchestrator,
+            CancellationToken ct) =>
+        {
+            var purgedCount = await orchestrator.PurgeFinishedJobsAsync(ct);
+            return Results.Ok(new { success = true, purgedCount, message = $"Successfully purged {purgedCount} finished workflow execution(s)." });
+        })
+        .WithName("PurgeFinishedJobs")
+        .WithSummary("Purge all completed, failed, and rolled-back update jobs and their logs")
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         return routes;
     }

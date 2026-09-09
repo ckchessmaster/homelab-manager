@@ -18,6 +18,11 @@ public interface IPipelineCatalog
     string GetRecommendedProfileId(string? targetType, string? osFamily);
 
     /// <summary>
+    /// Determines the recommended reboot pipeline profile for a given target host.
+    /// </summary>
+    string GetRecommendedRebootProfileId(string? targetType, string? osFamily = null, bool isKubernetesNode = false);
+
+    /// <summary>
     /// Constructs a DAG execution pipeline for the given profile ID.
     /// </summary>
     DagExecutionPipeline BuildPipeline(string pipelineId, IServiceProvider serviceProvider);

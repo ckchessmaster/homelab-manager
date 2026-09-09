@@ -59,22 +59,38 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
         var preflightOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(2) };
         var snapshotOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(10) };
         var k8sOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(5) };
-        var drainOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(5) };
+        var drainOptions = new ActivityOptions
+        {
+            StartToCloseTimeout = TimeSpan.FromMinutes(5),
+            RetryPolicy = new() { MaximumAttempts = 1 }
+        };
         var upgradeOptions = new ActivityOptions
         {
             StartToCloseTimeout = TimeSpan.FromMinutes(30),
-            HeartbeatTimeout = TimeSpan.FromSeconds(60)
+            HeartbeatTimeout = TimeSpan.FromMinutes(2),
+            RetryPolicy = new() { MaximumAttempts = 1 }
         };
         var rebootOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(2) };
         var reconnectOptions = new ActivityOptions
         {
             StartToCloseTimeout = TimeSpan.FromMinutes(10),
-            HeartbeatTimeout = TimeSpan.FromSeconds(30)
+            HeartbeatTimeout = TimeSpan.FromMinutes(2),
+            RetryPolicy = new() { MaximumAttempts = 1 }
         };
         var healthOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(5) };
 
         var compensations = new List<Func<Task>>();
         bool isK8sCordoned = false;
+
+        void EnsureNotCancelled()
+        {
+            if (_cancelled || Workflow.CancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(
+                    $"Workflow cancelled by operator: {_cancelReason ?? "Operator requested cancellation"}"
+                );
+            }
+        }
 
         try
         {
@@ -86,6 +102,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 (IUpdateJobActivities a) => a.UpdateJobStatusAsync(new UpdateJobStatusInput(input.JobId, "Running", _state.ActiveStep)),
                 defaultOptions
             );
+
+            EnsureNotCancelled();
 
             // Step 1: Preflight Heartbeat
             _state.ActiveStep = "Preflight: Heartbeat Freshness";
@@ -99,6 +117,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
             }
             _state.CompletedSteps.Add(_state.ActiveStep);
 
+            EnsureNotCancelled();
+
             // Step 2: Preflight Disk Headroom
             _state.ActiveStep = "Preflight: Disk Headroom";
             var diskResult = await Workflow.ExecuteActivityAsync(
@@ -111,6 +131,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
             }
             _state.CompletedSteps.Add(_state.ActiveStep);
 
+            EnsureNotCancelled();
+
             // Step 3: Preflight Package Lock Check
             _state.ActiveStep = "Preflight: Package Lock Check";
             var lockResult = await Workflow.ExecuteActivityAsync(
@@ -122,6 +144,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 throw new ApplicationFailureException(lockResult.Message, nonRetryable: true);
             }
             _state.CompletedSteps.Add(_state.ActiveStep);
+
+            EnsureNotCancelled();
 
             // Step 4: Proxmox Safety Snapshot
             _state.ActiveStep = "Hypervisor Safety Snapshot";
@@ -150,6 +174,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 });
             }
             _state.CompletedSteps.Add(_state.ActiveStep);
+
+            EnsureNotCancelled();
 
             // Step 5: Kubernetes Cordon
             _state.ActiveStep = "Kubernetes Node Cordon";
@@ -182,6 +208,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                     }
                 });
 
+                EnsureNotCancelled();
+
                 // Step 6: Kubernetes Drain
                 _state.ActiveStep = "Kubernetes Workload Eviction";
                 await Workflow.ExecuteActivityAsync(
@@ -199,6 +227,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 _state.CompletedSteps.Add(_state.ActiveStep);
             }
             _state.CompletedSteps.Add("Kubernetes Node Cordon");
+
+            EnsureNotCancelled();
 
             // Step 7: Package Upgrade Execution
             _state.ActiveStep = "Package Upgrade Execution";
@@ -227,19 +257,18 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 );
 
                 var timeout = input.ApprovalTimeout ?? TimeSpan.FromHours(4);
-                var signaled = await Workflow.WaitConditionAsync(() => _rebootApproved || _cancelled, timeout);
+                var signaled = await Workflow.WaitConditionAsync(() => _rebootApproved || _cancelled || Workflow.CancellationToken.IsCancellationRequested, timeout);
 
                 _state.AwaitingApproval = false;
-                if (_cancelled)
-                {
-                    throw new ApplicationFailureException($"Workflow cancelled by operator: {_cancelReason ?? "No reason given"}", nonRetryable: true);
-                }
+                EnsureNotCancelled();
                 if (!signaled || !_rebootApproved)
                 {
                     throw new ApplicationFailureException($"Operator reboot approval timed out after {timeout.TotalHours} hours", nonRetryable: true);
                 }
                 _state.CompletedSteps.Add(_state.ActiveStep);
             }
+
+            EnsureNotCancelled();
 
             // Step 9: Reboot Initiation
             _state.ActiveStep = "Deterministic Host Reboot";
@@ -255,11 +284,19 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
             {
                 throw new ApplicationFailureException(rebootResult.Message, nonRetryable: true);
             }
-            _state.CompletedSteps.Add(_state.ActiveStep);
 
             // Step 10: Await Reconnection (if reboot performed)
-            if (!rebootResult.Skipped)
+            if (rebootResult.Skipped)
             {
+                _state.SkippedSteps.Add("Deterministic Host Reboot");
+                _state.SkippedSteps.Add("Await Agent Reconnection");
+            }
+            else
+            {
+                _state.CompletedSteps.Add(_state.ActiveStep);
+
+                EnsureNotCancelled();
+
                 _state.ActiveStep = "Await Agent Reconnection";
                 await Workflow.ExecuteActivityAsync(
                     (IUpdateJobActivities a) => a.UpdateJobStatusAsync(new UpdateJobStatusInput(input.JobId, "AwaitingReconnect", _state.ActiveStep)),
@@ -275,6 +312,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 }
                 _state.CompletedSteps.Add(_state.ActiveStep);
             }
+
+            EnsureNotCancelled();
 
             // Step 11: Post-Flight Health Probes
             _state.ActiveStep = "Post-Flight Health Probes";
@@ -295,6 +334,8 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
             // Step 12: Kubernetes Uncordon (if cordoned earlier)
             if (isK8sCordoned && _state.K8sNodeName != null)
             {
+                EnsureNotCancelled();
+
                 _state.ActiveStep = "Kubernetes Node Uncordon";
                 await Workflow.ExecuteActivityAsync(
                     (IUpdateJobActivities a) => a.UpdateJobStatusAsync(new UpdateJobStatusInput(input.JobId, "Verifying", _state.ActiveStep)),
@@ -345,21 +386,36 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 }
             }
 
-            var finalStatus = hadRollback && !string.IsNullOrWhiteSpace(_state.SnapshotIdentifier) ? "RolledBack" : "Failed";
+            var isCancelled = ex is OperationCanceledException || _cancelled || Workflow.CancellationToken.IsCancellationRequested;
+
+            var finalStatus = hadRollback && !string.IsNullOrWhiteSpace(_state.SnapshotIdentifier)
+                ? "RolledBack"
+                : (isCancelled ? "Cancelled" : "Failed");
             _state.Status = finalStatus;
 
-            await Workflow.ExecuteActivityAsync(
-                (IUpdateJobActivities a) => a.RecordJobCompletionAsync(new RecordJobCompletionInput(input.JobId, finalStatus, failureMsg)),
-                defaultOptions
-            );
+            try
+            {
+                await Workflow.ExecuteActivityAsync(
+                    (IUpdateJobActivities a) => a.RecordJobCompletionAsync(new RecordJobCompletionInput(input.JobId, finalStatus, failureMsg)),
+                    new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(2), CancellationType = ActivityCancellationType.Abandon }
+                );
+            }
+            catch (Exception recordEx)
+            {
+                Workflow.Logger.LogError(recordEx, "Failed to record job completion during error handling");
+            }
 
-            return new HostUpgradeWorkflowResult(
-                Success: false,
-                Status: finalStatus,
-                CompletedSteps: _state.CompletedSteps,
-                SnapshotIdentifier: _state.SnapshotIdentifier,
-                ErrorMessage: failureMsg
-            );
+            if (isCancelled)
+            {
+                throw new OperationCanceledException($"Workflow cancelled by operator: {_cancelReason ?? failureMsg}");
+            }
+
+            if (ex is ApplicationFailureException)
+            {
+                throw;
+            }
+
+            throw new ApplicationFailureException(failureMsg, nonRetryable: true);
         }
     }
 }

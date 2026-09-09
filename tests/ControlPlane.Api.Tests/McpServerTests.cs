@@ -233,6 +233,35 @@ public class McpServerTests
         Assert.Contains("Unknown adapter type", root.GetProperty("error").GetString());
     }
 
+    [Fact]
+    public async Task RebootHost_WhenAgentOffline_ReturnsError()
+    {
+        var (db, conn, sp) = CreateTestServiceProvider();
+        using var _ = conn;
+        using var __ = db;
+
+        var hostId = Guid.NewGuid();
+        db.Hosts.Add(new HostEntity
+        {
+            Id = hostId,
+            Hostname = "mcp-offline-host",
+            IpAddress = "192.168.1.50",
+            OsFamily = "linux_debian",
+            TargetType = "baremetal"
+        });
+        await db.SaveChangesAsync();
+
+        using var scope = sp.CreateScope();
+        var tools = scope.ServiceProvider.GetRequiredService<ControlPlaneMcpTools>();
+        var result = await tools.RebootHost(hostId);
+        var json = JsonSerializer.Serialize(result);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.False(root.GetProperty("success").GetBoolean());
+        Assert.Contains("offline", root.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
 
     private class FakeProxmoxClient : Features.Adapters.Proxmox.IProxmoxClient
     {
@@ -254,7 +283,7 @@ public class McpServerTests
         public Task<List<Features.Adapters.Kubernetes.K8sDiscoveredNodeDto>> ListNodesAsync(CancellationToken ct = default) => Task.FromResult(new List<Features.Adapters.Kubernetes.K8sDiscoveredNodeDto>());
         public Task<bool> CordonNodeAsync(string nodeName, CancellationToken ct = default) => Task.FromResult(true);
         public Task<bool> UncordonNodeAsync(string nodeName, CancellationToken ct = default) => Task.FromResult(true);
-        public Task<Features.Adapters.Kubernetes.K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default) => Task.FromResult(new Features.Adapters.Kubernetes.K8sDrainResult(nodeName, true, 0, 0, null));
+        public Task<Features.Adapters.Kubernetes.K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default, Func<string, Task>? onProgress = null) => Task.FromResult(new Features.Adapters.Kubernetes.K8sDrainResult(nodeName, true, 0, 0, null));
         public Task<Features.Adapters.Kubernetes.K8sNodeStatus?> GetNodeStatusAsync(string nodeName, CancellationToken ct = default) => Task.FromResult<Features.Adapters.Kubernetes.K8sNodeStatus?>(null);
     }
 }

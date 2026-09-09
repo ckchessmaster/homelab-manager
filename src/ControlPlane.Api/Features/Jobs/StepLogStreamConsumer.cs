@@ -62,19 +62,23 @@ public class StepLogStreamConsumer : IStepLogConsumer
 
             db.StepLogs.Add(stepLog);
 
-            // Update job status if terminal state indicated
-            if (frame.StreamType == "system" && frame.LogLine.Contains("completed successfully", StringComparison.OrdinalIgnoreCase))
+            // Only update job status if standalone ad-hoc command execution (not managed by DAG or Temporal orchestrator)
+            var isAdhocCommand = job.PipelineId is "adhoc-command" or "command" || job.ActiveStep == "Command Execution";
+            if (isAdhocCommand)
             {
-                job.Status = "Completed";
-                job.CompletedAt = DateTimeOffset.UtcNow;
-                _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Completed", null);
-            }
-            else if (frame.StreamType == "system" && frame.LogLine.Contains("exited with code", StringComparison.OrdinalIgnoreCase) && !frame.LogLine.Contains("code 0", StringComparison.OrdinalIgnoreCase))
-            {
-                job.Status = "Failed";
-                job.FailureReason = frame.LogLine;
-                job.CompletedAt = DateTimeOffset.UtcNow;
-                _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Failed", null);
+                if (frame.StreamType == "system" && frame.LogLine.Contains("completed successfully", StringComparison.OrdinalIgnoreCase))
+                {
+                    job.Status = "Completed";
+                    job.CompletedAt = DateTimeOffset.UtcNow;
+                    _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Completed", null);
+                }
+                else if (frame.StreamType == "system" && frame.LogLine.Contains("exited with code", StringComparison.OrdinalIgnoreCase) && !frame.LogLine.Contains("code 0", StringComparison.OrdinalIgnoreCase))
+                {
+                    job.Status = "Failed";
+                    job.FailureReason = frame.LogLine;
+                    job.CompletedAt = DateTimeOffset.UtcNow;
+                    _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Failed", null);
+                }
             }
 
             await db.SaveChangesAsync(cancellationToken);

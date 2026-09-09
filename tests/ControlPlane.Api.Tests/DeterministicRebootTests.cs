@@ -169,6 +169,68 @@ public class DeterministicRebootTests
 
     [Fact]
     [Trait("Category", "RebootIntegration")]
+    public async Task DeterministicRebootStep_LiveProbe_DetectsNeedrestartFlag()
+    {
+        using var factory = new RebootAppFactory();
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+        var connMgr = scope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+        var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "needrestart-node",
+            IpAddress = "192.168.1.139",
+            OsFamily = "linux_debian",
+            TargetType = "baremetal",
+            Agent = new AgentState { Installed = true, PendingReboot = false, LastSeenAt = DateTimeOffset.UtcNow }
+        };
+        var job = new UpdateJob { Id = jobId, TargetHostId = hostId, Status = UpdateJobState.Running };
+        db.Hosts.Add(host);
+        db.UpdateJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        // Connect online agent websocket
+        var wsClient = factory.Server.CreateWebSocketClient();
+        var ws = await wsClient.ConnectAsync(
+            new Uri(factory.Server.BaseAddress, $"/agent-hub?token=dev-secret-key-123&hostId={hostId}"),
+            CancellationToken.None
+        );
+
+        string? executedProbe = null;
+        var mockExecutor = new MockCommandExecutor
+        {
+            OnExecute = (hId, jId, cmd, args) =>
+            {
+                executedProbe = args.Length > 1 ? args[1] : null;
+                // Return success (probe detected needrestart or reboot-required)
+                return new AgentCommandResult(true, 0, null);
+            }
+        };
+
+        var context = new JobExecutionContext(
+            job, host, scopeFactory, hubContext, mockExecutor, connMgr, NullLogger.Instance
+        );
+
+        var step = new DeterministicRebootStep(alwaysReboot: false);
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+
+        Assert.NotNull(executedProbe);
+        Assert.Contains("needrestart", executedProbe);
+        Assert.Contains("NEEDRESTART-KSTA: [23]", executedProbe);
+        Assert.True(result.Success);
+        Assert.Equal(UpdateJobState.AwaitingReconnect, result.TargetState);
+    }
+
+    [Fact]
+    [Trait("Category", "RebootIntegration")]
     public async Task DeterministicRebootStep_Fails_WhenAgentIsOffline()
     {
         using var factory = new RebootAppFactory();
@@ -338,7 +400,8 @@ public class DeterministicRebootTests
         var step = new AwaitReconnectionStep(TimeSpan.FromSeconds(5));
 
         // Background task reconnecting after 100ms with updated kernel
-        _ = Task.Run(async () =>
+        using var wsCts = new CancellationTokenSource();
+        var reconnectTask = Task.Run(async () =>
         {
             await Task.Delay(100);
             var wsClient = factory.Server.CreateWebSocketClient();
@@ -347,6 +410,9 @@ public class DeterministicRebootTests
                 CancellationToken.None
             );
 
+            // Wait for Register to complete on server
+            await Task.Delay(200);
+
             // Send heartbeat with updated kernel
             connMgr.UpdateHeartbeat(hostId, new AgentHeartbeatMessage
             {
@@ -354,9 +420,14 @@ public class DeterministicRebootTests
                 KernelVersion = "6.1.0-25-amd64",
                 PendingReboot = false
             });
+
+            try { await Task.Delay(Timeout.Infinite, wsCts.Token); } catch (OperationCanceledException) { }
+            try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); } catch { }
         });
 
         var result = await step.ExecuteAsync(context, CancellationToken.None);
+        wsCts.Cancel();
+        try { await reconnectTask; } catch { }
 
         Assert.True(result.Success);
         Assert.Equal(UpdateJobState.Verifying, result.TargetState);

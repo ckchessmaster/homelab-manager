@@ -5,6 +5,7 @@ using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Temporalio.Client;
 
 namespace ControlPlane.Api.Features.Orchestration;
 
@@ -15,6 +16,7 @@ public class JobOrchestratorService
     private readonly IAgentCommandExecutor _commandExecutor;
     private readonly AgentConnectionManager _connectionManager;
     private readonly IPipelineCatalog _pipelineCatalog;
+    private readonly ITemporalClient? _temporalClient;
     private readonly ILogger<JobOrchestratorService> _logger;
 
     public JobOrchestratorService(
@@ -23,7 +25,8 @@ public class JobOrchestratorService
         IAgentCommandExecutor commandExecutor,
         AgentConnectionManager connectionManager,
         IPipelineCatalog pipelineCatalog,
-        ILogger<JobOrchestratorService> logger)
+        ILogger<JobOrchestratorService> logger,
+        ITemporalClient? temporalClient = null)
     {
         _scopeFactory = scopeFactory;
         _hubContext = hubContext;
@@ -31,6 +34,7 @@ public class JobOrchestratorService
         _connectionManager = connectionManager;
         _pipelineCatalog = pipelineCatalog;
         _logger = logger;
+        _temporalClient = temporalClient;
     }
 
     public async Task<(UpdateJob? Job, string? Error)> CreateAndStartJobAsync(
@@ -56,6 +60,13 @@ public class JobOrchestratorService
         if (profile == null)
         {
             return (null, $"Pipeline profile '{effectivePipelineId}' not found.");
+        }
+
+        var activeStatuses = new[] { UpdateJobState.Pending, UpdateJobState.Running, UpdateJobState.Verifying, UpdateJobState.AwaitingReconnect, "AwaitingApproval" };
+        var hasActiveJob = await db.UpdateJobs.AnyAsync(j => j.TargetHostId == host.Id && activeStatuses.Contains(j.Status), ct);
+        if (hasActiveJob)
+        {
+            return (null, $"Host '{host.Hostname}' already has an active update job in progress.");
         }
 
         var job = new UpdateJob
@@ -127,6 +138,103 @@ public class JobOrchestratorService
     {
         using var scope = _scopeFactory.CreateScope();
         return _pipelineCatalog.BuildPipeline("standard-os-upgrade", scope.ServiceProvider);
+    }
+
+    public async Task<bool> CancelJobAsync(Guid jobId, string? reason = null, CancellationToken ct = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+
+        var job = await db.UpdateJobs.FirstOrDefaultAsync(j => j.Id == jobId, ct);
+        if (job == null) return false;
+
+        if (job.Status == UpdateJobState.Completed || job.Status == UpdateJobState.Failed || job.Status == UpdateJobState.RolledBack || job.Status == UpdateJobState.Cancelled)
+        {
+            return false;
+        }
+
+        job.Status = UpdateJobState.Cancelled;
+        job.FailureReason = reason ?? "Cancelled by operator";
+        job.CompletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        if (_temporalClient != null)
+        {
+            try
+            {
+                var handle = _temporalClient.GetWorkflowHandle($"host-upgrade-{jobId}");
+                await handle.CancelAsync();
+            }
+            catch
+            {
+                // Workflow may not exist or may have already terminated
+            }
+            try
+            {
+                var handle = _temporalClient.GetWorkflowHandle($"rolling-upgrade-{jobId}");
+                await handle.CancelAsync();
+            }
+            catch
+            {
+                // Workflow may not exist or may have already terminated
+            }
+        }
+
+        await _hubContext.Clients.Group(job.Id.ToString()).JobStatusChanged(job.Id, UpdateJobState.Cancelled, job.FailureReason);
+        return true;
+    }
+
+    public async Task<bool> DeleteJobAsync(Guid jobId, CancellationToken ct = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+
+        var job = await db.UpdateJobs.FirstOrDefaultAsync(j => j.Id == jobId, ct);
+        if (job == null) return false;
+
+        // Prevent deleting active running jobs
+        if (job.Status == UpdateJobState.Running || job.Status == UpdateJobState.Verifying)
+        {
+            return false;
+        }
+
+        var logs = await db.StepLogs.Where(l => l.JobId == jobId).ToListAsync(ct);
+        if (logs.Count > 0)
+        {
+            db.StepLogs.RemoveRange(logs);
+        }
+
+        db.UpdateJobs.Remove(job);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<int> PurgeFinishedJobsAsync(CancellationToken ct = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+
+        var finishedStatuses = new[] { UpdateJobState.Completed, UpdateJobState.Failed, UpdateJobState.RolledBack, UpdateJobState.Cancelled };
+
+        var finishedJobs = await db.UpdateJobs
+            .Where(j => finishedStatuses.Contains(j.Status))
+            .ToListAsync(ct);
+
+        if (finishedJobs.Count == 0) return 0;
+
+        var jobIds = finishedJobs.Select(j => j.Id).ToList();
+        var logs = await db.StepLogs
+            .Where(l => jobIds.Contains(l.JobId))
+            .ToListAsync(ct);
+
+        if (logs.Count > 0)
+        {
+            db.StepLogs.RemoveRange(logs);
+        }
+
+        db.UpdateJobs.RemoveRange(finishedJobs);
+        await db.SaveChangesAsync(ct);
+        return finishedJobs.Count;
     }
 
     public async Task<UpdateJob?> GetJobByIdAsync(Guid id, CancellationToken ct = default)

@@ -28,6 +28,12 @@ public class CompositeAuthenticationHandler : AuthenticationHandler<Authenticati
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        // 0. Skip on /agent-hub (handled directly by AgentHubMiddleware)
+        if (Request.Path.StartsWithSegments("/agent-hub"))
+        {
+            return AuthenticateResult.NoResult();
+        }
+
         // 1. Check for development bypass mode
         var bypassAuth = _configuration.GetValue<bool>("AUTH_BYPASS", false);
         if (bypassAuth)

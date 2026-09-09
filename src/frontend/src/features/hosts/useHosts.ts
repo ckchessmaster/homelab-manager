@@ -4,8 +4,11 @@ import {
   deleteHost,
   fetchHostById,
   fetchHosts,
+  fetchHostCorrelation,
+  fetchHostRebootImpact,
   probeProxmox,
   rebootHost,
+  syncHostCorrelations,
   updateHost,
   type CreateHostPayload,
   type HostFilterParams,
@@ -28,6 +31,22 @@ export function useHost(id?: string) {
   return useQuery({
     queryKey: [...HOSTS_QUERY_KEY, id],
     queryFn: () => (id ? fetchHostById(id) : Promise.reject('No ID provided')),
+    enabled: Boolean(id),
+  })
+}
+
+export function useHostRebootImpact(id?: string) {
+  return useQuery({
+    queryKey: ['host-reboot-impact', id],
+    queryFn: () => (id ? fetchHostRebootImpact(id) : Promise.reject('No ID provided')),
+    enabled: Boolean(id),
+  })
+}
+
+export function useHostCorrelation(id?: string) {
+  return useQuery({
+    queryKey: ['host-correlation', id],
+    queryFn: () => (id ? fetchHostCorrelation(id) : Promise.reject('No ID provided')),
     enabled: Boolean(id),
   })
 }
@@ -66,7 +85,12 @@ export function useDeleteHost() {
 export function useRebootHost() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (hostId: string) => rebootHost(hostId),
+    mutationFn: (param: string | { hostId: string; pipelineId?: string; force?: boolean }) => {
+      if (typeof param === 'string') {
+        return rebootHost(param)
+      }
+      return rebootHost(param.hostId, param.pipelineId, param.force ?? false)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       queryClient.invalidateQueries({ queryKey: JOBS_QUERY_KEY })
@@ -77,5 +101,16 @@ export function useRebootHost() {
 export function useProxmoxProbe() {
   return useMutation({
     mutationFn: (payload: ProxmoxProbePayload) => probeProxmox(payload),
+  })
+}
+
+export function useSyncHostCorrelations() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => syncHostCorrelations(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['discovery'] })
+    },
   })
 }

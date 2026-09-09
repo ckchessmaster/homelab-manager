@@ -11,6 +11,7 @@ public class MassAgentUpdateService
     private readonly ControlPlaneDbContext _db;
     private readonly AgentConnectionManager _connectionManager;
     private readonly AgentBinaryService _binaryService;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<MassAgentUpdateService> _logger;
 
     private static readonly ConcurrentDictionary<Guid, MassUpdateBatchResult> ActiveBatches = new();
@@ -19,11 +20,13 @@ public class MassAgentUpdateService
         ControlPlaneDbContext db,
         AgentConnectionManager connectionManager,
         AgentBinaryService binaryService,
+        IConfiguration configuration,
         ILogger<MassAgentUpdateService> logger)
     {
         _db = db;
         _connectionManager = connectionManager;
         _binaryService = binaryService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -112,7 +115,18 @@ public class MassAgentUpdateService
                 ? "linux-arm64"
                 : "linux-amd64";
 
-            var downloadUrl = $"{serverBaseUrl.TrimEnd('/')}/api/v1/agents/binaries/{arch}";
+            var session = _connectionManager.GetSession(host.Id);
+            string effectiveBaseUrl;
+            if (!string.IsNullOrWhiteSpace(session?.InboundHost))
+            {
+                var scheme = !string.IsNullOrWhiteSpace(session.InboundScheme) ? session.InboundScheme : "http";
+                effectiveBaseUrl = $"{scheme}://{session.InboundHost}";
+            }
+            else
+            {
+                effectiveBaseUrl = ResolveLanAddress(serverBaseUrl, _configuration);
+            }
+            var downloadUrl = $"{effectiveBaseUrl.TrimEnd('/')}/api/v1/agents/binaries/{arch}";
             var jobId = Guid.NewGuid();
 
             var envelope = new AgentCommandEnvelope
@@ -120,7 +134,9 @@ public class MassAgentUpdateService
                 Type = "CMD_SELF_UPDATE",
                 JobId = jobId,
                 Command = downloadUrl,
-                Args = new[] { targetVersion }
+                Args = new[] { targetVersion },
+                DownloadUrl = downloadUrl,
+                TargetVersion = targetVersion
             };
 
             var sent = await _connectionManager.SendCommandAsync(host.Id, envelope, ct);
@@ -165,6 +181,37 @@ public class MassAgentUpdateService
     {
         ActiveBatches.TryGetValue(batchId, out var result);
         return result;
+    }
+
+    public static string ResolveLanAddress(string defaultUrl, IConfiguration? config = null)
+    {
+        var hubUrl = config?["ControlPlane:HubUrl"];
+        if (!string.IsNullOrWhiteSpace(hubUrl) && Uri.TryCreate(hubUrl, UriKind.Absolute, out var hubUri))
+        {
+            var scheme = hubUri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase) ? "https" : "http";
+            return $"{scheme}://{hubUri.Authority}";
+        }
+
+        if (!defaultUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase) && !defaultUrl.Contains("127.0.0.1"))
+        {
+            return defaultUrl;
+        }
+
+        try
+        {
+            using var socket = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Dgram, 0);
+            socket.Connect("8.8.8.8", 65530);
+            if (socket.LocalEndPoint is System.Net.IPEndPoint endPoint)
+            {
+                var uri = new Uri(defaultUrl);
+                return $"{uri.Scheme}://{endPoint.Address}:{uri.Port}";
+            }
+        }
+        catch
+        {
+            // fallback
+        }
+        return defaultUrl;
     }
 }
 

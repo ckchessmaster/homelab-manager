@@ -38,6 +38,7 @@ public class ControlPlaneMcpTools
     private readonly IIdracClientFactory? _idracClientFactory;
     private readonly IKubernetesClientFactory? _kubernetesClientFactory;
     private readonly IProxmoxClientFactory? _proxmoxClientFactory;
+    private readonly IHostCorrelationService? _hostCorrelationService;
 
     public ControlPlaneMcpTools(
         ControlPlaneDbContext db,
@@ -52,7 +53,8 @@ public class ControlPlaneMcpTools
         IOPNsenseClientFactory? opnsenseClientFactory = null,
         IIdracClientFactory? idracClientFactory = null,
         IKubernetesClientFactory? kubernetesClientFactory = null,
-        IProxmoxClientFactory? proxmoxClientFactory = null)
+        IProxmoxClientFactory? proxmoxClientFactory = null,
+        IHostCorrelationService? hostCorrelationService = null)
     {
         _db = db;
         _hostService = hostService;
@@ -67,6 +69,7 @@ public class ControlPlaneMcpTools
         _idracClientFactory = idracClientFactory;
         _kubernetesClientFactory = kubernetesClientFactory;
         _proxmoxClientFactory = proxmoxClientFactory;
+        _hostCorrelationService = hostCorrelationService;
     }
 
     [McpServerTool]
@@ -365,6 +368,64 @@ public class ControlPlaneMcpTools
             status = job.Status,
             targetHostname = host.Hostname,
             targetIp = host.IpAddress
+        };
+    }
+
+    [McpServerTool]
+    [Description("Trigger a safe orchestrated reboot DAG pipeline on a target host (verifies heartbeat freshness, evaluates hypervisor/Kubernetes impact warnings, handles Kubernetes cordon/drain if applicable, executes deterministic reboot, monitors reconnection, and verifies post-boot health).")]
+    public async Task<object> RebootHost(
+        [Description("The GUID of the target host to reboot.")] Guid hostId,
+        [Description("Optional pipeline ID (e.g. 'safe-reboot-verify', 'k8s-node-safe-reboot'). If omitted, catalog picks matching reboot pipeline.")] string? pipelineId = null,
+        [Description("Force reboot even if hypervisor has running VMs or Kubernetes quorum is at risk (default false).")] bool force = false,
+        [Description("Identifier of operator/agent initiating the job (default 'AI Agent via MCP').")] string initiatedBy = "AI Agent via MCP",
+        CancellationToken ct = default)
+    {
+        var host = await _db.Hosts.FindAsync(new object[] { hostId }, ct);
+        if (host == null)
+        {
+            return new { success = false, error = $"Host {hostId} not found." };
+        }
+
+        if (!_connectionManager.IsOnline(host.Id))
+        {
+            return new { success = false, error = $"Agent for host '{host.Hostname}' is currently offline. Cannot initiate reboot." };
+        }
+
+        if (_hostCorrelationService != null)
+        {
+            var impact = await _hostCorrelationService.GetRebootImpactAsync(host.Id, ct);
+            if (impact.RequiresConfirmation && !force)
+            {
+                return new
+                {
+                    success = false,
+                    requiresConfirmation = true,
+                    error = $"Reboot confirmation required: {string.Join(" ", impact.WarningMessages)}",
+                    impact
+                };
+            }
+        }
+
+        var isK8s = host.Kubernetes != null || string.Equals(host.TargetType, "k8s_node", StringComparison.OrdinalIgnoreCase);
+        var effectivePipelineId = !string.IsNullOrWhiteSpace(pipelineId)
+            ? pipelineId
+            : _pipelineCatalog.GetRecommendedRebootProfileId(host.TargetType, host.OsFamily, isK8s);
+
+        var (job, error) = await _jobOrchestrator.CreateAndStartJobAsync(hostId, effectivePipelineId, initiatedBy, ct);
+        if (job == null)
+        {
+            return new { success = false, error = error ?? "Failed to create and start reboot job." };
+        }
+
+        return new
+        {
+            success = true,
+            jobId = job.Id,
+            pipelineId = job.PipelineId,
+            status = job.Status,
+            targetHostname = host.Hostname,
+            targetIp = host.IpAddress,
+            message = $"Safe reboot DAG pipeline '{job.PipelineId}' initiated for {host.Hostname}"
         };
     }
 
@@ -680,6 +741,70 @@ public class ControlPlaneMcpTools
 
         var result = await client.ResetSystemAsync(bmcUrl, username, password, resetType, allowSelfSigned, ct);
         return new { success = result.Success, bmcUrl, resetType, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Evaluate the impact of rebooting a host, including affected running VMs on a Proxmox hypervisor and Kubernetes cluster quorum/health risks.")]
+    public async Task<object> GetHostRebootImpact(
+        [Description("The GUID of the host to evaluate.")] Guid hostId,
+        CancellationToken ct = default)
+    {
+        if (_hostCorrelationService == null)
+        {
+            return new { error = "Host correlation service is not available." };
+        }
+
+        try
+        {
+            var impact = await _hostCorrelationService.GetRebootImpactAsync(hostId, ct);
+            return impact;
+        }
+        catch (KeyNotFoundException)
+        {
+            return new { error = $"Host with ID '{hostId}' was not found." };
+        }
+        catch (Exception ex)
+        {
+            return new { error = ex.Message };
+        }
+    }
+
+    [McpServerTool]
+    [Description("Get hypervisor, hosted VMs, and Kubernetes correlation details for a managed host.")]
+    public async Task<object> GetHostCorrelation(
+        [Description("The GUID of the host to inspect.")] Guid hostId,
+        CancellationToken ct = default)
+    {
+        if (_hostCorrelationService == null)
+        {
+            return new { error = "Host correlation service is not available." };
+        }
+
+        try
+        {
+            var correlation = await _hostCorrelationService.GetHostCorrelationAsync(hostId, ct);
+            return correlation;
+        }
+        catch (KeyNotFoundException)
+        {
+            return new { error = $"Host with ID '{hostId}' was not found." };
+        }
+        catch (Exception ex)
+        {
+            return new { error = ex.Message };
+        }
+    }
+
+    [McpServerTool]
+    [Description("Synchronize Proxmox hypervisor and Kubernetes cluster correlations across inventory hosts and persist them to the database.")]
+    public async Task<object> SyncHostCorrelations(CancellationToken ct = default)
+    {
+        if (_hostCorrelationService == null)
+        {
+            return new { error = "Host correlation service is not available." };
+        }
+
+        return await _hostCorrelationService.SyncHostCorrelationsAsync(ct);
     }
 }
 

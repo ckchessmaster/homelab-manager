@@ -51,9 +51,10 @@ export function OsBadge({ osFamily }: { osFamily: string }) {
   return <Badge variant="outline" className="font-mono text-[11px]">{osFamily}</Badge>
 }
 
-function checkIsOnline(lastSeenAt?: string | null): boolean {
-  if (!lastSeenAt) return false
-  return Date.now() - new Date(lastSeenAt).getTime() < 5 * 60 * 1000
+function checkIsOnline(agent: AgentState): boolean {
+  if (agent.isOnline !== undefined) return agent.isOnline
+  if (!agent.lastSeenAt) return false
+  return Date.now() - new Date(agent.lastSeenAt).getTime() < 60 * 1000
 }
 
 export function AgentStatusBadge({
@@ -71,7 +72,7 @@ export function AgentStatusBadge({
     )
   }
 
-  const isOnline = checkIsOnline(agent.lastSeenAt)
+  const isOnline = checkIsOnline(agent)
   const isOutdated = Boolean(
     targetVersion &&
     agent.version &&

@@ -72,62 +72,93 @@ public class PreflightActivities : IPreflightActivities
     [Activity]
     public async Task<PreflightCheckResult> CheckDiskHeadroomAsync(PreflightDiskHeadroomInput input)
     {
-        double diskFreePct = -1;
+        // 1. Check actual storage requirements directly on the node if online
+        if (_connectionManager.IsOnline(input.HostId))
+        {
+            var probeScript =
+                "avail_mb=$(df -B1M --output=avail / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
+                "total_mb=$(df -B1M --output=size / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
+                "used_pct=$(df --output=pcent / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
+                "free_pct=$((100 - used_pct)); " +
+                "req_mb=1024; " +
+                "if command -v apt-get >/dev/null 2>&1; then " +
+                "  sim=$(apt-get -s dist-upgrade 2>/dev/null); " +
+                "  dl_kb=$(echo \"$sim\" | awk '/Need to get/ { val = $4; gsub(/,/, \"\", val); unit = tolower($5); if (unit ~ /^g/) val = val * 1048576; else if (unit ~ /^m/) val = val * 1024; else if (unit ~ /^b/) val = val / 1024; print int(val); }'); " +
+                "  inst_kb=$(echo \"$sim\" | awk '/additional disk space will be used/ { val = $4; gsub(/,/, \"\", val); unit = tolower($5); if (unit ~ /^g/) val = val * 1048576; else if (unit ~ /^m/) val = val * 1024; else if (unit ~ /^b/) val = val / 1024; print int(val); }'); " +
+                "  dl_kb=${dl_kb:-0}; " +
+                "  inst_kb=${inst_kb:-0}; " +
+                "  tot_kb=$((dl_kb + inst_kb)); " +
+                "  if [ \"$tot_kb\" -gt 0 ]; then " +
+                "    req_kb=$(( (tot_kb * 15 / 10) + 524288 )); " +
+                "    req_mb=$((req_kb / 1024)); " +
+                "  fi; " +
+                "fi; " +
+                "if [ \"$req_mb\" -lt 1024 ]; then req_mb=1024; fi; " +
+                "echo \"STORAGE_CHECK|avail_mb=$avail_mb|req_mb=$req_mb|total_mb=$total_mb|free_pct=$free_pct\"; " +
+                "if [ \"$avail_mb\" -ge \"$req_mb\" ]; then exit 0; else exit 1; fi";
 
-        // 1. Check cached agent metrics
-        var metrics = _connectionManager.GetLatestMetrics(input.HostId);
-        if (metrics != null && metrics.DiskFreePct > 0)
-        {
-            diskFreePct = metrics.DiskFreePct;
-        }
-        else
-        {
-            // 2. Query dynamically via df command
             var cmdResult = await _commandExecutor.ExecuteCommandAsync(
                 input.HostId,
                 input.JobId,
                 "sh",
-                new[] { "-c", "df --output=pcent / | tail -n 1" }
+                new[] { "-c", probeScript }
             );
 
-            if (cmdResult.Success)
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
-                var lastLog = await db.StepLogs
-                    .Where(l => l.JobId == input.JobId && l.StreamType == "stdout")
-                    .OrderByDescending(l => l.SequenceId)
-                    .Select(l => l.LogLine)
-                    .FirstOrDefaultAsync();
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            var lastLog = await db.StepLogs
+                .Where(l => l.JobId == input.JobId && l.StreamType == "stdout" && l.LogLine.Contains("STORAGE_CHECK|"))
+                .OrderByDescending(l => l.SequenceId)
+                .Select(l => l.LogLine)
+                .FirstOrDefaultAsync();
 
-                if (!string.IsNullOrWhiteSpace(lastLog))
+            var rawLog = lastLog ?? (cmdResult.ErrorMessage?.Contains("STORAGE_CHECK|") == true ? cmdResult.ErrorMessage : null);
+
+            if (!string.IsNullOrWhiteSpace(rawLog))
+            {
+                var idx = rawLog.IndexOf("STORAGE_CHECK|");
+                var checkPart = idx >= 0 ? rawLog[idx..] : rawLog;
+                var parts = checkPart.Split('|');
+                var avail = parts.FirstOrDefault(p => p.StartsWith("avail_mb="))?["avail_mb=".Length..];
+                var req = parts.FirstOrDefault(p => p.StartsWith("req_mb="))?["req_mb=".Length..];
+                var free = parts.FirstOrDefault(p => p.StartsWith("free_pct="))?["free_pct=".Length..];
+
+                if (cmdResult.Success)
                 {
-                    var cleaned = lastLog.Trim().TrimEnd('%');
-                    if (double.TryParse(cleaned, out var usedPct))
-                    {
-                        diskFreePct = 100.0 - usedPct;
-                    }
+                    var okMsg = $"Root filesystem storage verified: {avail ?? "unknown"} MB available, ~{req ?? "1024"} MB required for upgrade (with 50% buffer). Free: {free ?? "unknown"}%.";
+                    await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] {okMsg}");
+                    return new PreflightCheckResult(true, okMsg);
+                }
+                else
+                {
+                    var failMsg = $"Insufficient root filesystem space: {avail} MB available, but upgrade requires at least {req} MB (including 50% safety buffer).";
+                    await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] Error: {failMsg}");
+                    return new PreflightCheckResult(false, failMsg);
                 }
             }
         }
 
-        if (diskFreePct < 0)
+        // 2. Fallback: check cached metrics if live probe was unavailable or not logged
+        var metrics = _connectionManager.GetLatestMetrics(input.HostId);
+        var diskFreePct = metrics?.DiskFreePct ?? -1;
+
+        if (diskFreePct >= 0)
         {
-            var msg = "Unable to determine root filesystem free space on target host.";
-            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] Error: {msg}");
-            return new PreflightCheckResult(false, msg);
+            if (diskFreePct < input.MinFreePct)
+            {
+                var msg = $"Insufficient root filesystem headroom: {diskFreePct:F1}% free, minimum {input.MinFreePct:F1}% required.";
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] Error: {msg}");
+                return new PreflightCheckResult(false, msg);
+            }
+
+            var fallbackMsg = $"Root filesystem headroom verified: {diskFreePct:F1}% available (threshold: {input.MinFreePct:F1}%).";
+            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] {fallbackMsg}");
+            return new PreflightCheckResult(true, fallbackMsg);
         }
 
-        if (diskFreePct < input.MinFreePct)
-        {
-            var msg = $"Insufficient root filesystem headroom: {diskFreePct:F1}% free, minimum {input.MinFreePct:F1}% required.";
-            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] Error: {msg}");
-            return new PreflightCheckResult(false, msg);
-        }
-
-        var successMsg = $"Root filesystem headroom verified: {diskFreePct:F1}% available (threshold: {input.MinFreePct:F1}%).";
-        await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] {successMsg}");
-        return new PreflightCheckResult(true, successMsg);
+        var errMsg = "Unable to determine root filesystem free space on target host.";
+        await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] Error: {errMsg}");
+        return new PreflightCheckResult(false, errMsg);
     }
 
     [Activity]

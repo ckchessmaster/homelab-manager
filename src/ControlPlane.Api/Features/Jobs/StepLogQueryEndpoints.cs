@@ -68,14 +68,18 @@ public static class StepLogQueryEndpoints
                 return Results.BadRequest(new { message = $"Agent for host '{host.Hostname}' is currently offline." });
             }
 
+            var fullCmd = $"{request.Command} {string.Join(' ', request.Args ?? Array.Empty<string>())}".Trim();
+            var activeStep = fullCmd.Length > 100 ? fullCmd[..97] + "..." : fullCmd;
+
             var jobId = Guid.NewGuid();
             var job = new UpdateJob
             {
                 Id = jobId,
                 TargetHostId = host.Id,
+                PipelineId = "adhoc-command",
                 InitiatedBy = "Operator",
                 Status = "Running",
-                ActiveStep = $"{request.Command} {string.Join(' ', request.Args ?? Array.Empty<string>())}",
+                ActiveStep = activeStep,
                 StartedAt = DateTimeOffset.UtcNow
             };
 

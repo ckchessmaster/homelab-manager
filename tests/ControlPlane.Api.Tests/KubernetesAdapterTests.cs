@@ -286,6 +286,80 @@ public class KubernetesAdapterTests
     }
 
     [Fact]
+    public async Task DrainNodeAsync_IgnoresLonghornInstanceManagerPods()
+    {
+        var podListJson = """
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "instance-manager-9d58420e8bd90c1998c578e53322d833",
+                        "namespace": "longhorn-system"
+                    },
+                    "spec": { "nodeName": "k8s-worker-01" },
+                    "status": { "phase": "Running" }
+                },
+                {
+                    "metadata": {
+                        "name": "minio-pool-0-0",
+                        "namespace": "minio-tenant"
+                    },
+                    "spec": { "nodeName": "k8s-worker-01" },
+                    "status": { "phase": "Running" }
+                }
+            ]
+        }
+        """;
+
+        var emptyPodListJson = """{ "items": [] }""";
+        var evictionRequests = new List<string>();
+        var listCallCount = 0;
+
+        var (client, _) = CreateMockK8s(req =>
+        {
+            var uri = req.RequestUri!.ToString();
+
+            if (req.Method.Method == "PATCH")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}", Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (req.Method == HttpMethod.Get && uri.Contains("/api/v1/pods"))
+            {
+                listCallCount++;
+                var responseContent = listCallCount == 1 ? podListJson : emptyPodListJson;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(responseContent, Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (req.Method == HttpMethod.Post && uri.Contains("/eviction"))
+            {
+                evictionRequests.Add(uri);
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("{}", Encoding.UTF8, "application/json")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var result = await adapter.DrainNodeAsync("k8s-worker-01", TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.EvictedPodCount);
+        Assert.Single(evictionRequests);
+        Assert.Contains("minio-pool-0-0", evictionRequests[0]);
+        Assert.DoesNotContain("instance-manager", evictionRequests[0]);
+    }
+
+    [Fact]
     public async Task KubernetesCordonStep_Rollback_UncordonsNode()
     {
         var isCordoned = false;

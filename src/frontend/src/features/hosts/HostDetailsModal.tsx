@@ -13,7 +13,20 @@ import {
   RebootBadge,
   UpdatesBadge,
 } from './HostStatusBadge'
-import { Server, Shield, Network, Calendar, Copy, Check, Pencil, Sparkles, RotateCcw, ExternalLink } from 'lucide-react'
+import {
+  Server,
+  Shield,
+  Network,
+  Calendar,
+  Copy,
+  Check,
+  Pencil,
+  Sparkles,
+  RotateCcw,
+  ExternalLink,
+  Cpu,
+  Layers,
+} from 'lucide-react'
 import { useState } from 'react'
 import type { Host } from '../../api/hosts'
 import { useIdracPowerActionByIp } from '../adapters/idrac/useIdrac'
@@ -118,7 +131,7 @@ export function HostDetailsModal({
             Hardware & Infrastructure Correlation
           </h4>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Proxmox */}
             <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-lg">
               <div className="flex items-center gap-1.5 text-xs font-medium text-purple-300 mb-1.5">
@@ -129,9 +142,35 @@ export function HostDetailsModal({
                 <div className="text-xs text-zinc-300 space-y-0.5">
                   <div>Node: <span className="font-mono text-zinc-100">{host.proxmox.node}</span></div>
                   <div>VMID: <span className="font-mono text-zinc-100">{host.proxmox.vmid}</span></div>
+                  {host.hypervisor && (
+                    <div className="pt-1 text-[11px] text-purple-300">
+                      Hypervisor: <span className="font-semibold text-purple-200">{host.hypervisor.hostname}</span>
+                    </div>
+                  )}
+                  {host.hostedVms && host.hostedVms.length > 0 && (
+                    <div className="pt-1 text-[11px] text-purple-300">
+                      Hosts: <span className="font-semibold text-purple-200">{host.hostedVms.length} VM(s)</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <span className="text-xs text-zinc-500">Not linked</span>
+              )}
+            </div>
+
+            {/* Kubernetes */}
+            <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-lg">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-sky-300 mb-1.5">
+                <Cpu className="h-3.5 w-3.5" />
+                Kubernetes
+              </div>
+              {host.kubernetes?.clusterId || host.k8sClusterId ? (
+                <div className="text-xs text-zinc-300 space-y-0.5">
+                  <div>Cluster: <span className="font-mono text-zinc-100">{host.kubernetes?.clusterId || host.k8sClusterId}</span></div>
+                  <div>Node: <span className="font-mono text-zinc-100">{host.kubernetes?.nodeName || host.k8sNodeName || host.hostname}</span></div>
+                </div>
+              ) : (
+                <span className="text-xs text-zinc-500">Not in cluster</span>
               )}
             </div>
 
@@ -194,7 +233,7 @@ export function HostDetailsModal({
 
             {/* UniFi Port */}
             <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-lg">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-sky-300 mb-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-300 mb-1.5">
                 <Network className="h-3.5 w-3.5" />
                 UniFi Switch Port
               </div>
@@ -209,6 +248,39 @@ export function HostDetailsModal({
             </div>
           </div>
         </div>
+
+        {/* Hosted Virtual Machines section for Hypervisors */}
+        {host.hostedVms && host.hostedVms.length > 0 && (
+          <div className="space-y-2.5">
+            <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-purple-400" />
+              Correlated Guest Virtual Machines ({host.hostedVms.length})
+            </h4>
+            <div className="border border-zinc-800/80 rounded-xl bg-zinc-950/50 overflow-hidden divide-y divide-zinc-800/60">
+              {host.hostedVms.map((vm) => (
+                <div key={vm.hostId} className="p-2.5 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-zinc-800 text-purple-300 border border-purple-500/20 font-semibold">
+                      VM #{vm.vmid}
+                    </span>
+                    <span className="font-medium text-zinc-200">{vm.hostname}</span>
+                    {vm.friendlyName && (
+                      <span className="text-zinc-500 text-[11px]">({vm.friendlyName})</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-zinc-400">{vm.targetType}</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                      vm.isOnline ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-800/50' : 'bg-zinc-800 text-zinc-400'
+                    }`}>
+                      {vm.isOnline ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Timestamps */}
         <div className="flex items-center justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-800/60">

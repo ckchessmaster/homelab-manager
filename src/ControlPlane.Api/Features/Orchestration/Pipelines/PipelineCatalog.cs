@@ -33,6 +33,16 @@ public class PipelineCatalog : IPipelineCatalog
         return "standard-os-upgrade";
     }
 
+    public string GetRecommendedRebootProfileId(string? targetType, string? osFamily = null, bool isKubernetesNode = false)
+    {
+        if (isKubernetesNode || string.Equals(targetType, "k8s_node", StringComparison.OrdinalIgnoreCase))
+        {
+            return "k8s-node-safe-reboot";
+        }
+
+        return "safe-reboot-verify";
+    }
+
     public DagExecutionPipeline BuildPipeline(string pipelineId, IServiceProvider serviceProvider)
     {
         var profile = GetProfile(pipelineId)
@@ -116,9 +126,9 @@ public class PipelineCatalog : IPipelineCatalog
             {
                 Id = "safe-reboot-verify",
                 Name = "Safe Reboot & Verification",
-                Description = "Orchestrated reboot sequence with pre-reboot sync, agent heartbeat monitoring across reboot, and post-boot service health verification.",
+                Description = "Orchestrated safe reboot sequence with pre-reboot sync, agent heartbeat monitoring across reboot, and post-boot service health verification.",
                 Icon = "RotateCcw",
-                CompatibleTargetTypes = new[] { "all", "proxmox_vm", "k8s_node", "baremetal" },
+                CompatibleTargetTypes = new[] { "all", "proxmox_vm", "baremetal" },
                 Steps = new[]
                 {
                     new PipelineStepSummary("Preflight: Heartbeat Freshness", "Verifies active WebSocket connection before rebooting."),
@@ -129,9 +139,37 @@ public class PipelineCatalog : IPipelineCatalog
                 StepFactory = _ => new IJobStep[]
                 {
                     new PreflightHeartbeatCheckStep(),
-                    new DeterministicRebootStep(),
+                    new DeterministicRebootStep(alwaysReboot: true),
                     new AwaitReconnectionStep(),
                     new PostFlightHealthProbeStep()
+                }
+            },
+            new()
+            {
+                Id = "k8s-node-safe-reboot",
+                Name = "Kubernetes Node Safe Reboot",
+                Description = "Zero-downtime orchestrated Kubernetes node reboot: preflight safety checks, node cordon, workload drain, deterministic reboot, reconnection monitoring, health probes, and node uncordon.",
+                Icon = "RotateCcw",
+                CompatibleTargetTypes = new[] { "k8s_node", "proxmox_vm", "baremetal" },
+                Steps = new[]
+                {
+                    new PipelineStepSummary("Preflight: Heartbeat Freshness", "Verifies active WebSocket connection before rebooting."),
+                    new PipelineStepSummary("Kubernetes Node Cordon", "Marks node as Unschedulable in the Kubernetes API."),
+                    new PipelineStepSummary("Kubernetes Workload Drain", "Evicts non-daemonset pods cleanly with grace periods to prevent service disruption."),
+                    new PipelineStepSummary("Deterministic Reboot", "Pre-reboot filesystem sync and controlled reboot command emission."),
+                    new PipelineStepSummary("Await Reconnection", "Monitors WebSocket reconnection window following host reboot."),
+                    new PipelineStepSummary("Post-Flight Health Probes", "Runs automated post-boot sanity checks on network and key services."),
+                    new PipelineStepSummary("Kubernetes Node Uncordon", "Marks node as Schedulable again to resume workload processing.")
+                },
+                StepFactory = sp => new IJobStep[]
+                {
+                    new PreflightHeartbeatCheckStep(),
+                    new KubernetesCordonStep(sp.GetService<IKubernetesAdapter>()),
+                    new KubernetesDrainStep(sp.GetService<IKubernetesAdapter>()),
+                    new DeterministicRebootStep(alwaysReboot: true),
+                    new AwaitReconnectionStep(),
+                    new PostFlightHealthProbeStep(),
+                    new KubernetesUncordonStep(sp.GetService<IKubernetesAdapter>())
                 }
             },
             new()

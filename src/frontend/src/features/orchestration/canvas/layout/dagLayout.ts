@@ -6,6 +6,7 @@ export interface WorkflowStateLike {
   status: string
   activeStep?: string | null
   completedSteps?: string[]
+  skippedSteps?: string[]
   awaitingApproval?: boolean
   rebootApproved?: boolean
   cancelled?: boolean
@@ -102,38 +103,167 @@ export const DEFAULT_HOST_UPGRADE_STEPS: StepDefinition[] = [
   },
 ]
 
+// Canonical default steps for safe reboot workflows
+export const DEFAULT_SAFE_REBOOT_STEPS: StepDefinition[] = [
+  {
+    id: 'hb',
+    label: 'Preflight: Heartbeat Freshness',
+    category: 'preflight',
+    description: 'Verify active WebSocket connection before rebooting.',
+  },
+  {
+    id: 'cordon_drain',
+    label: 'Kubernetes: Cordon & Drain',
+    category: 'kubernetes',
+    description: 'Cordon node and evict non-daemonset pods via Eviction API prior to restart.',
+    hasCompensation: true,
+    compensationLabel: 'Saga: Uncordon Node',
+    compensationCategory: 'kubernetes',
+  },
+  {
+    id: 'reboot',
+    label: 'Agent: Deterministic Reboot',
+    category: 'agent',
+    description: 'Pre-reboot filesystem sync and controlled reboot command emission.',
+  },
+  {
+    id: 'reconnect',
+    label: 'Agent: Reconnection Wait',
+    category: 'agent',
+    description: 'Monitors WebSocket reconnection window following host reboot.',
+  },
+  {
+    id: 'health_probes',
+    label: 'Health Probes: HTTP/TCP Probes',
+    category: 'health',
+    description: 'Runs automated post-boot sanity checks on network and key services.',
+  },
+  {
+    id: 'uncordon',
+    label: 'Kubernetes: Uncordon Node',
+    category: 'kubernetes',
+    description: 'Marks node as schedulable to resume workload processing.',
+  },
+]
+
+export function matchesStep(step: StepDefinition, text?: string | null): boolean {
+  if (!text || !text.trim()) return false
+  const t = text.trim().toLowerCase()
+  const label = step.label.toLowerCase()
+
+  if (t === label || t === step.id) return true
+  if (t.includes(label)) return true
+
+  switch (step.id) {
+    case 'hb':
+      return t.includes('heartbeat')
+    case 'disk':
+      return t.includes('disk') || t.includes('headroom')
+    case 'lock':
+      return t.includes('lock')
+    case 'snapshot':
+      return t.includes('snapshot') && !t.includes('rollback')
+    case 'cordon_drain':
+      return (t.includes('cordon') || t.includes('drain') || t.includes('evict')) && !t.includes('uncordon')
+    case 'upgrade':
+      return (
+        t.includes('package upgrade') ||
+        t.includes('distribution upgrade') ||
+        t.includes('upgrade execution') ||
+        (t.includes('upgrade') && !t.includes('rolling'))
+      )
+    case 'approval_gate':
+      return t.includes('approval')
+    case 'reboot':
+      return t.includes('reboot') && !t.includes('approval')
+    case 'reconnect':
+      return t.includes('reconnection') || t.includes('reconnect')
+    case 'health_probes':
+      return t.includes('probe') || (t.includes('health') && !t.includes('heartbeat'))
+    case 'uncordon':
+      return t.includes('uncordon')
+    default:
+      return label.includes(t) && t.length >= 4
+  }
+}
+
+export function isStepCompleted(step: StepDefinition, completedSteps?: string[] | null): boolean {
+  if (!completedSteps || completedSteps.length === 0) return false
+  return completedSteps.some((c) => matchesStep(step, c))
+}
+
+export function isStepSkipped(step: StepDefinition, skippedSteps?: string[] | null): boolean {
+  if (!skippedSteps || skippedSteps.length === 0) return false
+  return skippedSteps.some((c) => matchesStep(step, c))
+}
+
+export function resolveStepStatuses(
+  steps: StepDefinition[],
+  state: WorkflowStateLike
+): Map<string, ActivityStatus> {
+  const result = new Map<string, ActivityStatus>()
+  const isWorkflowCompleted = state.status === 'Completed'
+  const isWorkflowFailed = state.status === 'Failed' || state.status === 'RolledBack' || state.status === 'Cancelled'
+
+  if (isWorkflowCompleted) {
+    for (const step of steps) {
+      if (isStepSkipped(step, state.skippedSteps)) {
+        result.set(step.id, 'skipped')
+      } else if (state.completedSteps && state.completedSteps.length > 0) {
+        result.set(step.id, isStepCompleted(step, state.completedSteps) ? 'completed' : 'skipped')
+      } else {
+        result.set(step.id, 'completed')
+      }
+    }
+    return result
+  }
+
+  // Find index of actively failing or running step
+  let activeIndex = -1
+  if (state.activeStep) {
+    activeIndex = steps.findIndex((s) => matchesStep(s, state.activeStep))
+  }
+  if (activeIndex === -1 && state.awaitingApproval) {
+    activeIndex = steps.findIndex((s) => s.isApprovalGate)
+  }
+
+  // If workflow failed but no activeStep matched, find first non-completed step
+  if (isWorkflowFailed && activeIndex === -1) {
+    activeIndex = steps.findIndex((s) => !isStepCompleted(s, state.completedSteps) && !isStepSkipped(s, state.skippedSteps))
+    if (activeIndex === -1) {
+      activeIndex = steps.length - 1
+    }
+  }
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]
+    if (isStepSkipped(step, state.skippedSteps)) {
+      result.set(step.id, 'skipped')
+      continue
+    }
+
+    if (activeIndex >= 0) {
+      if (i < activeIndex) {
+        result.set(step.id, 'completed')
+      } else if (i === activeIndex) {
+        result.set(step.id, isWorkflowFailed ? 'failed' : 'running')
+      } else {
+        result.set(step.id, 'pending')
+      }
+    } else {
+      const completed = isStepCompleted(step, state.completedSteps)
+      result.set(step.id, completed ? 'completed' : 'pending')
+    }
+  }
+
+  return result
+}
+
 export function computeStepStatus(
   step: StepDefinition,
   state: WorkflowStateLike
 ): ActivityStatus {
-  const completed = state.completedSteps || []
-  const active = state.activeStep || ''
-  const isWorkflowFailed = state.status === 'Failed' || state.status === 'RolledBack'
-  const isWorkflowCompleted = state.status === 'Completed'
-
-  // Match step by label or id
-  const isMatchedCompleted = completed.some((c) =>
-    c.toLowerCase().includes(step.label.toLowerCase()) ||
-    step.label.toLowerCase().includes(c.toLowerCase()) ||
-    (step.id === 'reboot' && c.toLowerCase().includes('reboot')) ||
-    (step.id === 'reconnect' && c.toLowerCase().includes('reconnect'))
-  )
-
-  if (isMatchedCompleted) return 'completed'
-
-  const isMatchedActive =
-    active.toLowerCase().includes(step.label.toLowerCase()) ||
-    step.label.toLowerCase().includes(active.toLowerCase()) ||
-    (step.id === 'approval_gate' && state.awaitingApproval)
-
-  if (isMatchedActive) {
-    if (isWorkflowFailed) return 'failed'
-    return 'running'
-  }
-
-  if (isWorkflowCompleted) return 'completed'
-
-  return 'pending'
+  return resolveStepStatuses([step], state).get(step.id) || 'pending'
 }
 
 export interface DagLayoutResult {
@@ -145,6 +275,7 @@ export function buildDagFromState(
   state: WorkflowStateLike,
   options: {
     workflowId: string
+    pipelineId?: string | null
     onApprove?: () => void
     onReject?: () => void
     isSubmittingApproval?: boolean
@@ -156,11 +287,48 @@ export function buildDagFromState(
   const nodes: Node[] = []
   const edges: Edge[] = []
 
-  // Filter steps based on host capabilities
-  const activeSteps = DEFAULT_HOST_UPGRADE_STEPS.filter((step) => {
-    if (step.category === 'proxmox' && options.isProxmoxHost === false) return false
-    if (step.category === 'kubernetes' && options.isK8sHost === false) return false
-    if (step.isApprovalGate && options.requireApproval === false) return false
+  const isRebootPipeline = Boolean(
+    options.pipelineId &&
+    (options.pipelineId.includes('reboot') || options.pipelineId.includes('safe-reboot'))
+  )
+
+  const baseStepList = isRebootPipeline ? DEFAULT_SAFE_REBOOT_STEPS : DEFAULT_HOST_UPGRADE_STEPS
+
+  // Detect capabilities directly from workflow execution state or options
+  const hasK8sExecution = Boolean(
+    state.k8sNodeName ||
+    state.activeStep?.toLowerCase().includes('kubernetes') ||
+    state.activeStep?.toLowerCase().includes('evict') ||
+    state.activeStep?.toLowerCase().includes('cordon') ||
+    state.activeStep?.toLowerCase().includes('drain') ||
+    state.completedSteps?.some((s) => s.toLowerCase().includes('kubernetes') || s.toLowerCase().includes('cordon') || s.toLowerCase().includes('drain') || s.toLowerCase().includes('evict')) ||
+    state.skippedSteps?.some((s) => s.toLowerCase().includes('kubernetes')) ||
+    options.pipelineId?.toLowerCase().includes('k8s')
+  )
+
+  const hasProxmoxExecution = Boolean(
+    state.snapshotIdentifier ||
+    state.activeStep?.toLowerCase().includes('snapshot') ||
+    state.completedSteps?.some((s) => s.toLowerCase().includes('snapshot')) ||
+    options.pipelineId?.toLowerCase().includes('proxmox')
+  )
+
+  const hasApprovalExecution = Boolean(
+    state.awaitingApproval ||
+    state.rebootApproved ||
+    state.activeStep?.toLowerCase().includes('approval') ||
+    state.completedSteps?.some((s) => s.toLowerCase().includes('approval'))
+  )
+
+  const shouldIncludeK8s = hasK8sExecution || options.isK8sHost === true
+  const shouldIncludeProxmox = hasProxmoxExecution || options.isProxmoxHost === true
+  const shouldIncludeApproval = hasApprovalExecution || options.requireApproval === true
+
+  // Filter steps based on host capabilities & actual execution
+  const activeSteps = baseStepList.filter((step) => {
+    if (step.category === 'proxmox' && !shouldIncludeProxmox) return false
+    if (step.category === 'kubernetes' && !shouldIncludeK8s) return false
+    if (step.isApprovalGate && !shouldIncludeApproval) return false
     return true
   })
 
@@ -170,6 +338,7 @@ export function buildDagFromState(
 
   let lastNodeId: string | null = null
   let stepIndex = 1
+  const stepStatusMap = resolveStepStatuses(activeSteps, state)
 
   activeSteps.forEach((step, idx) => {
     const x = idx * NODE_SPACING_X + 60
@@ -177,14 +346,17 @@ export function buildDagFromState(
 
     if (step.isApprovalGate) {
       let gateStatus: 'waiting' | 'approved' | 'rejected' | 'timeout' = 'waiting'
+      const statusFromMap = stepStatusMap.get(step.id)
       if (state.rebootApproved) {
         gateStatus = 'approved'
       } else if (state.cancelled) {
         gateStatus = 'rejected'
+      } else if (statusFromMap === 'failed') {
+        gateStatus = state.cancelled ? 'rejected' : 'timeout'
       } else if (state.awaitingApproval) {
         gateStatus = 'waiting'
       } else {
-        const approvalPassed = (state.completedSteps || []).some((c) =>
+        const approvalPassed = isStepCompleted(step, state.completedSteps) || (state.completedSteps || []).some((c) =>
           c.toLowerCase().includes('reboot')
         )
         gateStatus = approvalPassed ? 'approved' : 'waiting'
@@ -205,7 +377,7 @@ export function buildDagFromState(
       }
       nodes.push(gateNode)
     } else {
-      const status = computeStepStatus(step, state)
+      const status = stepStatusMap.get(step.id) || 'pending'
       const isFailed = status === 'failed'
 
       const activityNode: Node<ActivityNodeData, 'activity'> = {
@@ -264,11 +436,11 @@ export function buildDagFromState(
       const prevStep = activeSteps[idx - 1]
       const prevStatus = prevStep.isApprovalGate
         ? state.rebootApproved ? 'completed' : 'pending'
-        : computeStepStatus(prevStep, state)
+        : stepStatusMap.get(prevStep.id) || 'pending'
 
       const currStatus = step.isApprovalGate
         ? state.awaitingApproval ? 'running' : state.rebootApproved ? 'completed' : 'pending'
-        : computeStepStatus(step, state)
+        : stepStatusMap.get(step.id) || 'pending'
 
       let edgeStatus: 'pending' | 'running' | 'completed' | 'failed' = 'pending'
       if (currStatus === 'running') {

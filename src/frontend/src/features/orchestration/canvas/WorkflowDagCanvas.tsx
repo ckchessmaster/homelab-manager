@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -32,6 +32,7 @@ const edgeTypes = {
 export interface WorkflowDagCanvasProps {
   workflowId: string
   state: WorkflowStateLike
+  pipelineId?: string | null
   onApprove?: () => void
   onReject?: () => void
   isSubmittingApproval?: boolean
@@ -45,6 +46,7 @@ export interface WorkflowDagCanvasProps {
 function InnerWorkflowCanvas({
   workflowId,
   state,
+  pipelineId,
   onApprove,
   onReject,
   isSubmittingApproval,
@@ -59,6 +61,7 @@ function InnerWorkflowCanvas({
   const { initialNodes, initialEdges } = useMemo(() => {
     const { nodes, edges } = buildDagFromState(state, {
       workflowId,
+      pipelineId,
       onApprove,
       onReject,
       isSubmittingApproval,
@@ -70,6 +73,7 @@ function InnerWorkflowCanvas({
   }, [
     state,
     workflowId,
+    pipelineId,
     onApprove,
     onReject,
     isSubmittingApproval,
@@ -80,21 +84,41 @@ function InnerWorkflowCanvas({
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const initialFitDoneRef = useRef<string | null>(null)
 
+  // Update nodes and edges on state changes without touching viewport/zoom
   useEffect(() => {
-    setNodes(initialNodes)
+    setNodes((prevNodes) => {
+      if (!prevNodes || prevNodes.length === 0) return initialNodes
+      const prevMap = new Map(prevNodes.map((n) => [n.id, n]))
+      return initialNodes.map((node) => {
+        const prev = prevMap.get(node.id)
+        if (!prev) return node
+        return {
+          ...node,
+          position: prev.position,
+        }
+      })
+    })
     setEdges(initialEdges)
-    const t1 = setTimeout(() => {
-      fitView({ padding: 0.15, duration: 200 })
-    }, 100)
-    const t2 = setTimeout(() => {
-      fitView({ padding: 0.15, duration: 200 })
-    }, 350)
-    return () => {
-      clearTimeout(t1)
-      clearTimeout(t2)
+  }, [initialNodes, initialEdges, setNodes, setEdges])
+
+  // Fit view once on initial mount or when switching workflowId
+  useEffect(() => {
+    if (initialFitDoneRef.current !== workflowId && initialNodes.length > 0) {
+      initialFitDoneRef.current = workflowId
+      const t1 = setTimeout(() => {
+        fitView({ padding: 0.15, duration: 200 })
+      }, 100)
+      const t2 = setTimeout(() => {
+        fitView({ padding: 0.15, duration: 200 })
+      }, 350)
+      return () => {
+        clearTimeout(t1)
+        clearTimeout(t2)
+      }
     }
-  }, [initialNodes, initialEdges, fitView, setNodes, setEdges])
+  }, [workflowId, initialNodes.length, fitView])
 
   const minimapNodeColor = (node: Node) => {
     if (node.type === 'approvalGate') return '#f59e0b'

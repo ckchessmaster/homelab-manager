@@ -76,18 +76,11 @@ public class RollingUpgradeWorkflow : IRollingUpgradeWorkflow
         while (targetQueue.Count > 0)
         {
             // Check cancellation
-            if (_cancelled)
+            if (_cancelled || Workflow.CancellationToken.IsCancellationRequested)
             {
                 MarkRemainingSkipped(targetQueue, "Workflow was cancelled by operator.");
                 _state.Status = "Cancelled";
-                return new RollingUpgradeWorkflowResult(
-                    Success: false,
-                    Status: "Cancelled",
-                    TotalHosts: _state.TotalHosts,
-                    CompletedHosts: _state.CompletedHosts,
-                    FailedHosts: _state.FailedHosts,
-                    ErrorMessage: _cancelReason ?? "Rolling upgrade cancelled."
-                );
+                throw new OperationCanceledException(_cancelReason ?? "Rolling upgrade cancelled by operator.");
             }
 
             // Await pause or approval between hosts
@@ -95,9 +88,9 @@ public class RollingUpgradeWorkflow : IRollingUpgradeWorkflow
             {
                 _state.Status = "Paused";
                 _state.IsPaused = true;
-                await Workflow.WaitConditionAsync(() => !_isPaused || _cancelled);
+                await Workflow.WaitConditionAsync(() => !_isPaused || _cancelled || Workflow.CancellationToken.IsCancellationRequested);
 
-                if (_cancelled)
+                if (_cancelled || Workflow.CancellationToken.IsCancellationRequested)
                 {
                     continue; // Loop will handle cancel above
                 }

@@ -16,6 +16,8 @@ public class AgentSession
     public AgentMetrics? LatestMetrics { get; set; }
     public DateTimeOffset? LastHeartbeatAt { get; set; }
     public string? KernelVersion { get; set; }
+    public string? InboundHost { get; init; }
+    public string? InboundScheme { get; init; }
 }
 
 public class AgentConnectionManager
@@ -33,14 +35,22 @@ public class AgentConnectionManager
         _logger = logger;
     }
 
-    public AgentSession Register(Guid hostId, string nodeId, WebSocket socket)
+    public AgentSession? GetSession(Guid hostId)
+    {
+        _sessions.TryGetValue(hostId, out var session);
+        return session;
+    }
+
+    public AgentSession Register(Guid hostId, string nodeId, WebSocket socket, string? inboundHost = null, string? inboundScheme = null)
     {
         var session = new AgentSession
         {
             HostId = hostId,
             NodeId = nodeId,
             Socket = socket,
-            ConnectedAt = DateTimeOffset.UtcNow
+            ConnectedAt = DateTimeOffset.UtcNow,
+            InboundHost = inboundHost,
+            InboundScheme = inboundScheme
         };
 
         _sessions.AddOrUpdate(hostId, session, (key, oldSession) =>
@@ -70,12 +80,21 @@ public class AgentConnectionManager
         return session;
     }
 
-    public bool Unregister(Guid hostId)
+    public bool Unregister(Guid hostId, WebSocket? socket = null)
     {
-        if (_sessions.TryRemove(hostId, out var session))
+        if (_sessions.TryGetValue(hostId, out var currentSession))
         {
-            _logger.LogInformation("Unregistered agent session for host {HostId}", hostId);
-            return true;
+            if (socket != null && !ReferenceEquals(currentSession.Socket, socket))
+            {
+                _logger.LogDebug("Ignoring unregister for host {HostId} because active session belongs to a different socket", hostId);
+                return false;
+            }
+
+            if (((ICollection<KeyValuePair<Guid, AgentSession>>)_sessions).Remove(new KeyValuePair<Guid, AgentSession>(hostId, currentSession)))
+            {
+                _logger.LogInformation("Unregistered agent session for host {HostId}", hostId);
+                return true;
+            }
         }
         return false;
     }

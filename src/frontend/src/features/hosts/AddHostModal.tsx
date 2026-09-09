@@ -11,7 +11,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { useCreateHost } from './useHosts'
-import { ChevronDown, ChevronUp, Server, Shield, Network, AlertCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Server, Shield, Network, AlertCircle, Cpu } from 'lucide-react'
 import type { CreateHostPayload } from '../../api/hosts'
 
 interface AddHostModalProps {
@@ -30,6 +30,9 @@ export function AddHostModal({ open, onClose }: AddHostModalProps) {
     targetType: 'baremetal',
     proxmoxNode: '',
     proxmoxVmid: undefined,
+    proxmoxInstanceId: '',
+    k8sClusterId: '',
+    k8sNodeName: '',
     idracIp: '',
     unifiSwitchMac: '',
     unifiSwitchPort: undefined,
@@ -181,8 +184,10 @@ export function AddHostModal({ open, onClose }: AddHostModalProps) {
               onChange={handleChange}
             >
               <option value="baremetal">Bare-Metal Server</option>
+              <option value="proxmox_node">Proxmox VE Hypervisor</option>
               <option value="proxmox_vm">Proxmox Virtual Machine</option>
               <option value="proxmox_lxc">Proxmox LXC Container</option>
+              <option value="kubernetes_node">Kubernetes Node</option>
             </Select>
           </div>
 
@@ -224,8 +229,32 @@ export function AddHostModal({ open, onClose }: AddHostModalProps) {
                       label="Proxmox VMID"
                       name="proxmoxVmid"
                       type="number"
-                      placeholder="100"
+                      placeholder="100 (or leave empty for hypervisor)"
                       value={formData.proxmoxVmid ?? ''}
+                      onChange={handleChange}
+                    />
+                  </div>
+                </div>
+
+                {/* Kubernetes Correlation */}
+                <div className="pt-2 border-t border-zinc-800/50">
+                  <div className="flex items-center gap-1.5 font-medium text-sky-300 mb-2">
+                    <Cpu className="h-3.5 w-3.5" />
+                    Kubernetes Cluster Correlation
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      label="Cluster ID"
+                      name="k8sClusterId"
+                      placeholder="e.g. k8s-prod"
+                      value={formData.k8sClusterId || ''}
+                      onChange={handleChange}
+                    />
+                    <Input
+                      label="Node Name in Cluster"
+                      name="k8sNodeName"
+                      placeholder="e.g. k8s-worker-01"
+                      value={formData.k8sNodeName || ''}
                       onChange={handleChange}
                     />
                   </div>

@@ -6,14 +6,18 @@ import {
   Loader2,
   X,
   ShieldCheck,
+  ShieldAlert,
+  Layers,
+  Camera,
+  Activity,
+  RotateCcw,
   Zap,
 } from 'lucide-react'
 import { HostSelectorSection } from './sections/HostSelectorSection'
-import { SafetyPolicySections } from './sections/SafetyPolicySections'
-import { HealthProbesSection } from './sections/HealthProbesSection'
 import { LiveDagPreview } from './LiveDagPreview'
 import { startTemporalWorkflow } from '../../../api/temporal'
 import { createJob } from '../../../api/jobs'
+import { useActiveJobsByHost } from '../useJobs'
 import type { Host } from '../../../api/hosts'
 import { Button } from '../../../components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
@@ -35,6 +39,9 @@ export function ParameterizedWorkflowLauncher({
 }: ParameterizedWorkflowLauncherProps) {
   const queryClient = useQueryClient()
 
+  // Workflow Type: Full OS Upgrade vs Safe Reboot
+  const [workflowMode, setWorkflowMode] = useState<'upgrade' | 'reboot'>('upgrade')
+
   // Selected Host
   const [selectedHostId, setSelectedHostId] = useState<string>(() => initialHost?.id || '')
 
@@ -49,26 +56,19 @@ export function ParameterizedWorkflowLauncher({
     effectiveHost?.targetType?.toLowerCase().includes('kubernetes')
   )
 
-  // Safety & Rollback Parameters
-  const [enableSnapshot, setEnableSnapshot] = useState(() => Boolean(
-    initialHost?.targetType?.toLowerCase().includes('proxmox') ||
-    initialHost?.proxmox != null
-  ))
-  const [snapshotName, setSnapshotName] = useState(() => initialHost ? `pre-upgrade-${initialHost.hostname}` : '')
+  // 2 Main Options (both OFF by default)
+  const [requireApprovalBeforeReboot, setRequireApprovalBeforeReboot] = useState(false)
+  const [enableK8sDrain, setEnableK8sDrain] = useState(false)
 
-  // Kubernetes Parameters
-  const [enableK8sDrain, setEnableK8sDrain] = useState(() => Boolean(
-    initialHost?.targetType?.toLowerCase().includes('k8s') ||
-    initialHost?.targetType?.toLowerCase().includes('kubernetes')
-  ))
-  const [k8sNodeName, setK8sNodeName] = useState(() => initialHost?.hostname || '')
+  // Automated parameters derived from host
+  const enableSnapshot = isProxmoxCapable
+  const snapshotName = effectiveHost ? `pre-upgrade-${effectiveHost.hostname}` : ''
+  const k8sNodeName = effectiveHost?.hostname || ''
+  const alwaysReboot = false
+  const probeUrls = effectiveHost?.ipAddress ? [`tcp://${effectiveHost.ipAddress}:22`] : []
 
-  // Reboot & Approval Parameters
-  const [requireApprovalBeforeReboot, setRequireApprovalBeforeReboot] = useState(true)
-  const [alwaysReboot, setAlwaysReboot] = useState(false)
-
-  // Health Probes
-  const [probeUrls, setProbeUrls] = useState<string[]>(() => initialHost?.ipAddress ? [`tcp://${initialHost.ipAddress}:22`] : [])
+  const activeJobsByHost = useActiveJobsByHost()
+  const activeJobForTarget = effectiveHost ? activeJobsByHost.get(effectiveHost.id) : null
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -76,69 +76,47 @@ export function ParameterizedWorkflowLauncher({
 
   const handleSelectHost = (hostId: string) => {
     setSelectedHostId(hostId)
-    const host = availableHosts.find((h) => h.id === hostId)
-    if (host) {
-      const isPve = Boolean(
-        host.targetType?.toLowerCase().includes('proxmox') ||
-        host.proxmox != null
-      )
-      const isK8s = Boolean(
-        host.targetType?.toLowerCase().includes('k8s') ||
-        host.targetType?.toLowerCase().includes('kubernetes')
-      )
-      setEnableSnapshot(isPve)
-      setSnapshotName(isPve ? `pre-upgrade-${host.hostname}` : '')
-      setEnableK8sDrain(isK8s)
-      setK8sNodeName(isK8s ? host.hostname : '')
-      if (host.ipAddress) {
-        setProbeUrls([`tcp://${host.ipAddress}:22`])
-      }
-    }
   }
 
   if (!isOpen) return null
 
-  const handleAddProbe = (url: string) => {
-    if (!probeUrls.includes(url)) {
-      setProbeUrls([...probeUrls, url])
-    }
-  }
-
-  const handleRemoveProbe = (index: number) => {
-    setProbeUrls(probeUrls.filter((_, i) => i !== index))
-  }
-
   const handleLaunch = async () => {
-    if (!effectiveHost) return
+    if (!effectiveHost || activeJobForTarget) return
 
     setIsSubmitting(true)
     setErrorMsg(null)
 
     try {
-      // 1. Try launching via Temporal durable workflow
       let launchedJobId = ''
       let launchedWorkflowId = ''
 
-      try {
-        const res = await startTemporalWorkflow({
-          hostId: effectiveHost.id,
-          requireApprovalBeforeReboot,
-          alwaysReboot,
-          probeUrls: probeUrls.length > 0 ? probeUrls : undefined,
-          snapshotName: enableSnapshot ? snapshotName.trim() || undefined : undefined,
-          k8sNodeName: enableK8sDrain ? k8sNodeName.trim() || effectiveHost.hostname : undefined,
-          initiatedBy: 'Operator',
-        })
-        launchedJobId = res.jobId
-        launchedWorkflowId = res.workflowId
-      } catch (err: unknown) {
-        // If Temporal service is not available (e.g. 503 or offline), fallback to legacy job API
-        const status = err && typeof err === 'object' && 'status' in err ? (err as { status: number }).status : 0
-        if (status === 503 || status === 404) {
-          const legacyJob = await createJob(effectiveHost.id, 'standard-os-upgrade')
-          launchedJobId = legacyJob.id
-        } else {
-          throw err
+      if (workflowMode === 'reboot') {
+        const rebootPipeline = isK8sCapable ? 'k8s-node-safe-reboot' : 'safe-reboot-verify'
+        const legacyJob = await createJob(effectiveHost.id, rebootPipeline)
+        launchedJobId = legacyJob.id
+      } else {
+        // 1. Try launching via Temporal durable workflow
+        try {
+          const res = await startTemporalWorkflow({
+            hostId: effectiveHost.id,
+            requireApprovalBeforeReboot,
+            alwaysReboot,
+            probeUrls: probeUrls.length > 0 ? probeUrls : undefined,
+            snapshotName: enableSnapshot ? snapshotName.trim() || undefined : undefined,
+            k8sNodeName: enableK8sDrain ? k8sNodeName.trim() || effectiveHost.hostname : undefined,
+            initiatedBy: 'Operator',
+          })
+          launchedJobId = res.jobId
+          launchedWorkflowId = res.workflowId
+        } catch (err: unknown) {
+          // If Temporal service is not available (e.g. 503 or offline), fallback to legacy job API
+          const status = err && typeof err === 'object' && 'status' in err ? (err as { status: number }).status : 0
+          if (status === 503 || status === 404) {
+            const legacyJob = await createJob(effectiveHost.id, 'standard-os-upgrade')
+            launchedJobId = legacyJob.id
+          } else {
+            throw err
+          }
         }
       }
 
@@ -200,6 +178,57 @@ export function ParameterizedWorkflowLauncher({
               </div>
             )}
 
+            {activeJobForTarget && (
+              <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-xs text-amber-200 flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+                <div className="space-y-0.5">
+                  <div className="font-semibold text-amber-300">
+                    Active DAG Workflow in Progress
+                  </div>
+                  <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                    Host <strong className="text-zinc-100">{effectiveHost?.hostname}</strong> is already executing an update pipeline ({activeJobForTarget.activeStep || activeJobForTarget.status}). Starting a second concurrent update is blocked to prevent lock collisions and system conflicts.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Workflow Mode Selector */}
+            <div className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-2">
+              <span className="text-xs font-semibold text-zinc-300">Workflow Pipeline Type</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWorkflowMode('upgrade')}
+                  className={`flex items-center gap-2.5 p-2.5 rounded-lg border text-left transition-colors ${
+                    workflowMode === 'upgrade'
+                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+                      : 'border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">Full OS Upgrade</div>
+                    <div className="text-[10px] text-zinc-400">Packages, snapshots, reboot</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkflowMode('reboot')}
+                  className={`flex items-center gap-2.5 p-2.5 rounded-lg border text-left transition-colors ${
+                    workflowMode === 'reboot'
+                      ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+                      : 'border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <RotateCcw className="w-4 h-4 shrink-0 text-amber-400" />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">Safe Reboot</div>
+                    <div className="text-[10px] text-zinc-400">Preflight, reboot, reconnect, health</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
             {/* Target Host Selector */}
             <HostSelectorSection
               availableHosts={availableHosts}
@@ -207,33 +236,105 @@ export function ParameterizedWorkflowLauncher({
               onSelectHost={handleSelectHost}
               disabled={Boolean(initialHost)}
               initialHost={initialHost}
+              activeJobsByHost={activeJobsByHost}
             />
 
-            {/* Safety & Rollback Policies */}
-            <SafetyPolicySections
-              enableSnapshot={enableSnapshot}
-              onToggleSnapshot={setEnableSnapshot}
-              snapshotName={snapshotName}
-              onChangeSnapshotName={setSnapshotName}
-              isProxmoxCapable={isProxmoxCapable}
-              enableK8sDrain={enableK8sDrain}
-              onToggleK8sDrain={setEnableK8sDrain}
-              k8sNodeName={k8sNodeName}
-              onChangeK8sNodeName={setK8sNodeName}
-              isK8sCapable={isK8sCapable}
-              requireApprovalBeforeReboot={requireApprovalBeforeReboot}
-              onToggleApproval={setRequireApprovalBeforeReboot}
-              alwaysReboot={alwaysReboot}
-              onToggleAlwaysReboot={setAlwaysReboot}
-            />
+            {/* Streamlined Controls: 2 Main Options (both default OFF) */}
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                  Workflow Execution Controls
+                </span>
+                <span className="text-[11px] text-zinc-500 font-mono">2 Configurable Gates</span>
+              </div>
 
-            {/* Synthetic Health Probes */}
-            <HealthProbesSection
-              probeUrls={probeUrls}
-              onAddProbe={handleAddProbe}
-              onRemoveProbe={handleRemoveProbe}
-              hostIp={effectiveHost?.ipAddress || '127.0.0.1'}
-            />
+              {/* 1. Operator Approval Gate */}
+              <div className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      <ShieldAlert className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-zinc-100">
+                          Operator Approval Gate
+                        </span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
+                          Human-in-the-Loop
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                        Pause workflow after packages install and await 1-click confirmation before executing host reboot.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
+                    <input
+                      type="checkbox"
+                      checked={requireApprovalBeforeReboot}
+                      onChange={(e) => setRequireApprovalBeforeReboot(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              {/* 2. Kubernetes Coordination */}
+              <div className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-zinc-100">
+                          Kubernetes Coordination (Cordon & Drain)
+                        </span>
+                        {isK8sCapable && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300">
+                            Cluster Node
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                        Cordon node and gracefully evict pods via Eviction API before restart; restore scheduling on completion.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
+                    <input
+                      type="checkbox"
+                      checked={enableK8sDrain}
+                      onChange={(e) => setEnableK8sDrain(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Automated Policies Info Card */}
+              <div className="p-3.5 rounded-xl bg-zinc-900/40 border border-zinc-800/60 space-y-2">
+                <span className="text-[11px] font-semibold text-zinc-400">
+                  Automated Pipeline Defaults
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-zinc-400">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                    <span>Proxmox snapshot {isProxmoxCapable ? 'auto-enabled' : 'bypassed (not VM)'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Synthetic health probes auto-configured</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Right Column: Live DAG Preview & Launch Trigger */}
@@ -245,6 +346,7 @@ export function ParameterizedWorkflowLauncher({
                 enableK8sDrain={enableK8sDrain}
                 requireApprovalBeforeReboot={requireApprovalBeforeReboot}
                 probeCount={probeUrls.length}
+                workflowMode={workflowMode}
                 height="100%"
                 className="h-full"
               />
@@ -276,13 +378,22 @@ export function ParameterizedWorkflowLauncher({
                   variant="primary"
                   size="sm"
                   onClick={handleLaunch}
-                  disabled={!effectiveHost || isSubmitting}
-                  className="text-xs h-9 px-5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-lg shadow-emerald-950/50 disabled:opacity-50 gap-2 cursor-pointer"
+                  disabled={!effectiveHost || isSubmitting || Boolean(activeJobForTarget)}
+                  className={`text-xs h-9 px-5 font-semibold shadow-lg disabled:opacity-50 gap-2 cursor-pointer ${
+                    activeJobForTarget
+                      ? 'bg-amber-900/60 border border-amber-600/60 text-amber-300 shadow-amber-950/50 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
+                  }`}
                 >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Dispatched to Temporal...
+                    </>
+                  ) : activeJobForTarget ? (
+                    <>
+                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                      DAG In Progress ({activeJobForTarget.activeStep || activeJobForTarget.status})
                     </>
                   ) : (
                     <>

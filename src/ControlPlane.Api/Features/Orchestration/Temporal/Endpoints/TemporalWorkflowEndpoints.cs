@@ -1,9 +1,11 @@
 using ControlPlane.Api.Features.Orchestration.Temporal.Workflows;
 using ControlPlane.Api.Features.Orchestration.Temporal.Workflows.Models;
+using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Temporalio.Client;
@@ -51,6 +53,32 @@ public record RollingUpgradeStatusResponse(
     RollingUpgradeWorkflowState? State
 );
 
+public record StoredRollingBatch(
+    string BatchId,
+    string WorkflowId,
+    List<string> HostIds,
+    List<string> Hostnames,
+    int MaxParallelism,
+    string FailureStrategy,
+    string InitiatedBy,
+    DateTimeOffset StartedAt
+);
+
+public record RollingBatchSummaryDto(
+    string BatchId,
+    string WorkflowId,
+    string Status,
+    int TotalHosts,
+    int CompletedHosts,
+    int FailedHosts,
+    string? ActiveHostname,
+    bool IsPaused,
+    List<string> HostIds,
+    List<string> Hostnames,
+    string InitiatedBy,
+    DateTimeOffset StartedAt
+);
+
 public static class TemporalWorkflowEndpoints
 {
     public static IEndpointRouteBuilder MapTemporalWorkflowEndpoints(this IEndpointRouteBuilder app)
@@ -77,6 +105,13 @@ public static class TemporalWorkflowEndpoints
             if (host == null)
             {
                 return Results.NotFound(new { error = $"Target host '{request.HostId}' not found." });
+            }
+
+            var activeStatuses = new[] { "Pending", "Running", "Verifying", "AwaitingReconnect", "AwaitingApproval" };
+            var hasActiveJob = await db.UpdateJobs.AnyAsync(j => j.TargetHostId == host.Id && activeStatuses.Contains(j.Status));
+            if (hasActiveJob)
+            {
+                return Results.Conflict(new { error = $"Host '{host.Hostname}' already has an active update workflow in progress." });
             }
 
             var job = new UpdateJob
@@ -119,6 +154,8 @@ public static class TemporalWorkflowEndpoints
             string workflowId,
             string signalName,
             [FromBody] SignalRequest? body,
+            ControlPlaneDbContext db,
+            IHubContext<JobLogHub, IJobClient> hubContext,
             [FromServices] ITemporalClient? temporalClient = null) =>
         {
             if (temporalClient == null)
@@ -141,7 +178,40 @@ public static class TemporalWorkflowEndpoints
             if (signalName.Equals("cancel", StringComparison.OrdinalIgnoreCase))
             {
                 var cancelReason = body?.Reason;
-                await handle.SignalAsync(w => w.CancelAsync(cancelReason));
+                try
+                {
+                    await handle.CancelAsync();
+                }
+                catch
+                {
+                    // Fall back to signal if direct workflow cancellation encounters an error
+                }
+
+                try
+                {
+                    await handle.SignalAsync(w => w.CancelAsync(cancelReason));
+                }
+                catch
+                {
+                    // Workflow may have already terminated
+                }
+
+                // Synchronize DB job state immediately to prevent UI desync
+                var prefix = "host-upgrade-";
+                if (workflowId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                    Guid.TryParse(workflowId[prefix.Length..], out var jId))
+                {
+                    var job = await db.UpdateJobs.FirstOrDefaultAsync(j => j.Id == jId);
+                    if (job != null && job.Status != UpdateJobState.Failed && job.Status != UpdateJobState.Completed && job.Status != UpdateJobState.Cancelled)
+                    {
+                        job.Status = UpdateJobState.Cancelled;
+                        job.FailureReason = cancelReason ?? "Workflow cancelled by operator";
+                        job.CompletedAt = DateTimeOffset.UtcNow;
+                        await db.SaveChangesAsync();
+                        _ = hubContext.Clients.Group(jId.ToString()).JobStatusChanged(jId, UpdateJobState.Cancelled, job.FailureReason);
+                    }
+                }
+
                 return Results.Ok(new { success = true, signal = "cancel", workflowId, reason = cancelReason });
             }
 
@@ -247,6 +317,33 @@ public static class TemporalWorkflowEndpoints
                 new WorkflowOptions(workflowId, taskQueue)
             );
 
+            // Persist batch metadata to system settings for fleet discovery & tracking
+            try
+            {
+                var storedBatch = new StoredRollingBatch(
+                    batchId.ToString(),
+                    workflowId,
+                    targets.Select(t => t.HostId.ToString()).ToList(),
+                    targets.Select(t => t.Hostname).ToList(),
+                    request.MaxParallelism,
+                    request.FailureStrategy ?? "StopOnFirstFailure",
+                    request.InitiatedBy ?? "Operator",
+                    DateTimeOffset.UtcNow
+                );
+
+                db.SystemSettings.Add(new SystemSetting
+                {
+                    Key = $"rolling_batch:{batchId}",
+                    ValueJson = System.Text.Json.JsonSerializer.Serialize(storedBatch),
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                await db.SaveChangesAsync();
+            }
+            catch
+            {
+                // Non-fatal if setting persistence fails
+            }
+
             return Results.Ok(new StartRollingUpgradeResponse(
                 batchId,
                 workflowId,
@@ -255,6 +352,157 @@ public static class TemporalWorkflowEndpoints
             ));
         })
         .RequireAuthorization(AuthConstants.RequireOperator);
+
+        batchGroup.MapGet("/", async (
+            ControlPlaneDbContext db,
+            [FromServices] ITemporalClient? temporalClient = null) =>
+        {
+            var rawBatches = await db.SystemSettings.AsNoTracking()
+                .Where(s => s.Key.StartsWith("rolling_batch:"))
+                .OrderByDescending(s => s.UpdatedAt)
+                .Take(25)
+                .ToListAsync();
+
+            var list = new List<RollingBatchSummaryDto>();
+
+            foreach (var raw in rawBatches)
+            {
+                try
+                {
+                    var meta = System.Text.Json.JsonSerializer.Deserialize<StoredRollingBatch>(raw.ValueJson);
+                    if (meta == null) continue;
+
+                    string status = "Pending";
+                    int completedHosts = 0;
+                    int failedHosts = 0;
+                    string? activeHostname = null;
+                    bool isPaused = false;
+
+                    if (temporalClient != null)
+                    {
+                        try
+                        {
+                            var handle = temporalClient.GetWorkflowHandle<IRollingUpgradeWorkflow>(meta.WorkflowId);
+                            var describe = await handle.DescribeAsync();
+                            status = describe.Status.ToString();
+
+                            try
+                            {
+                                var state = await handle.QueryAsync(w => w.GetWorkflowState());
+                                if (state != null)
+                                {
+                                    status = state.Status;
+                                    completedHosts = state.CompletedHosts;
+                                    failedHosts = state.FailedHosts;
+                                    activeHostname = state.ActiveHostname;
+                                    isPaused = state.IsPaused;
+                                }
+                            }
+                            catch
+                            {
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+
+                    list.Add(new RollingBatchSummaryDto(
+                        meta.BatchId,
+                        meta.WorkflowId,
+                        status,
+                        meta.Hostnames.Count,
+                        completedHosts,
+                        failedHosts,
+                        activeHostname,
+                        isPaused,
+                        meta.HostIds,
+                        meta.Hostnames,
+                        meta.InitiatedBy,
+                        meta.StartedAt
+                    ));
+                }
+                catch
+                {
+                }
+            }
+
+            return Results.Ok(list);
+        });
+
+        batchGroup.MapGet("/active", async (
+            ControlPlaneDbContext db,
+            [FromServices] ITemporalClient? temporalClient = null) =>
+        {
+            if (temporalClient == null)
+            {
+                return Results.Ok((RollingBatchSummaryDto?)null);
+            }
+
+            var rawBatches = await db.SystemSettings.AsNoTracking()
+                .Where(s => s.Key.StartsWith("rolling_batch:"))
+                .OrderByDescending(s => s.UpdatedAt)
+                .Take(10)
+                .ToListAsync();
+
+            foreach (var raw in rawBatches)
+            {
+                try
+                {
+                    var meta = System.Text.Json.JsonSerializer.Deserialize<StoredRollingBatch>(raw.ValueJson);
+                    if (meta == null) continue;
+
+                    var handle = temporalClient.GetWorkflowHandle<IRollingUpgradeWorkflow>(meta.WorkflowId);
+                    var describe = await handle.DescribeAsync();
+                    var descStatus = describe.Status.ToString();
+
+                    if (descStatus.Equals("Running", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int completedHosts = 0;
+                        int failedHosts = 0;
+                        string? activeHostname = null;
+                        bool isPaused = false;
+                        string status = "Running";
+
+                        try
+                        {
+                            var state = await handle.QueryAsync(w => w.GetWorkflowState());
+                            if (state != null)
+                            {
+                                status = state.Status;
+                                completedHosts = state.CompletedHosts;
+                                failedHosts = state.FailedHosts;
+                                activeHostname = state.ActiveHostname;
+                                isPaused = state.IsPaused;
+                            }
+                        }
+                        catch
+                        {
+                        }
+
+                        return Results.Ok(new RollingBatchSummaryDto(
+                            meta.BatchId,
+                            meta.WorkflowId,
+                            status,
+                            meta.Hostnames.Count,
+                            completedHosts,
+                            failedHosts,
+                            activeHostname,
+                            isPaused,
+                            meta.HostIds,
+                            meta.Hostnames,
+                            meta.InitiatedBy,
+                            meta.StartedAt
+                        ));
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return Results.Ok((RollingBatchSummaryDto?)null);
+        });
 
         batchGroup.MapGet("/{batchId}/status", async (
             string batchId,
@@ -328,7 +576,24 @@ public static class TemporalWorkflowEndpoints
                 signalName.Equals("abort", StringComparison.OrdinalIgnoreCase))
             {
                 var cancelReason = body?.Reason;
-                await handle.SignalAsync(w => w.CancelAsync(cancelReason));
+                try
+                {
+                    await handle.CancelAsync();
+                }
+                catch
+                {
+                    // Fall back to signal if direct workflow cancellation encounters an error
+                }
+
+                try
+                {
+                    await handle.SignalAsync(w => w.CancelAsync(cancelReason));
+                }
+                catch
+                {
+                    // Workflow may have already terminated
+                }
+
                 return Results.Ok(new { success = true, signal = "cancel", workflowId, reason = cancelReason });
             }
 

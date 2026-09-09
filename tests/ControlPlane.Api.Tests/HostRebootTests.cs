@@ -165,8 +165,67 @@ public class HostRebootTests
             var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
             var job = await db.UpdateJobs.FindAsync(returnedJobId);
             Assert.NotNull(job);
-            Assert.Equal("Running", job.Status);
-            Assert.Equal("Rebooting node", job.ActiveStep);
+            Assert.Contains(job.Status, new[] { "Pending", "Running", "AwaitingReconnect" });
+            Assert.Equal("safe-reboot-verify", job.PipelineId);
+            Assert.Equal(hostId, job.TargetHostId);
+        }
+    }
+
+    [Fact]
+    public async Task RebootHost_SelectsK8sSafeRebootPipeline_ForKubernetesNode()
+    {
+        using var factory = new RebootTestAppFactory();
+        var client = CreateAuthClient(factory);
+
+        var hostId = Guid.NewGuid();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            await db.Database.EnsureCreatedAsync();
+
+            db.Hosts.Add(new HostEntity
+            {
+                Id = hostId,
+                Hostname = "kube-control-02",
+                IpAddress = "192.168.50.6",
+                OsFamily = "linux_ubuntu",
+                TargetType = "k8s_node",
+                Agent = new AgentState
+                {
+                    Installed = true,
+                    PendingReboot = true,
+                    LastSeenAt = DateTimeOffset.UtcNow
+                }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Connect mock agent over WebSocket
+        var wsClient = factory.Server.CreateWebSocketClient();
+        var wsUri = new Uri(factory.Server.BaseAddress, $"/agent-hub?token=dev-secret-key-123&hostId={hostId}");
+        using var ws = await wsClient.ConnectAsync(wsUri, CancellationToken.None);
+
+        var connMgr = factory.Services.GetRequiredService<AgentConnectionManager>();
+        for (int i = 0; i < 50 && !connMgr.IsOnline(hostId); i++)
+        {
+            await Task.Delay(50);
+        }
+
+        var response = await client.PostAsync($"/api/v1/hosts/{hostId}/reboot", null);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+
+        using var responseDoc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = responseDoc.RootElement;
+        Assert.True(root.TryGetProperty("jobId", out var jobIdProp));
+        var returnedJobId = jobIdProp.GetGuid();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            var job = await db.UpdateJobs.FindAsync(returnedJobId);
+            Assert.NotNull(job);
+            Assert.Equal("k8s-node-safe-reboot", job.PipelineId);
             Assert.Equal(hostId, job.TargetHostId);
         }
     }

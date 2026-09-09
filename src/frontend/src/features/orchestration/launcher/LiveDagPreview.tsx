@@ -8,6 +8,7 @@ export interface LiveDagPreviewProps {
   enableK8sDrain: boolean
   requireApprovalBeforeReboot: boolean
   probeCount: number
+  workflowMode?: 'upgrade' | 'reboot'
   height?: number | string
   className?: string
 }
@@ -17,6 +18,7 @@ export function LiveDagPreview({
   enableK8sDrain,
   requireApprovalBeforeReboot,
   probeCount,
+  workflowMode = 'upgrade',
   height = '100%',
   className = '',
 }: LiveDagPreviewProps) {
@@ -25,15 +27,24 @@ export function LiveDagPreview({
     completedSteps: [],
   }), [])
 
+  const isRebootMode = workflowMode === 'reboot'
+
   // Calculate dynamic step count
   const estimatedStepCount = useMemo(() => {
+    if (isRebootMode) {
+      let count = 3 // Preflight Heartbeat + Deterministic Reboot + Reconnection Wait
+      if (enableK8sDrain) count += 2 // Cordon/Drain + Uncordon
+      if (probeCount > 0) count += 1 // Health Probes
+      return count
+    }
+
     let count = 6 // Preflights (3) + Upgrade + Reboot + Reconnect
     if (enableSnapshot) count += 1
     if (enableK8sDrain) count += 2 // Cordon/Drain + Uncordon
     if (requireApprovalBeforeReboot) count += 1
     if (probeCount > 0) count += 1
     return count
-  }, [enableSnapshot, enableK8sDrain, requireApprovalBeforeReboot, probeCount])
+  }, [isRebootMode, enableSnapshot, enableK8sDrain, requireApprovalBeforeReboot, probeCount])
 
   return (
     <div className={`flex-1 min-h-0 flex flex-col space-y-2.5 h-full ${className}`}>
@@ -57,9 +68,10 @@ export function LiveDagPreview({
         <WorkflowDagCanvas
           workflowId="preview-dag"
           state={previewState}
-          isProxmoxHost={enableSnapshot}
+          pipelineId={isRebootMode ? 'safe-reboot-verify' : 'standard-os-upgrade'}
+          isProxmoxHost={isRebootMode ? false : enableSnapshot}
           isK8sHost={enableK8sDrain}
-          requireApproval={requireApprovalBeforeReboot}
+          requireApproval={isRebootMode ? false : requireApprovalBeforeReboot}
           height={height}
           className="border-zinc-800/80 shadow-inner h-full w-full"
         />

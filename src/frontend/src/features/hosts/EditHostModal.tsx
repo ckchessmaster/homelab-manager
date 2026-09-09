@@ -11,7 +11,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { useUpdateHost } from './useHosts'
-import { ChevronDown, ChevronUp, Server, Shield, Network, AlertCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Server, Shield, Network, AlertCircle, Cpu } from 'lucide-react'
 import type { Host, UpdateHostPayload } from '../../api/hosts'
 
 interface EditHostModalProps {
@@ -41,6 +41,8 @@ function EditHostForm({ host, onClose }: { host: Host; onClose: () => void }) {
     targetType: host.targetType,
     proxmoxNode: host.proxmox?.node || '',
     proxmoxVmid: host.proxmox?.vmid || undefined,
+    k8sClusterId: host.kubernetes?.clusterId || host.k8sClusterId || '',
+    k8sNodeName: host.kubernetes?.nodeName || host.k8sNodeName || '',
     idracIp: host.idrac?.ipAddress || '',
     unifiSwitchMac: host.networkPort?.switchMac || '',
     unifiSwitchPort: host.networkPort?.portNumber || undefined,
@@ -48,7 +50,7 @@ function EditHostForm({ host, onClose }: { host: Host; onClose: () => void }) {
   }))
 
   const [showAdvanced, setShowAdvanced] = useState(() =>
-    Boolean(host.proxmox || host.idrac || host.networkPort)
+    Boolean(host.proxmox || host.idrac || host.networkPort || host.kubernetes || host.k8sClusterId)
   )
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -202,8 +204,10 @@ function EditHostForm({ host, onClose }: { host: Host; onClose: () => void }) {
             onChange={handleChange}
           >
             <option value="baremetal">Bare-Metal Server</option>
+            <option value="proxmox_node">Proxmox VE Hypervisor</option>
             <option value="proxmox_vm">Proxmox Virtual Machine</option>
             <option value="proxmox_lxc">Proxmox LXC Container</option>
+            <option value="kubernetes_node">Kubernetes Node</option>
           </Select>
         </div>
 
@@ -265,8 +269,32 @@ function EditHostForm({ host, onClose }: { host: Host; onClose: () => void }) {
                     label="Proxmox VMID"
                     name="proxmoxVmid"
                     type="number"
-                    placeholder="100"
+                    placeholder="100 (or empty for hypervisor)"
                     value={formData.proxmoxVmid ?? ''}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              {/* Kubernetes Linking */}
+              <div className="pt-2 border-t border-zinc-800/50">
+                <div className="flex items-center gap-1.5 font-medium text-sky-300 mb-2">
+                  <Cpu className="h-3.5 w-3.5" />
+                  Kubernetes Cluster Correlation
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    label="Cluster ID"
+                    name="k8sClusterId"
+                    placeholder="e.g. k8s-prod"
+                    value={formData.k8sClusterId || ''}
+                    onChange={handleChange}
+                  />
+                  <Input
+                    label="Node Name in Cluster"
+                    name="k8sNodeName"
+                    placeholder="e.g. k8s-worker-01"
+                    value={formData.k8sNodeName || ''}
                     onChange={handleChange}
                   />
                 </div>

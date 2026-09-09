@@ -12,8 +12,10 @@ import {
   Box,
   Users,
   X,
+  GitFork,
 } from 'lucide-react'
 import { useDiscoveryScan } from './useDiscovery'
+import { useSyncHostCorrelations } from '../hosts/useHosts'
 import { ImportCandidateModal } from './ImportCandidateModal'
 import { MassAdoptModal } from './MassAdoptModal'
 import { Button } from '../../components/ui/button'
@@ -43,6 +45,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
   const [successNotice, setSuccessNotice] = useState<{ message: string; hostId?: string } | null>(null)
 
   const { data: scanData, isLoading, isFetching, refetch } = useDiscoveryScan()
+  const syncMutation = useSyncHostCorrelations()
+
+  const handleSync = async () => {
+    try {
+      const res = await syncMutation.mutateAsync()
+      setSuccessNotice({
+        message: `Correlations saved to database: ${res.correlatedKubernetesNodes} Kubernetes node(s) and ${res.correlatedProxmoxHosts} Proxmox host(s) synchronized.`,
+      })
+      refetch()
+    } catch {
+      setSuccessNotice({
+        message: 'Failed to synchronize host correlations across infrastructure adapters.',
+      })
+    }
+  }
 
   const candidates = scanData?.candidates ?? []
 
@@ -119,6 +136,18 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSync}
+            disabled={syncMutation.isPending}
+            className="gap-2 border-sky-800/80 bg-sky-950/40 text-sky-300 hover:bg-sky-900/60 font-medium"
+            title="Correlate existing inventory hosts with active Proxmox hypervisors and Kubernetes clusters and save to database"
+          >
+            <GitFork className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+            {syncMutation.isPending ? 'Syncing...' : 'Sync Correlations'}
+          </Button>
+
           <Button
             variant="primary"
             size="sm"

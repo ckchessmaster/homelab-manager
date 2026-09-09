@@ -15,9 +15,11 @@ export function useTemporalWorkflow(workflowId?: string | null) {
       return getTemporalWorkflowStatus(workflowId)
     },
     enabled: Boolean(workflowId),
+    retry: 1,
     refetchInterval: (query) => {
+      if (query.state.status === 'error') return false
       const data = query.state.data
-      if (!data) return 2000
+      if (!data) return false
       const status = data.executionStatus?.toLowerCase()
       if (status === 'completed' || status === 'failed' || status === 'terminated' || status === 'timedout' || status === 'canceled') {
         return false
@@ -53,6 +55,7 @@ export function useTemporalWorkflow(workflowId?: string | null) {
     approveReboot: approveRebootMutation.mutate,
     isApproving: approveRebootMutation.isPending,
     rejectWorkflow: rejectWorkflowMutation.mutate,
+    cancelWorkflow: rejectWorkflowMutation.mutateAsync,
     isRejecting: rejectWorkflowMutation.isPending,
   }
 }

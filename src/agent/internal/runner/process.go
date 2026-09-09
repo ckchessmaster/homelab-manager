@@ -97,6 +97,8 @@ func (r *ProcessRunner) ExecuteCommand(
 
 func streamLines(r io.Reader, onLine func(string)) {
 	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		onLine(scanner.Text())
 	}

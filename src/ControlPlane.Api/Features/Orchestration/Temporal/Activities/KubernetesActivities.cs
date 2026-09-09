@@ -90,23 +90,34 @@ public class KubernetesActivities : IKubernetesActivities
             $"[K8S] Draining workloads from node '{input.NodeName}' (timeout: {timeout.TotalSeconds}s)..."
         );
 
-        var result = await adapter.DrainNodeAsync(
-            input.NodeName,
-            timeout,
-            input.IgnoreDaemonSets,
-            deleteEmptyDirData: true
-        );
-
-        if (!result.Success)
+        try
         {
-            var msg = result.ErrorMessage ?? $"Failed to drain workloads from node '{input.NodeName}'.";
+            var result = await adapter.DrainNodeAsync(
+                input.NodeName,
+                timeout,
+                input.IgnoreDaemonSets,
+                deleteEmptyDirData: true,
+                onProgress: async msg => await _logEmitter.EmitLogAsync(input.JobId, "system", msg)
+            );
+
+            if (!result.Success)
+            {
+                var msg = result.ErrorMessage ?? $"Failed to drain workloads from node '{input.NodeName}'.";
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[K8S] Error: {msg}");
+                return new KubernetesDrainResult(false, false, 0, msg);
+            }
+
+            var successMsg = $"Node '{input.NodeName}' drained successfully ({result.EvictedPodCount} pods evicted).";
+            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[K8S] {successMsg}");
+            return new KubernetesDrainResult(true, true, result.EvictedPodCount, successMsg);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error draining node '{NodeName}'", input.NodeName);
+            var msg = $"Drain failed with exception: {ex.Message}";
             await _logEmitter.EmitLogAsync(input.JobId, "system", $"[K8S] Error: {msg}");
             return new KubernetesDrainResult(false, false, 0, msg);
         }
-
-        var successMsg = $"Node '{input.NodeName}' drained successfully ({result.EvictedPodCount} pods evicted).";
-        await _logEmitter.EmitLogAsync(input.JobId, "system", $"[K8S] {successMsg}");
-        return new KubernetesDrainResult(true, true, result.EvictedPodCount, successMsg);
     }
 
     [Activity]

@@ -22,6 +22,7 @@ public class DiscoveryService : IDiscoveryService
     private readonly Features.Adapters.Config.IAdapterConfigService? _adapterConfigService;
     private readonly Features.Adapters.UniFi.IUniFiClientFactory? _unifiClientFactory;
     private readonly Features.Adapters.OPNsense.IOPNsenseClientFactory? _opnsenseClientFactory;
+    private readonly IHostCorrelationService? _hostCorrelationService;
     private readonly ILogger<DiscoveryService> _logger;
 
     public DiscoveryService(
@@ -35,7 +36,8 @@ public class DiscoveryService : IDiscoveryService
         IProxmoxClientFactory? proxmoxClientFactory = null,
         IKubernetesClientFactory? kubernetesClientFactory = null,
         Features.Adapters.UniFi.IUniFiClientFactory? unifiClientFactory = null,
-        Features.Adapters.OPNsense.IOPNsenseClientFactory? opnsenseClientFactory = null)
+        Features.Adapters.OPNsense.IOPNsenseClientFactory? opnsenseClientFactory = null,
+        IHostCorrelationService? hostCorrelationService = null)
     {
         _db = db;
         _proxmoxClient = proxmoxClient;
@@ -48,6 +50,7 @@ public class DiscoveryService : IDiscoveryService
         _proxmoxClientFactory = proxmoxClientFactory;
         _unifiClientFactory = unifiClientFactory;
         _opnsenseClientFactory = opnsenseClientFactory;
+        _hostCorrelationService = hostCorrelationService;
     }
 
     public async Task<DiscoveryScanResult> ScanAsync(
@@ -273,6 +276,21 @@ public class DiscoveryService : IDiscoveryService
         var total = candidates.Count;
         var managed = candidates.Count(c => c.IsManaged);
         var unmanaged = total - managed;
+
+        // Automatically synchronize correlations for existing managed hosts
+        if (_hostCorrelationService != null)
+        {
+            try
+            {
+                var syncRes = await _hostCorrelationService.SyncHostCorrelationsAsync(ct);
+                _logger.LogInformation("Discovery auto-synced correlations: {K8s} K8s nodes, {Pve} Proxmox hosts.",
+                    syncRes.CorrelatedKubernetesNodes, syncRes.CorrelatedProxmoxHosts);
+            }
+            catch (Exception syncEx)
+            {
+                _logger.LogWarning(syncEx, "Failed to auto-sync correlations during discovery scan.");
+            }
+        }
 
         return new DiscoveryScanResult(
             Candidates: candidates,

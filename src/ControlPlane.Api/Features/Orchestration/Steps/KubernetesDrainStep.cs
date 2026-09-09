@@ -47,7 +47,14 @@ public class KubernetesDrainStep : IJobStep
 
         await context.EmitLogAsync("system", $"[K8S] Draining workloads from node '{nodeName}' (timeout: {_drainTimeout.TotalSeconds}s)...", ct);
 
-        var result = await adapter.DrainNodeAsync(nodeName, _drainTimeout, _ignoreDaemonSets, deleteEmptyDirData: true, ct);
+        var result = await adapter.DrainNodeAsync(
+            nodeName,
+            _drainTimeout,
+            _ignoreDaemonSets,
+            deleteEmptyDirData: true,
+            ct: ct,
+            onProgress: async msg => await context.EmitLogAsync("system", msg, ct)
+        );
 
         if (!result.Success)
         {

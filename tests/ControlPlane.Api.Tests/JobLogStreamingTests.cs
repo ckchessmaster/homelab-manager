@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Jobs;
+using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using EFCore.NamingConventions;
@@ -76,6 +77,7 @@ public class JobLogStreamingTests
             {
                 Id = jobId,
                 TargetHostId = hostId,
+                PipelineId = "adhoc-command",
                 InitiatedBy = "Operator",
                 Status = "Running",
                 StartedAt = DateTimeOffset.UtcNow
@@ -163,5 +165,184 @@ public class JobLogStreamingTests
         Assert.Equal("Completed", jobDetails.Status);
 
         await hubConnection.StopAsync();
+    }
+
+    [Fact]
+    public async Task CancelJob_CancelsRunningJob_AndReturnsSuccess()
+    {
+        using var factory = new JobTestAppFactory();
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            db.Hosts.Add(new HostEntity
+            {
+                Id = hostId,
+                Hostname = "cancel-test-host",
+                IpAddress = "192.168.1.199",
+                OsFamily = "linux_debian",
+                TargetType = "baremetal"
+            });
+            db.UpdateJobs.Add(new UpdateJob
+            {
+                Id = jobId,
+                TargetHostId = hostId,
+                PipelineId = "standard-os-upgrade",
+                Status = "Running",
+                ActiveStep = "Package Upgrade Execution",
+                InitiatedBy = "Operator",
+                StartedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-ControlPlane-Key", "dev-secret-key-123");
+
+        var response = await client.PostAsJsonAsync($"/api/v1/jobs/{jobId}/cancel", new
+        {
+            Reason = "Stopped by operator"
+        });
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+        // Verify status in DB changed to Cancelled
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            var job = await db.UpdateJobs.FindAsync(jobId);
+            Assert.NotNull(job);
+            Assert.Equal(UpdateJobState.Cancelled, job.Status);
+            Assert.Equal("Stopped by operator", job.FailureReason);
+            Assert.NotNull(job.CompletedAt);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteJob_DeletesFinishedJob_AndAssociatedLogs()
+    {
+        using var factory = new JobTestAppFactory();
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            db.Hosts.Add(new HostEntity
+            {
+                Id = hostId,
+                Hostname = "delete-test-host",
+                IpAddress = "192.168.1.198",
+                OsFamily = "linux_debian",
+                TargetType = "baremetal"
+            });
+            db.UpdateJobs.Add(new UpdateJob
+            {
+                Id = jobId,
+                TargetHostId = hostId,
+                PipelineId = "standard-os-upgrade",
+                Status = "Completed",
+                InitiatedBy = "Operator",
+                StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+            db.StepLogs.Add(new StepLog
+            {
+                JobId = jobId,
+                SequenceId = 1,
+                StreamType = "stdout",
+                LogLine = "Log to delete",
+                Timestamp = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-ControlPlane-Key", "dev-secret-key-123");
+
+        var response = await client.DeleteAsync($"/api/v1/jobs/{jobId}");
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            var job = await db.UpdateJobs.FindAsync(jobId);
+            Assert.Null(job);
+            var logs = await db.StepLogs.Where(l => l.JobId == jobId).ToListAsync();
+            Assert.Empty(logs);
+        }
+    }
+
+    [Fact]
+    public async Task PurgeJobs_DeletesAllCompletedAndFailedJobs()
+    {
+        using var factory = new JobTestAppFactory();
+
+        var hostId = Guid.NewGuid();
+        var completedJobId = Guid.NewGuid();
+        var failedJobId = Guid.NewGuid();
+        var runningJobId = Guid.NewGuid();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            db.Hosts.Add(new HostEntity
+            {
+                Id = hostId,
+                Hostname = "purge-test-host",
+                IpAddress = "192.168.1.197",
+                OsFamily = "linux_debian",
+                TargetType = "baremetal"
+            });
+            db.UpdateJobs.AddRange(
+                new UpdateJob
+                {
+                    Id = completedJobId,
+                    TargetHostId = hostId,
+                    PipelineId = "p1",
+                    Status = "Completed",
+                    InitiatedBy = "Op",
+                    StartedAt = DateTimeOffset.UtcNow
+                },
+                new UpdateJob
+                {
+                    Id = failedJobId,
+                    TargetHostId = hostId,
+                    PipelineId = "p2",
+                    Status = "Failed",
+                    InitiatedBy = "Op",
+                    StartedAt = DateTimeOffset.UtcNow
+                },
+                new UpdateJob
+                {
+                    Id = runningJobId,
+                    TargetHostId = hostId,
+                    PipelineId = "p3",
+                    Status = "Running",
+                    InitiatedBy = "Op",
+                    StartedAt = DateTimeOffset.UtcNow
+                }
+            );
+            await db.SaveChangesAsync();
+        }
+
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-ControlPlane-Key", "dev-secret-key-123");
+
+        var response = await client.PostAsync("/api/v1/jobs/purge", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            Assert.Null(await db.UpdateJobs.FindAsync(completedJobId));
+            Assert.Null(await db.UpdateJobs.FindAsync(failedJobId));
+            // Running job must NOT be purged
+            Assert.NotNull(await db.UpdateJobs.FindAsync(runningJobId));
+        }
     }
 }

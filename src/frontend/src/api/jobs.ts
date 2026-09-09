@@ -35,3 +35,22 @@ export async function createJob(targetHostId: string, pipelineId?: string): Prom
     body: JSON.stringify({ targetHostId, pipelineId }),
   })
 }
+
+export async function cancelJob(id: string, reason?: string): Promise<{ success: boolean; message: string }> {
+  return apiClient(`/api/v1/jobs/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
+export async function deleteJob(id: string): Promise<{ success: boolean; message: string }> {
+  return apiClient(`/api/v1/jobs/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function purgeJobs(): Promise<{ success: boolean; purgedCount: number; message: string }> {
+  return apiClient('/api/v1/jobs/purge', {
+    method: 'POST',
+  })
+}

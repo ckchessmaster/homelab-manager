@@ -6,6 +6,8 @@ public class AgentCommandEnvelope
     public Guid JobId { get; set; }
     public string Command { get; set; } = string.Empty;
     public string[] Args { get; set; } = Array.Empty<string>();
+    public string? DownloadUrl { get; set; }
+    public string? TargetVersion { get; set; }
 }
 
 public class AgentFrameMessage

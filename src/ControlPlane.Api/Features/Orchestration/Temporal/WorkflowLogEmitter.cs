@@ -84,10 +84,7 @@ public class WorkflowLogEmitter : IWorkflowLogEmitter
             {
                 job.Status = status;
                 job.ActiveStep = activeStep;
-                if (!string.IsNullOrEmpty(failureReason))
-                {
-                    job.FailureReason = failureReason;
-                }
+                job.FailureReason = failureReason;
 
                 if (status is "Completed" or "Failed" or "RolledBack")
                 {

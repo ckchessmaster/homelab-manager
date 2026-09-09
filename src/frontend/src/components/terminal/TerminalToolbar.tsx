@@ -1,5 +1,5 @@
 import React from 'react'
-import { Terminal as TerminalIcon, Copy, Trash2, ArrowDownCircle, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { Terminal as TerminalIcon, Copy, Check, Trash2, ArrowDownCircle, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { Button } from '../ui/button'
 
 interface TerminalToolbarProps {
@@ -8,8 +8,10 @@ interface TerminalToolbarProps {
   lineCount?: number
   autoScroll: boolean
   onToggleAutoScroll: () => void
-  onClear: () => void
+  onClear?: () => void
   onCopy: () => void
+  showClear?: boolean
+  copied?: boolean
 }
 
 export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
@@ -20,6 +22,8 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
   onToggleAutoScroll,
   onClear,
   onCopy,
+  showClear = true,
+  copied = false,
 }) => {
   const getStatusBadge = () => {
     switch (status) {
@@ -93,23 +97,38 @@ export const TerminalToolbar: React.FC<TerminalToolbarProps> = ({
           variant="ghost"
           size="sm"
           onClick={onCopy}
-          className="h-7 px-2 text-xs text-zinc-400 hover:text-zinc-200 gap-1"
-          title="Copy output to clipboard"
+          className={`h-7 px-2 text-xs gap-1 transition-colors ${
+            copied
+              ? 'text-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-500/30'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+          title={copied ? 'Copied to clipboard!' : 'Copy output to clipboard'}
         >
-          <Copy className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Copy</span>
+          {copied ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-emerald-400 font-medium">Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Copy</span>
+            </>
+          )}
         </Button>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onClear}
-          className="h-7 px-2 text-xs text-zinc-400 hover:text-rose-400 gap-1"
-          title="Clear console"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
+        {showClear && onClear && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            className="h-7 px-2 text-xs text-zinc-400 hover:text-rose-400 gap-1"
+            title="Clear console"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        )}
       </div>
     </div>
   )

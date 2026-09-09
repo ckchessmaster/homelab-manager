@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Layers,
   X,
@@ -60,7 +60,36 @@ export function FleetRollingDashboardModal({
   const isFailed = status === 'Failed' || status === 'PartiallyFailed'
   const isCancelled = status === 'Cancelled' || state?.cancelled
 
-  const totalHosts = state?.totalHosts || targetHosts.length
+  const displayHosts = useMemo(() => {
+    if (targetHosts && targetHosts.length > 0) return targetHosts
+    if (state?.hostProgresses) {
+      return Object.values(state.hostProgresses).map((hp) => ({
+        id: hp.hostId,
+        hostname: hp.hostname,
+        friendlyName: hp.hostname,
+        ipAddress: '—',
+        osFamily: 'linux',
+        targetType: 'server',
+        proxmox: null,
+        kubernetes: null,
+        idrac: null,
+        networkPort: null,
+        agent: {
+          installed: true,
+          version: '1.0',
+          lastSeenAt: null,
+          pendingReboot: false,
+          upgradablePackagesCount: 0,
+          isOnline: true,
+        },
+        createdAt: '',
+        updatedAt: '',
+      } as Host))
+    }
+    return []
+  }, [targetHosts, state?.hostProgresses])
+
+  const totalHosts = state?.totalHosts || displayHosts.length
   const completedHosts = state?.completedHosts || 0
   const progressPercent = totalHosts > 0 ? Math.round((completedHosts / totalHosts) * 100) : 0
 
@@ -204,7 +233,7 @@ export function FleetRollingDashboardModal({
 
         {/* Node Cards List */}
         <div className="flex-1 p-6 overflow-y-auto space-y-3">
-          {targetHosts.map((host, idx) => {
+          {displayHosts.map((host: Host, idx: number) => {
             const progress = state?.hostProgresses?.[host.id]
             const hostStatus = progress?.status || 'Pending'
             const isNodeRunning = hostStatus === 'Running'

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useCallback, useState } from 'react'
 import {
   X,
   GitFork,
@@ -8,10 +8,12 @@ import {
   ShieldAlert,
   Loader2,
   RefreshCw,
+  Square,
 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { WorkflowDagCanvas } from './WorkflowDagCanvas'
 import { useTemporalWorkflow } from './hooks/useTemporalWorkflow'
-import type { JobSummary } from '../../../api/jobs'
+import { cancelJob, type JobSummary } from '../../../api/jobs'
 import type { Host } from '../../../api/hosts'
 import type { WorkflowStateLike } from './layout/dagLayout'
 import { Button } from '../../../components/ui/button'
@@ -37,14 +39,17 @@ export const WorkflowCanvasModal: React.FC<WorkflowCanvasModalProps> = ({
     return job.id.startsWith('host-upgrade-') ? job.id : `host-upgrade-${job.id}`
   }, [job])
 
+  const queryClient = useQueryClient()
+  const [isStopping, setIsStopping] = useState(false)
+
   const {
     data: temporalData,
-    isLoading: isTemporalLoading,
     refetch,
     isFetching,
     approveReboot,
     isApproving,
     rejectWorkflow,
+    cancelWorkflow,
     isRejecting,
   } = useTemporalWorkflow(isOpen ? workflowId : null)
 
@@ -55,10 +60,11 @@ export const WorkflowCanvasModal: React.FC<WorkflowCanvasModalProps> = ({
         status: temporalData.executionStatus || temporalData.state.status,
         activeStep: temporalData.state.activeStep,
         completedSteps: temporalData.state.completedSteps || [],
+        skippedSteps: temporalData.state.skippedSteps || [],
         awaitingApproval: temporalData.state.awaitingApproval,
         rebootApproved: temporalData.state.rebootApproved,
         cancelled: temporalData.state.cancelled,
-        failureReason: temporalData.state.failureReason,
+        failureReason: temporalData.executionStatus === 'Completed' || temporalData.state.status === 'Completed' ? null : temporalData.state.failureReason,
         snapshotIdentifier: temporalData.state.snapshotIdentifier,
         k8sNodeName: temporalData.state.k8sNodeName,
       }
@@ -69,19 +75,85 @@ export const WorkflowCanvasModal: React.FC<WorkflowCanvasModalProps> = ({
       return {
         status: job.status,
         activeStep: job.activeStep,
-        completedSteps: job.status === 'Completed' ? ['All steps completed'] : [],
-        failureReason: job.failureReason,
+        completedSteps: job.status === 'Completed' ? ['Preflight: Heartbeat Freshness', 'Preflight: Disk Headroom', 'Preflight: Package Lock Check', 'Hypervisor Safety Snapshot', 'Package Upgrade Execution', 'Post-Flight Health Probes'] : [],
+        skippedSteps: [],
+        failureReason: job.status === 'Completed' ? null : job.failureReason,
       }
     }
 
-    return { status: 'Pending', completedSteps: [] }
+    return { status: 'Pending', completedSteps: [], skippedSteps: [] }
   }, [temporalData, job])
+
+  const handleApprove = useCallback(() => {
+    approveReboot()
+  }, [approveReboot])
+
+  const handleReject = useCallback(() => {
+    rejectWorkflow('Operator rejected reboot from node action')
+  }, [rejectWorkflow])
+
+  const isWorkflowActive = useMemo(() => {
+    const status = (effectiveState.status || job?.status || '').toLowerCase()
+    return (
+      status === 'running' ||
+      status === 'pending' ||
+      status === 'verifying' ||
+      status === 'awaitingreconnect' ||
+      status === 'awaitingapproval'
+    )
+  }, [effectiveState.status, job?.status])
+
+  const handleStopWorkflow = useCallback(async () => {
+    const reason = 'Operator stopped workflow from DAG canvas'
+    setIsStopping(true)
+    try {
+      if (workflowId) {
+        try {
+          await cancelWorkflow(reason)
+        } catch {
+          // ignore if not temporal
+        }
+      }
+      if (job?.id) {
+        try {
+          await cancelJob(job.id, reason)
+        } catch {
+          // ignore
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ['temporalWorkflow', workflowId] })
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      refetch()
+    } finally {
+      setIsStopping(false)
+    }
+  }, [workflowId, job?.id, cancelWorkflow, refetch, queryClient])
 
   if (!isOpen || !job) return null
 
   const isAwaitingApproval = effectiveState.awaitingApproval
-  const isProxmoxHost = Boolean(host?.targetType?.toLowerCase().includes('proxmox') || host?.proxmox != null)
-  const isK8sHost = Boolean(host?.targetType?.toLowerCase().includes('k8s') || host?.targetType?.toLowerCase().includes('kubernetes'))
+  const isProxmoxHost = Boolean(
+    host?.targetType?.toLowerCase().includes('proxmox') ||
+    host?.proxmox != null ||
+    Boolean(effectiveState.snapshotIdentifier) ||
+    effectiveState.activeStep?.toLowerCase().includes('snapshot') ||
+    effectiveState.completedSteps?.some((s) => s.toLowerCase().includes('snapshot'))
+  )
+  const isK8sHost = Boolean(
+    host?.targetType?.toLowerCase().includes('k8s') ||
+    host?.targetType?.toLowerCase().includes('kubernetes') ||
+    host?.kubernetes != null ||
+    Boolean(host?.k8sNodeName) ||
+    Boolean(host?.k8sClusterId) ||
+    host?.hostname?.toLowerCase().includes('kube') ||
+    Boolean(effectiveState.k8sNodeName) ||
+    effectiveState.activeStep?.toLowerCase().includes('kubernetes') ||
+    effectiveState.activeStep?.toLowerCase().includes('evict') ||
+    effectiveState.activeStep?.toLowerCase().includes('cordon') ||
+    effectiveState.activeStep?.toLowerCase().includes('drain') ||
+    effectiveState.completedSteps?.some((s) => s.toLowerCase().includes('kubernetes')) ||
+    job?.pipelineId?.toLowerCase().includes('k8s')
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -114,6 +186,23 @@ export const WorkflowCanvasModal: React.FC<WorkflowCanvasModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {isWorkflowActive && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleStopWorkflow}
+                disabled={isStopping || isRejecting}
+                className="text-xs h-8 gap-1.5 border-rose-800/80 bg-rose-950/40 text-rose-300 hover:bg-rose-900/60 hover:text-rose-100 transition-colors shadow-xs shadow-rose-950/40"
+                title="Stop and cancel this running workflow"
+              >
+                {isStopping || isRejecting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                ) : (
+                  <Square className="w-3 h-3 fill-rose-400 text-rose-400 mr-1" />
+                )}
+                Stop Workflow
+              </Button>
+            )}
             {onOpenTerminal && (
               <Button
                 variant="outline"
@@ -197,20 +286,12 @@ export const WorkflowCanvasModal: React.FC<WorkflowCanvasModalProps> = ({
 
         {/* Canvas Body */}
         <div className="flex-1 w-full h-full relative overflow-hidden bg-zinc-950">
-          {isTemporalLoading && !temporalData ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/60 backdrop-blur-xs z-10">
-              <div className="flex flex-col items-center gap-2 text-zinc-400 text-xs">
-                <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
-                <span>Synchronizing DAG layout from Temporal...</span>
-              </div>
-            </div>
-          ) : null}
-
           <WorkflowDagCanvas
             workflowId={workflowId || job.id}
             state={effectiveState}
-            onApprove={() => approveReboot()}
-            onReject={() => rejectWorkflow('Operator rejected reboot from node action')}
+            pipelineId={job.pipelineId}
+            onApprove={handleApprove}
+            onReject={handleReject}
             isSubmittingApproval={isApproving || isRejecting}
             isProxmoxHost={isProxmoxHost}
             isK8sHost={isK8sHost}

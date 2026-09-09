@@ -57,7 +57,7 @@ export function useJobTerminalStream({
         setFailureReason(data.failureReason ?? null)
         if (data.status === 'Completed') {
           setStatus('completed')
-        } else if (data.status === 'Failed' || data.status === 'RolledBack') {
+        } else if (data.status === 'Failed' || data.status === 'RolledBack' || data.status === 'Cancelled') {
           setStatus('failed')
         }
         onStatusChangedRef.current?.(data.status, data.activeStep)
@@ -138,7 +138,7 @@ export function useJobTerminalStream({
         setActiveStep(step ?? null)
         if (receivedStatus === 'Completed') {
           setStatus('completed')
-        } else if (receivedStatus === 'Failed' || receivedStatus === 'RolledBack') {
+        } else if (receivedStatus === 'Failed' || receivedStatus === 'RolledBack' || receivedStatus === 'Cancelled') {
           setStatus('failed')
         }
         onStatusChangedRef.current?.(receivedStatus, step)

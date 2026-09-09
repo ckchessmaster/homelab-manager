@@ -39,17 +39,49 @@ public class AgentActivities : IAgentActivities
 
         if (osFamily.Contains("rhel") || osFamily.Contains("centos") || osFamily.Contains("fedora"))
         {
-            command = "dnf";
-            args = new[] { "upgrade", "-y" };
-        }
-        else
-        {
-            // Default Debian / Ubuntu noninteractive dist-upgrade
             command = "sh";
             args = new[]
             {
                 "-c",
-                "DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\""
+                "dnf upgrade -y --refresh || { STATUS=$?; echo \"[UPGRADE] dnf upgrade returned status $STATUS. Checking system consistency...\"; if dnf check >/dev/null 2>&1; then echo \"[UPGRADE] dnf check passed: package database consistent.\"; exit 0; fi; exit $STATUS; }"
+            };
+        }
+        else
+        {
+            // Resilient Debian / Ubuntu noninteractive dist-upgrade with automated remediation and lock timeout
+            command = "sh";
+            args = new[]
+            {
+                "-c",
+                "export DEBIAN_FRONTEND=noninteractive\n" +
+                "export NEEDRESTART_MODE=a\n" +
+                "unset NEEDRESTART_SUSPEND\n" +
+                "export APT_LISTCHANGES_FRONTEND=none\n" +
+                "export UCF_FORCE_CONFOLD=1\n" +
+                "apt-get update -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 || true\n" +
+                "apt-get dist-upgrade -y \\\n" +
+                "  -o Dpkg::Options::=\"--force-confdef\" \\\n" +
+                "  -o Dpkg::Options::=\"--force-confold\" \\\n" +
+                "  -o Dpkg::Options::=\"--force-confmiss\" \\\n" +
+                "  -o DPkg::Lock::Timeout=60 \\\n" +
+                "  -o Acquire::Retries=3 \\\n" +
+                "  --fix-missing\n" +
+                "STATUS=$?\n" +
+                "if [ $STATUS -ne 0 ]; then\n" +
+                "  echo \"[UPGRADE] apt-get dist-upgrade returned exit code $STATUS. Attempting auto-remediation (dpkg --configure -a, apt-get install -f)...\"\n" +
+                "  dpkg --configure -a --force-confdef --force-confold || true\n" +
+                "  apt-get install -f -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" -o DPkg::Lock::Timeout=60 || true\n" +
+                "  echo \"[UPGRADE] Resuming package upgrade following auto-remediation...\"\n" +
+                "  apt-get dist-upgrade -y \\\n" +
+                "    -o Dpkg::Options::=\"--force-confdef\" \\\n" +
+                "    -o Dpkg::Options::=\"--force-confold\" \\\n" +
+                "    -o Dpkg::Options::=\"--force-confmiss\" \\\n" +
+                "    -o DPkg::Lock::Timeout=60 \\\n" +
+                "    -o Acquire::Retries=3 \\\n" +
+                "    --fix-missing\n" +
+                "  STATUS=$?\n" +
+                "fi\n" +
+                "exit $STATUS"
             };
         }
 
@@ -59,32 +91,48 @@ public class AgentActivities : IAgentActivities
             $"[UPGRADE] Executing package upgrade via {command} {string.Join(' ', args)}"
         );
 
+        using var heartbeatCts = new CancellationTokenSource();
+        var heartbeatTask = Task.Run(async () =>
+        {
+            while (!heartbeatCts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(15), heartbeatCts.Token);
+                    ActivityExecutionContext.Current.Heartbeat("Package upgrade execution in progress");
+                }
+                catch
+                {
+                    break;
+                }
+            }
+        });
+
         try
         {
-            ActivityExecutionContext.Current.Heartbeat("Starting package upgrade execution");
+            var result = await _commandExecutor.ExecuteCommandAsync(
+                input.HostId,
+                input.JobId,
+                command,
+                args
+            );
+
+            if (!result.Success)
+            {
+                var errorMsg = $"Package upgrade failed with exit code {result.ExitCode}: {result.ErrorMessage ?? "unknown error"}";
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[UPGRADE] Error: {errorMsg}");
+                return new AgentUpgradeResult(false, result.ExitCode, errorMsg);
+            }
+
+            var successMsg = "Package upgrade completed successfully.";
+            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[UPGRADE] {successMsg}");
+            return new AgentUpgradeResult(true, 0, successMsg);
         }
-        catch
+        finally
         {
-            // Outside of temporal activity context (e.g. unit tests)
+            heartbeatCts.Cancel();
+            try { await heartbeatTask; } catch { }
         }
-
-        var result = await _commandExecutor.ExecuteCommandAsync(
-            input.HostId,
-            input.JobId,
-            command,
-            args
-        );
-
-        if (!result.Success)
-        {
-            var errorMsg = $"Package upgrade failed with exit code {result.ExitCode}: {result.ErrorMessage ?? "unknown error"}";
-            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[UPGRADE] Error: {errorMsg}");
-            return new AgentUpgradeResult(false, result.ExitCode, errorMsg);
-        }
-
-        var successMsg = "Package upgrade completed successfully.";
-        await _logEmitter.EmitLogAsync(input.JobId, "system", $"[UPGRADE] {successMsg}");
-        return new AgentUpgradeResult(true, 0, successMsg);
     }
 
     [Activity]
@@ -96,6 +144,27 @@ public class AgentActivities : IAgentActivities
 
         var pendingReboot = host?.Agent?.PendingReboot ?? false;
         var needsReboot = input.AlwaysReboot || pendingReboot;
+
+        if (!needsReboot && _connectionManager.IsOnline(input.HostId))
+        {
+            var checkScript = "if [ -f /var/run/reboot-required ] || [ -f /run/reboot-required ]; then exit 0; fi; if command -v needrestart >/dev/null 2>&1 && needrestart -b 2>/dev/null | grep -Eq 'NEEDRESTART-KSTA: [23]'; then exit 0; fi; if command -v needs-restarting >/dev/null 2>&1 && ! needs-restarting -r >/dev/null 2>&1; then exit 0; fi; exit 1";
+            var probeResult = await _commandExecutor.ExecuteCommandAsync(
+                input.HostId,
+                input.JobId,
+                "sh",
+                new[] { "-c", checkScript }
+            );
+            if (probeResult.Success)
+            {
+                needsReboot = true;
+                if (host != null)
+                {
+                    host.Agent.PendingReboot = true;
+                    await db.SaveChangesAsync();
+                }
+                await _logEmitter.EmitLogAsync(input.JobId, "system", "[REBOOT] Live probe detected pending reboot flag on node. Proceeding with reboot.");
+            }
+        }
 
         if (!needsReboot)
         {
@@ -170,17 +239,25 @@ public class AgentActivities : IAgentActivities
             $"[REBOOT] Waiting up to {timeout.TotalSeconds}s for host '{input.Hostname}' to restart and re-establish agent connection..."
         );
 
+        using var heartbeatCts = new CancellationTokenSource();
+        var heartbeatTask = Task.Run(async () =>
+        {
+            while (!heartbeatCts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), heartbeatCts.Token);
+                    ActivityExecutionContext.Current.Heartbeat("Waiting for agent WebSocket reconnection");
+                }
+                catch
+                {
+                    break;
+                }
+            }
+        });
+
         try
         {
-            try
-            {
-                ActivityExecutionContext.Current.Heartbeat("Waiting for agent WebSocket reconnection");
-            }
-            catch
-            {
-                // Outside temporal context
-            }
-
             var session = await _connectionManager.WaitForReconnectAsync(input.HostId, timeout);
 
             // Allow initial heartbeat to populate running kernel details
@@ -225,6 +302,11 @@ public class AgentActivities : IAgentActivities
             var msg = $"Reconnection error: {ex.Message}";
             await _logEmitter.EmitLogAsync(input.JobId, "system", $"[REBOOT] Error: {msg}");
             return new AgentReconnectResult(false, null, msg);
+        }
+        finally
+        {
+            heartbeatCts.Cancel();
+            try { await heartbeatTask; } catch { }
         }
     }
 }

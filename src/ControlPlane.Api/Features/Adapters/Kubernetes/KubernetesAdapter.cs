@@ -58,84 +58,120 @@ public class KubernetesAdapter : IKubernetesAdapter
         TimeSpan timeout,
         bool ignoreDaemonSets = true,
         bool deleteEmptyDirData = true,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<string, Task>? onProgress = null)
     {
         _logger.LogInformation("Initiating drain on Kubernetes node '{Node}' (timeout: {Timeout}s)...", nodeName, timeout.TotalSeconds);
 
-        // 1. Cordon first
-        var cordoned = await CordonNodeAsync(nodeName, ct);
-        if (!cordoned)
+        try
         {
-            return new K8sDrainResult(nodeName, false, 0, 0, "Failed to cordon node before eviction.");
-        }
-
-        // 2. Query pods scheduled on the node
-        var podsResponse = await _client.CoreV1.ListPodForAllNamespacesAsync(
-            fieldSelector: $"spec.nodeName={nodeName}",
-            cancellationToken: ct);
-
-        var allPods = podsResponse.Items ?? new List<V1Pod>();
-        var evictablePods = allPods.Where(pod => IsEvictable(pod, ignoreDaemonSets)).ToList();
-
-        _logger.LogInformation("Node '{Node}' has {TotalPods} total pods, {EvictableCount} evictable.",
-            nodeName, allPods.Count, evictablePods.Count);
-
-        if (evictablePods.Count == 0)
-        {
-            return new K8sDrainResult(nodeName, true, 0, 0, null);
-        }
-
-        var evictedCount = 0;
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-
-        // 3. Issue eviction requests
-        foreach (var pod in evictablePods)
-        {
-            var podName = pod.Metadata?.Name ?? "unknown";
-            var podNamespace = pod.Metadata?.NamespaceProperty ?? "default";
-
-            var evicted = await EvictPodWithRetryAsync(podName, podNamespace, cts.Token);
-            if (evicted)
+            // 1. Cordon first
+            var cordoned = await CordonNodeAsync(nodeName, ct);
+            if (!cordoned)
             {
-                evictedCount++;
+                return new K8sDrainResult(nodeName, false, 0, 0, "Failed to cordon node before eviction.");
             }
-        }
 
-        // 4. Poll until evictable pods have terminated
-        while (!cts.Token.IsCancellationRequested)
-        {
-            var remainingPodsResp = await _client.CoreV1.ListPodForAllNamespacesAsync(
+            // 2. Query pods scheduled on the node
+            var podsResponse = await _client.CoreV1.ListPodForAllNamespacesAsync(
                 fieldSelector: $"spec.nodeName={nodeName}",
-                cancellationToken: cts.Token);
+                cancellationToken: ct);
 
-            var remaining = (remainingPodsResp.Items ?? new List<V1Pod>())
-                .Count(p => IsEvictable(p, ignoreDaemonSets));
+            var allPods = podsResponse.Items ?? new List<V1Pod>();
+            var evictablePods = allPods.Where(pod => IsEvictable(pod, ignoreDaemonSets)).ToList();
 
-            if (remaining == 0)
+            _logger.LogInformation("Node '{Node}' has {TotalPods} total pods, {EvictableCount} evictable.",
+                nodeName, allPods.Count, evictablePods.Count);
+
+            if (evictablePods.Count == 0)
             {
-                _logger.LogInformation("All evictable pods cleanly terminated on node '{Node}'.", nodeName);
-                return new K8sDrainResult(nodeName, true, evictedCount, 0, null);
+                if (onProgress != null)
+                {
+                    await onProgress($"[K8S] No evictable workloads found on node '{nodeName}'.");
+                }
+                return new K8sDrainResult(nodeName, true, 0, 0, null);
             }
 
-            _logger.LogDebug("Waiting for {Remaining} pods to terminate on node '{Node}'...", remaining, nodeName);
-            try
+            var podNames = string.Join(", ", evictablePods.Select(p => $"{p.Metadata?.NamespaceProperty}/{p.Metadata?.Name}"));
+            if (onProgress != null)
             {
-                await Task.Delay(2000, cts.Token);
+                await onProgress($"[K8S] Evicting {evictablePods.Count} workload(s): {podNames}");
             }
-            catch (OperationCanceledException)
+
+            var evictedCount = 0;
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(timeout);
+
+            // 3. Issue eviction requests concurrently
+            var evictionTasks = evictablePods.Select(async pod =>
             {
-                break;
+                var podName = pod.Metadata?.Name ?? "unknown";
+                var podNamespace = pod.Metadata?.NamespaceProperty ?? "default";
+                return await EvictPodWithRetryAsync(podName, podNamespace, cts.Token, onProgress);
+            });
+
+            var results = await Task.WhenAll(evictionTasks);
+            evictedCount = results.Count(r => r);
+
+            // 4. Poll until evictable pods have terminated
+            var remainingPods = new List<V1Pod>();
+            while (!cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    var remainingPodsResp = await _client.CoreV1.ListPodForAllNamespacesAsync(
+                        fieldSelector: $"spec.nodeName={nodeName}",
+                        cancellationToken: cts.Token);
+
+                    remainingPods = (remainingPodsResp.Items ?? new List<V1Pod>())
+                        .Where(p => IsEvictable(p, ignoreDaemonSets))
+                        .ToList();
+
+                    if (remainingPods.Count == 0)
+                    {
+                        _logger.LogInformation("All evictable pods cleanly terminated on node '{Node}'.", nodeName);
+                        return new K8sDrainResult(nodeName, true, evictedCount, 0, null);
+                    }
+
+                    _logger.LogDebug("Waiting for {Remaining} pods to terminate on node '{Node}'...", remainingPods.Count, nodeName);
+                    await Task.Delay(2000, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
+
+            var remainingSummary = remainingPods.Count > 0
+                ? string.Join(", ", remainingPods.Select(p => $"{p.Metadata?.NamespaceProperty}/{p.Metadata?.Name}"))
+                : $"{evictablePods.Count - evictedCount} pod(s)";
+
+            var timeoutMsg = $"Drain timed out waiting for {remainingPods.Count} pod(s) to terminate after {timeout.TotalSeconds}s (Pods: {remainingSummary})";
+            _logger.LogWarning("{TimeoutMsg}", timeoutMsg);
+
+            return new K8sDrainResult(
+                nodeName,
+                false,
+                evictedCount,
+                remainingPods.Count,
+                timeoutMsg
+            );
         }
-
-        return new K8sDrainResult(
-            nodeName,
-            false,
-            evictedCount,
-            evictablePods.Count - evictedCount,
-            $"Drain timed out waiting for pods to terminate after {timeout.TotalSeconds} seconds."
-        );
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return new K8sDrainResult(nodeName, false, 0, 0, "Drain was cancelled by operator.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to drain node '{Node}'", nodeName);
+            return new K8sDrainResult(
+                nodeName,
+                false,
+                0,
+                0,
+                $"Failed to drain node '{nodeName}': {ex.Message}"
+            );
+        }
     }
 
     public async Task<K8sNodeStatus?> GetNodeStatusAsync(string nodeName, CancellationToken ct = default)
@@ -181,11 +217,31 @@ public class KubernetesAdapter : IKubernetesAdapter
             return false;
         }
 
-        // Ignore DaemonSets if specified
-        if (ignoreDaemonSets && pod.Metadata?.OwnerReferences != null &&
-            pod.Metadata.OwnerReferences.Any(o => string.Equals(o.Kind, "DaemonSet", StringComparison.OrdinalIgnoreCase)))
+        // Ignore DaemonSets and node-level storage daemons if specified
+        if (ignoreDaemonSets)
         {
-            return false;
+            if (pod.Metadata?.OwnerReferences != null &&
+                pod.Metadata.OwnerReferences.Any(o => string.Equals(o.Kind, "DaemonSet", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            // Node-level storage daemons managed by custom CRD controllers (not standard DaemonSets)
+            // that must stay alive to service unmounts during workload eviction.
+            var ns = pod.Metadata?.NamespaceProperty ?? "";
+            var name = pod.Metadata?.Name ?? "";
+            if (ns.Equals("longhorn-system", StringComparison.OrdinalIgnoreCase) &&
+                (name.StartsWith("instance-manager-", StringComparison.OrdinalIgnoreCase) ||
+                 name.StartsWith("share-manager-", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            if (ns.Equals("rook-ceph", StringComparison.OrdinalIgnoreCase) &&
+                name.StartsWith("rook-ceph-osd-", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
         }
 
         // Ignore already succeeded or failed pods
@@ -197,7 +253,11 @@ public class KubernetesAdapter : IKubernetesAdapter
         return true;
     }
 
-    private async Task<bool> EvictPodWithRetryAsync(string podName, string podNamespace, CancellationToken ct)
+    private async Task<bool> EvictPodWithRetryAsync(
+        string podName,
+        string podNamespace,
+        CancellationToken ct,
+        Func<string, Task>? onProgress = null)
     {
         var eviction = new V1Eviction
         {
@@ -214,6 +274,9 @@ public class KubernetesAdapter : IKubernetesAdapter
 
         var backoffMs = 500;
         var maxBackoffMs = 5000;
+        var pdbWarned = false;
+        var pdbStartTime = DateTimeOffset.UtcNow;
+        var maxPdbWait = TimeSpan.FromSeconds(30);
 
         while (!ct.IsCancellationRequested)
         {
@@ -229,7 +292,46 @@ public class KubernetesAdapter : IKubernetesAdapter
                 _logger.LogWarning("Eviction of '{Namespace}/{Pod}' rejected by PDB (429 Too Many Requests). Retrying in {Backoff}ms...",
                     podNamespace, podName, backoffMs);
 
-                await Task.Delay(backoffMs, ct);
+                if (!pdbWarned && onProgress != null)
+                {
+                    pdbWarned = true;
+                    await onProgress($"[K8S] Eviction of '{podNamespace}/{podName}' delayed by PodDisruptionBudget (HTTP 429); waiting for replica headroom...");
+                }
+
+                if (DateTimeOffset.UtcNow - pdbStartTime > maxPdbWait)
+                {
+                    _logger.LogWarning("PDB for '{Namespace}/{Pod}' continuously blocking eviction for {Wait}s. Falling back to graceful pod deletion.",
+                        podNamespace, podName, maxPdbWait.TotalSeconds);
+
+                    if (onProgress != null)
+                    {
+                        await onProgress($"[K8S] Notice: '{podNamespace}/{podName}' continuously blocked by PDB (Allowed disruptions: 0). Proceeding with graceful termination...");
+                    }
+
+                    try
+                    {
+                        await _client.CoreV1.DeleteNamespacedPodAsync(podName, podNamespace, cancellationToken: ct);
+                        return true;
+                    }
+                    catch (HttpOperationException deleteEx) when (deleteEx.Response.StatusCode == HttpStatusCode.NotFound)
+                    {
+                        return true;
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        _logger.LogError(deleteEx, "Failed to gracefully delete pod '{Namespace}/{Pod}'", podNamespace, podName);
+                        return false;
+                    }
+                }
+
+                try
+                {
+                    await Task.Delay(backoffMs, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
                 backoffMs = Math.Min(backoffMs * 2, maxBackoffMs);
             }
             catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
@@ -237,9 +339,17 @@ public class KubernetesAdapter : IKubernetesAdapter
                 // Already deleted
                 return true;
             }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error evicting pod '{Namespace}/{Pod}'", podNamespace, podName);
+                if (onProgress != null)
+                {
+                    await onProgress($"[K8S] Warning: Failed to evict '{podNamespace}/{podName}': {ex.Message}");
+                }
                 return false;
             }
         }

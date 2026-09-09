@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { Host } from '../../../api/hosts'
 import { startRollingUpgrade } from '../../../api/temporal'
+import { useActiveJobsByHost } from '../useJobs'
 import { Button } from '../../../components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -30,11 +31,14 @@ export function FleetRollingLauncherModal({
   onFleetLaunched,
 }: FleetRollingLauncherModalProps) {
   const queryClient = useQueryClient()
+  const activeJobsByHost = useActiveJobsByHost()
 
   // Selected host IDs
   const [selectedHostIds, setSelectedHostIds] = useState<string[]>(() => {
-    // Default select all hosts with updates or online
-    return availableHosts.filter((h) => h.agent?.installed && (h.agent?.upgradablePackagesCount || 0) > 0).map((h) => h.id)
+    // Default select all hosts with updates or online, excluding active DAGs
+    return availableHosts
+      .filter((h) => h.agent?.installed && (h.agent?.upgradablePackagesCount || 0) > 0 && !activeJobsByHost.has(h.id))
+      .map((h) => h.id)
   })
 
   // Concurrency & Policies
@@ -76,7 +80,7 @@ export function FleetRollingLauncherModal({
 
   const selectAllOutdated = () => {
     const outdatedIds = availableHosts
-      .filter((h) => (h.agent?.upgradablePackagesCount || 0) > 0)
+      .filter((h) => (h.agent?.upgradablePackagesCount || 0) > 0 && !activeJobsByHost.has(h.id))
       .map((h) => h.id)
     setSelectedHostIds(outdatedIds)
   }
@@ -195,16 +199,18 @@ export function FleetRollingLauncherModal({
             <div className="space-y-2">
               {availableHosts.map((host) => {
                 const isSelected = selectedHostIds.includes(host.id)
-                const isOnline = host.agent?.installed
+                const isOnline = host.agent?.isOnline ?? host.agent?.installed
+                const hasActiveDag = activeJobsByHost.has(host.id)
+                const activeJob = activeJobsByHost.get(host.id)
                 const updatesCount = host.agent?.upgradablePackagesCount || 0
 
                 return (
                   <div
                     key={host.id}
-                    onClick={() => isOnline && toggleHost(host.id)}
+                    onClick={() => isOnline && !hasActiveDag && toggleHost(host.id)}
                     className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 select-none ${
-                      !isOnline
-                        ? 'opacity-40 bg-zinc-950/40 border-zinc-900 cursor-not-allowed'
+                      !isOnline || hasActiveDag
+                        ? 'opacity-50 bg-zinc-950/40 border-zinc-900 cursor-not-allowed'
                         : isSelected
                         ? 'bg-zinc-900/90 border-indigo-500/60 ring-1 ring-indigo-500/30 cursor-pointer'
                         : 'bg-zinc-950/60 border-zinc-800/80 hover:bg-zinc-900/40 hover:border-zinc-700 cursor-pointer'
@@ -237,7 +243,14 @@ export function FleetRollingLauncherModal({
                     </div>
 
                     <div className="shrink-0 text-right">
-                      {isOnline ? (
+                      {hasActiveDag ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20"
+                          title={`Active DAG: ${activeJob?.activeStep || activeJob?.status || 'In progress'}`}
+                        >
+                          DAG in progress
+                        </span>
+                      ) : isOnline ? (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                           Online
                         </span>

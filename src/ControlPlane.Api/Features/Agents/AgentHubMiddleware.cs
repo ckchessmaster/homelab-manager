@@ -55,9 +55,11 @@ public class AgentHubMiddleware
             return;
         }
 
-        var host = await AuthenticateAgentAsync(context);
+        var token = ExtractToken(context);
+        var host = await AuthenticateAgentAsync(context, token);
         if (host == null)
         {
+            _logger.LogWarning("Agent connection rejected: Node identifier '{NodeId}' or token did not match any registered host.", GetNodeId(context));
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("Unauthorized: Invalid agent token or node identifier.");
             return;
@@ -65,8 +67,10 @@ public class AgentHubMiddleware
 
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
         var nodeId = GetNodeId(context) ?? host.Id.ToString();
+        var inboundHost = context.Request.Host.Value;
+        var inboundScheme = context.Request.Scheme;
 
-        _connectionManager.Register(host.Id, nodeId, webSocket);
+        _connectionManager.Register(host.Id, nodeId, webSocket, inboundHost, inboundScheme);
         _logger.LogInformation("Agent connected for host {Hostname} ({HostId})", host.Hostname, host.Id);
 
         try
@@ -79,7 +83,16 @@ public class AgentHubMiddleware
                 var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), context.RequestAborted);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                    try
+                    {
+                        if (webSocket.State == WebSocketState.CloseReceived)
+                        {
+                            await webSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                        }
+                    }
+                    catch
+                    {
+                    }
                     break;
                 }
 
@@ -105,28 +118,39 @@ public class AgentHubMiddleware
         }
         finally
         {
-            _connectionManager.Unregister(host.Id);
+            _connectionManager.Unregister(host.Id, webSocket);
             _logger.LogInformation("Agent disconnected for host {Hostname} ({HostId})", host.Hostname, host.Id);
         }
     }
 
-    private async Task<Storage.Entities.Host?> AuthenticateAgentAsync(HttpContext context)
+    private string? ExtractToken(HttpContext context)
     {
-        string? token = null;
         if (context.Request.Headers.TryGetValue("Authorization", out var authHeader))
         {
             var authStr = authHeader.ToString();
             if (authStr.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
-                token = authStr.Substring("Bearer ".Length).Trim();
+                return authStr.Substring("Bearer ".Length).Trim();
             }
         }
 
-        if (string.IsNullOrEmpty(token) && context.Request.Query.TryGetValue("token", out var queryToken))
+        if (context.Request.Query.TryGetValue("token", out var queryToken))
         {
-            token = queryToken.ToString();
+            return queryToken.ToString();
         }
 
+        return null;
+    }
+
+    private bool IsValidToken(string? token)
+    {
+        var expectedApiKey = _apiKeyOptions.CurrentValue.ApiKey;
+        return _apiKeyOptions.CurrentValue.BypassAuth ||
+               (!string.IsNullOrEmpty(expectedApiKey) && token == expectedApiKey);
+    }
+
+    private async Task<Storage.Entities.Host?> AuthenticateAgentAsync(HttpContext context, string? token)
+    {
         var nodeId = GetNodeId(context);
 
         using var scope = _scopeFactory.CreateScope();
@@ -157,7 +181,19 @@ public class AgentHubMiddleware
             }
         }
 
-        // 3. Check if nodeId matches Hostname
+        // 3. Check if X-ControlPlane-Hostname matches Hostname
+        if (context.Request.Headers.TryGetValue("X-ControlPlane-Hostname", out var headerHostname) &&
+            !string.IsNullOrWhiteSpace(headerHostname))
+        {
+            var hName = headerHostname.ToString().Trim().ToLowerInvariant();
+            var matchedHost = await db.Hosts.FirstOrDefaultAsync(h => h.Hostname.ToLower() == hName);
+            if (matchedHost != null && IsValidToken(token))
+            {
+                return matchedHost;
+            }
+        }
+
+        // 4. Check if nodeId matches Hostname
         if (!string.IsNullOrEmpty(nodeId))
         {
             var matchedHost = await db.Hosts.FirstOrDefaultAsync(h => h.Hostname.ToLower() == nodeId.ToLower());
@@ -171,25 +207,32 @@ public class AgentHubMiddleware
             }
         }
 
-        // 4. In dev bypass mode with an API key match, map to the first host or by query
-        var configuredKey = _apiKeyOptions.CurrentValue.ApiKey;
-        if ((_apiKeyOptions.CurrentValue.BypassAuth || (!string.IsNullOrEmpty(configuredKey) && token == configuredKey)))
+        // 4. Check if nodeId matches Host IP address
+        if (!string.IsNullOrEmpty(nodeId))
         {
-            // If query contains hostId
+            var matchedHost = await db.Hosts.FirstOrDefaultAsync(h => h.IpAddress.ToLower() == nodeId.ToLower());
+            if (matchedHost != null)
+            {
+                var expectedApiKey = _apiKeyOptions.CurrentValue.ApiKey;
+                if (_apiKeyOptions.CurrentValue.BypassAuth || string.IsNullOrEmpty(expectedApiKey) || token == expectedApiKey)
+                {
+                    return matchedHost;
+                }
+            }
+        }
+
+        // 5. In dev bypass mode with an API key match, map by query hostId
+        var configuredKey = _apiKeyOptions.CurrentValue.ApiKey;
+        if (_apiKeyOptions.CurrentValue.BypassAuth || (!string.IsNullOrEmpty(configuredKey) && token == configuredKey))
+        {
             if (context.Request.Query.TryGetValue("hostId", out var qHostId) && Guid.TryParse(qHostId, out var targetId))
             {
                 var targetHost = await db.Hosts.FirstOrDefaultAsync(h => h.Id == targetId);
                 if (targetHost != null) return targetHost;
             }
-
-            // Fallback to first registered host for local testing
-            var firstHost = await db.Hosts.FirstOrDefaultAsync();
-            if (firstHost != null)
-            {
-                return firstHost;
-            }
         }
 
+        _logger.LogWarning("Agent connection rejected: Node identifier '{NodeId}' or token did not match any registered host.", nodeId);
         return null;
     }
 

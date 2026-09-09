@@ -25,10 +25,13 @@ import { MassAgentUpdateModal } from './MassAgentUpdateModal'
 import { MassAdoptHostsModal } from './MassAdoptHostsModal'
 import { HostFilterPills, type PlatformFilter, type HealthFilter, type ViewMode } from './HostFilterPills'
 import { GroupedHostView } from './GroupedHostView'
-import { useDeleteHost, useHosts } from './useHosts'
+import { useDeleteHost, useHosts, useSyncHostCorrelations } from './useHosts'
 import { useAgentVersionInfo } from './useAgentUpdates'
 import { useAuthUser } from '../auth/useAuthUser'
 import { RoleGate } from '../auth/RoleGate'
+import { WorkflowCanvasModal } from '../orchestration/canvas/WorkflowCanvasModal'
+import { useActiveJobsByHost } from '../orchestration/useJobs'
+import type { JobSummary } from '../../api/jobs'
 import {
   Search,
   Plus,
@@ -50,6 +53,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Camera,
+  GitFork,
+  CheckCircle2,
+  X,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -89,6 +95,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
 
   const { data: agentVersionInfo } = useAgentVersionInfo()
   const { isAdmin, isOperator } = useAuthUser()
+  const activeJobsByHost = useActiveJobsByHost()
 
   // Selection & Reboot state
   const [selectedHostIds, setSelectedHostIds] = useState<Set<string>>(new Set())
@@ -97,6 +104,8 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [workflowModalHost, setWorkflowModalHost] = useState<Host | null>(null)
   const [snapshotModalHost, setSnapshotModalHost] = useState<Host | null>(null)
   const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false)
+  const [canvasJob, setCanvasJob] = useState<JobSummary | null>(null)
+  const [isCanvasModalOpen, setIsCanvasModalOpen] = useState(false)
 
   // View mode and platform filters
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>('all')
@@ -153,19 +162,48 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
 
   const { data: hosts, isLoading, isError, error, refetch, isFetching } = useHosts(filters)
   const deleteMutation = useDeleteHost()
+  const syncMutation = useSyncHostCorrelations()
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
+
+  const handleSyncCorrelations = async () => {
+    try {
+      const res = await syncMutation.mutateAsync()
+      setSyncNotice(
+        `Correlations synchronized: ${res.correlatedKubernetesNodes} Kubernetes node(s) and ${res.correlatedProxmoxHosts} Proxmox host(s) updated in database.`
+      )
+      setTimeout(() => setSyncNotice(null), 6000)
+    } catch (err: unknown) {
+      setSyncNotice('Failed to synchronize correlations across adapters.')
+      setTimeout(() => setSyncNotice(null), 6000)
+    }
+  }
 
   const displayHosts = useMemo(() => {
     if (!hosts) return []
     let result = hosts
     if (platformFilter === 'proxmox') {
       result = result.filter(
-        (h) => h.proxmox || h.targetType.startsWith('proxmox') || h.proxmoxInstanceId
+        (h) => h.proxmox || h.targetType?.startsWith('proxmox') || h.proxmoxInstanceId
       )
     } else if (platformFilter === 'kubernetes') {
-      result = result.filter((h) => h.k8sClusterId || h.k8sNodeName)
+      result = result.filter(
+        (h) =>
+          Boolean(
+            h.kubernetes?.clusterId ||
+            h.kubernetes?.nodeName ||
+            h.k8sClusterId ||
+            h.k8sNodeName ||
+            h.targetType?.includes('k8s') ||
+            h.targetType?.includes('kubernetes')
+          )
+      )
     } else if (platformFilter === 'baremetal') {
       result = result.filter(
-        (h) => h.targetType === 'baremetal' && !h.k8sNodeName && !h.proxmox
+        (h) =>
+          (h.targetType === 'baremetal' || h.targetType === 'physical') &&
+          !h.kubernetes?.clusterId &&
+          !h.k8sClusterId &&
+          !h.proxmox
       )
     }
 
@@ -390,24 +428,23 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
               <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsMassUpdateModalOpen(true)}
-              className={`gap-1.5 transition-colors ${
-                (agentVersionInfo?.outdatedAgentsCount ?? 0) > 0
-                  ? 'border-amber-700/80 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60 shadow-xs shadow-amber-900/20'
-                  : 'border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60'
-              }`}
-            >
-              <ArrowUpCircle className={`h-4 w-4 ${(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 ? 'text-amber-400' : 'text-zinc-400'}`} />
-              <span>Fleet Upgrade</span>
-              {(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  {agentVersionInfo?.outdatedAgentsCount}
-                </span>
-              )}
-            </Button>
+            {(agentVersionInfo?.onlineOutdatedCount ?? 0) === 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsMassUpdateModalOpen(true)}
+                className="gap-1.5 border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60"
+                title="Manage ControlPlane agent daemon versions"
+              >
+                <ArrowUpCircle className="h-4 w-4 text-zinc-400" />
+                <span>Agent Updates</span>
+                {(agentVersionInfo?.outdatedAgentsCount ?? 0) > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
+                    {agentVersionInfo?.outdatedAgentsCount}
+                  </span>
+                )}
+              </Button>
+            )}
 
             <Button
               variant="outline"
@@ -422,6 +459,20 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
               <Camera className="h-4 w-4" />
               <span>Snapshots</span>
             </Button>
+
+            <RoleGate requiredRole="Operator" mode="disable">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncCorrelations}
+                disabled={syncMutation.isPending}
+                className="gap-1.5 border-sky-800/80 bg-sky-950/40 text-sky-300 hover:bg-sky-900/60"
+                title="Synchronize Proxmox hypervisor & Kubernetes cluster correlations to database"
+              >
+                <GitFork className={`h-3.5 w-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                <span>{syncMutation.isPending ? 'Syncing...' : 'Sync Correlations'}</span>
+              </Button>
+            </RoleGate>
 
             <RoleGate requiredRole="Admin" mode="disable">
               <Button
@@ -450,6 +501,22 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           </div>
         )}
       </div>
+
+      {/* Sync Correlation Feedback Notice */}
+      {syncNotice && (
+        <div className="p-3.5 bg-sky-950/60 border border-sky-800/80 rounded-xl text-xs text-sky-200 flex items-center justify-between gap-2 shadow-lg shadow-sky-950/20 animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-4 w-4 text-sky-400 shrink-0" />
+            <span>{syncNotice}</span>
+          </div>
+          <button
+            onClick={() => setSyncNotice(null)}
+            className="text-sky-400 hover:text-sky-200 p-1 rounded hover:bg-sky-900/40 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Outdated Agents Banner */}
       {(agentVersionInfo?.onlineOutdatedCount ?? 0) > 0 && (
@@ -529,6 +596,11 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           }}
           isAdmin={isAdmin}
           isOperator={isOperator}
+          activeJobsByHost={activeJobsByHost}
+          onViewDag={(job) => {
+            setCanvasJob(job)
+            setIsCanvasModalOpen(true)
+          }}
         />
       ) : (
         <div className="space-y-3">
@@ -553,7 +625,9 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedHosts.map((host) => (
+            {paginatedHosts.map((host) => {
+              const activeJob = activeJobsByHost.get(host.id)
+              return (
               <TableRow
                 key={host.id}
                 className="cursor-pointer"
@@ -577,9 +651,23 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                       <HardDrive className="h-4 w-4" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-zinc-100">{host.hostname}</span>
                         <TargetTypeBadge type={host.targetType} />
+                        {activeJob && (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setCanvasJob(activeJob)
+                              setIsCanvasModalOpen(true)
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors animate-pulse"
+                            title={`Active DAG: ${activeJob.activeStep || activeJob.status}. Click to view DAG Canvas.`}
+                          >
+                            <GitFork className="w-2.5 h-2.5" />
+                            DAG Active
+                          </span>
+                        )}
                       </div>
                       {host.friendlyName && (
                         <div className="text-xs text-zinc-400 mt-0.5">{host.friendlyName}</div>
@@ -627,32 +715,49 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                 {/* Vitals */}
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      onClick={(e) => {
-                        if (host.agent.pendingReboot) {
+                    {activeJob ? (
+                      <span
+                        onClick={(e) => {
                           e.stopPropagation()
-                          setRebootModalHost(host)
-                        }
-                      }}
-                      className={host.agent.pendingReboot ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
-                      title={host.agent.pendingReboot ? 'Click to Reboot Node' : undefined}
-                    >
-                      <RebootBadge pending={host.agent.pendingReboot} />
-                    </span>
-                    <span
-                      onClick={(e) => {
-                        if (host.agent.installed && host.agent.upgradablePackagesCount > 0) {
-                          e.stopPropagation()
-                          handleTriggerUpdate(host)
-                        }
-                      }}
-                      className={host.agent.installed && host.agent.upgradablePackagesCount > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
-                      title={host.agent.installed ? 'Click to run DAG Update' : undefined}
-                    >
-                      <UpdatesBadge count={host.agent.upgradablePackagesCount} />
-                    </span>
-                    {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && (
-                      <span className="text-xs text-zinc-500">Clean</span>
+                          setCanvasJob(activeJob)
+                          setIsCanvasModalOpen(true)
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors cursor-pointer"
+                        title={`Update in progress: ${activeJob.activeStep || activeJob.status}. Click to view live DAG canvas.`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
+                        DAG Active
+                      </span>
+                    ) : (
+                      <>
+                        <span
+                          onClick={(e) => {
+                            if (host.agent.pendingReboot) {
+                              e.stopPropagation()
+                              setRebootModalHost(host)
+                            }
+                          }}
+                          className={host.agent.pendingReboot ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
+                          title={host.agent.pendingReboot ? 'Click to Reboot Node' : undefined}
+                        >
+                          <RebootBadge pending={host.agent.pendingReboot} />
+                        </span>
+                        <span
+                          onClick={(e) => {
+                            if (host.agent.installed && host.agent.upgradablePackagesCount > 0) {
+                              e.stopPropagation()
+                              handleTriggerUpdate(host)
+                            }
+                          }}
+                          className={host.agent.installed && host.agent.upgradablePackagesCount > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
+                          title={host.agent.installed ? 'Click to run DAG Update' : undefined}
+                        >
+                          <UpdatesBadge count={host.agent.upgradablePackagesCount} />
+                        </span>
+                        {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && (
+                          <span className="text-xs text-zinc-500">Clean</span>
+                        )}
+                      </>
                     )}
                   </div>
                 </TableCell>
@@ -678,7 +783,22 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                       </RoleGate>
                     ) : (
                       <>
-                        {host.agent.upgradablePackagesCount > 0 && (
+                        {activeJob ? (
+                          <RoleGate requiredRole="Operator" mode="disable">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-sky-400 hover:text-sky-300 hover:bg-sky-950/50"
+                              onClick={() => {
+                                setCanvasJob(activeJob)
+                                setIsCanvasModalOpen(true)
+                              }}
+                              title={`DAG Update already running (${activeJob.activeStep || activeJob.status}). Click to view live DAG canvas.`}
+                            >
+                              <GitFork className="h-4 w-4 animate-pulse" />
+                            </Button>
+                          </RoleGate>
+                        ) : host.agent.upgradablePackagesCount > 0 ? (
                           <RoleGate requiredRole="Operator" mode="disable">
                             <Button
                               variant="ghost"
@@ -690,18 +810,19 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                               <Sparkles className="h-4 w-4" />
                             </Button>
                           </RoleGate>
-                        )}
+                        ) : null}
                         <RoleGate requiredRole="Operator" mode="disable">
                           <Button
                             variant="ghost"
                             size="icon"
+                            disabled={Boolean(activeJob)}
                             className={`h-8 w-8 transition-colors ${
                               host.agent.pendingReboot
                                 ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-950/50'
                                 : 'text-zinc-400 hover:text-amber-300 hover:bg-zinc-800/60'
                             }`}
                             onClick={() => setRebootModalHost(host)}
-                            title={host.agent.pendingReboot ? 'Reboot Node (Kernel Reboot Pending)' : 'Reboot Node'}
+                            title={activeJob ? 'Cannot reboot while DAG is in progress' : host.agent.pendingReboot ? 'Reboot Node (Kernel Reboot Pending)' : 'Reboot Node'}
                           >
                             <RotateCcw className="h-4 w-4" />
                           </Button>
@@ -738,31 +859,51 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="right" className="w-52">
                         <DropdownMenuLabel>Operations</DropdownMenuLabel>
-                        <DropdownMenuItem
-                          disabled={!isOperator || !host.agent.installed}
-                          onClick={() => handleTriggerUpdate(host)}
-                          className="text-emerald-400 hover:text-emerald-300"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          <span>Run DAG Update</span>
-                          {host.agent.upgradablePackagesCount > 0 && (
-                            <span className="ml-auto text-[10px] font-mono bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded">
-                              {host.agent.upgradablePackagesCount}
+                        {activeJob ? (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setCanvasJob(activeJob)
+                              setIsCanvasModalOpen(true)
+                            }}
+                            className="text-sky-400 hover:text-sky-300"
+                          >
+                            <GitFork className="h-3.5 w-3.5" />
+                            <span>View Active DAG</span>
+                            <span className="ml-auto text-[10px] font-mono bg-sky-950 text-sky-300 px-1.5 py-0.5 rounded animate-pulse">
+                              Active
                             </span>
-                          )}
-                        </DropdownMenuItem>
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            disabled={!isOperator || !host.agent.installed}
+                            onClick={() => handleTriggerUpdate(host)}
+                            className="text-emerald-400 hover:text-emerald-300"
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            <span>Run DAG Update</span>
+                            {host.agent.upgradablePackagesCount > 0 && (
+                              <span className="ml-auto text-[10px] font-mono bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded">
+                                {host.agent.upgradablePackagesCount}
+                              </span>
+                            )}
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
-                          disabled={!isOperator || !host.agent.installed}
+                          disabled={!isOperator || !host.agent.installed || Boolean(activeJob)}
                           onClick={() => setRebootModalHost(host)}
                           className="text-amber-400 hover:text-amber-300"
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
                           <span>Reboot Node</span>
-                          {host.agent.pendingReboot && (
+                          {activeJob ? (
+                            <span className="ml-auto text-[10px] font-mono bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">
+                              DAG Active
+                            </span>
+                          ) : host.agent.pendingReboot ? (
                             <span className="ml-auto text-[10px] font-mono bg-amber-950 text-amber-300 px-1.5 py-0.5 rounded">
                               Pending
                             </span>
-                          )}
+                          ) : null}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => {
@@ -827,7 +968,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+            )})}
           </TableBody>
         </Table>
 
@@ -940,6 +1081,19 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         onWorkflowLaunched={handleWorkflowLaunched}
       />
 
+      {/* Visual DAG Canvas Modal for in-progress or selected job */}
+      {canvasJob && (
+        <WorkflowCanvasModal
+          isOpen={isCanvasModalOpen}
+          onClose={() => {
+            setIsCanvasModalOpen(false)
+            setCanvasJob(null)
+          }}
+          job={canvasJob}
+          host={hosts?.find((h) => h.id === canvasJob.targetHostId) ?? null}
+        />
+      )}
+
       {/* Proxmox Snapshots Management Modal */}
       <SnapshotManagementModal
         isOpen={isSnapshotModalOpen}
@@ -958,6 +1112,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           isOpen={Boolean(terminalHost)}
           initialJobId={terminalJobId}
           autoTriggerDag={autoTriggerUpdate}
+          isWorkflow={Boolean(terminalJobId || autoTriggerUpdate)}
           onClose={() => {
             setTerminalHost(null)
             setTerminalJobId(null)

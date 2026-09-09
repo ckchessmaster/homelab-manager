@@ -13,8 +13,14 @@ public record HostResponse(
     UnifiPortTargetDto? NetworkPort,
     AgentStateDto Agent,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt
+    DateTimeOffset UpdatedAt,
+    HypervisorHostSummaryDto? Hypervisor = null,
+    List<HostedVmSummaryDto>? HostedVms = null
 );
+
+public record HypervisorHostSummaryDto(Guid HostId, string Hostname, string? FriendlyName, string? NodeName);
+
+public record HostedVmSummaryDto(Guid HostId, string Hostname, string? FriendlyName, int Vmid, string TargetType, bool IsOnline);
 
 public record ProxmoxTargetDto(string Node, int Vmid, string? InstanceId = null);
 
@@ -29,7 +35,8 @@ public record AgentStateDto(
     string? Version,
     DateTimeOffset? LastSeenAt,
     bool PendingReboot,
-    int UpgradablePackagesCount
+    int UpgradablePackagesCount,
+    bool IsOnline = false
 );
 
 public record CreateHostRequest(

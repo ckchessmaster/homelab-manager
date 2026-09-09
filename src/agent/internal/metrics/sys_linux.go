@@ -159,6 +159,17 @@ func (c *linuxCollector) IsRebootRequired() bool {
 		return true
 	}
 
+	// Debian / Ubuntu needrestart indicator (KSTA: 2 or 3 means kernel upgrade pending)
+	if _, err := exec.LookPath("needrestart"); err == nil {
+		out, err := exec.Command("needrestart", "-b").Output()
+		if err == nil {
+			outStr := string(out)
+			if strings.Contains(outStr, "NEEDRESTART-KSTA: 2") || strings.Contains(outStr, "NEEDRESTART-KSTA: 3") {
+				return true
+			}
+		}
+	}
+
 	// RHEL / CentOS indicator: needs-restarting -r exits with 1 if reboot is needed
 	if _, err := exec.LookPath("needs-restarting"); err == nil {
 		cmd := exec.Command("needs-restarting", "-r")

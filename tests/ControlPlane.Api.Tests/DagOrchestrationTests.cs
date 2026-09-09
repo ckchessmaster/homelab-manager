@@ -77,6 +77,22 @@ public class DagOrchestrationTests
         public void NotifyFrame(Guid hostId, AgentFrameData frame) { }
     }
 
+    private class TestWebSocket : WebSocket
+    {
+        public override WebSocketCloseStatus? CloseStatus => null;
+        public override string? CloseStatusDescription => null;
+        public override WebSocketState State => WebSocketState.Open;
+        public override string? SubProtocol => null;
+        public override void Abort() { }
+        public override Task CloseAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override Task CloseOutputAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override void Dispose() { }
+        public override Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken) =>
+            Task.FromResult(new WebSocketReceiveResult(0, WebSocketMessageType.Text, true));
+        public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
+
     [Fact]
     public async Task PreflightHeartbeat_Fails_When_AgentOffline()
     {
@@ -252,6 +268,72 @@ public class DagOrchestrationTests
         Assert.False(result.Success);
         Assert.Contains("Insufficient root filesystem headroom", result.Message);
         Assert.Contains("12.0%", result.Message);
+    }
+
+    [Fact]
+    public async Task PreflightDiskHeadroom_Succeeds_When_StorageProbeConfirmsActualRequirementsMet_EvenWithLowFreePercentage()
+    {
+        using var factory = new DagTestAppFactory();
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+        var connMgr = scope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+        var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "low-pct-high-capacity-node",
+            IpAddress = "192.168.1.12",
+            OsFamily = "linux_debian",
+            TargetType = "baremetal"
+        };
+        var job = new UpdateJob
+        {
+            Id = jobId,
+            TargetHostId = hostId,
+            Status = UpdateJobState.Pending
+        };
+        db.Hosts.Add(host);
+        db.UpdateJobs.Add(job);
+        // Add log simulating probe output: 3500 MB available, 1024 MB required, 7% free (well below 20%)
+        db.StepLogs.Add(new StepLog
+        {
+            JobId = jobId,
+            SequenceId = 1,
+            StreamType = "stdout",
+            LogLine = "STORAGE_CHECK|avail_mb=3500|req_mb=1024|total_mb=50000|free_pct=7",
+            Timestamp = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        connMgr.Register(hostId, "low-pct-high-capacity-node", new TestWebSocket());
+
+        var mockExecutor = new MockCommandExecutor
+        {
+            OnExecute = (hId, jId, cmd, args) => new AgentCommandResult(true, 0, "STORAGE_CHECK|avail_mb=3500|req_mb=1024|total_mb=50000|free_pct=7")
+        };
+
+        var context = new JobExecutionContext(
+            job,
+            host,
+            scopeFactory,
+            hubContext,
+            mockExecutor,
+            connMgr,
+            NullLogger.Instance
+        );
+
+        var step = new PreflightDiskHeadroomCheckStep(minFreePct: 20.0);
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.True(result.Success, $"Expected success but got: {result.Message}");
+        Assert.Contains("3500 MB available", result.Message);
+        Assert.Contains("1024 MB required", result.Message);
     }
 
     [Fact]
@@ -506,10 +588,11 @@ public class DagOrchestrationTests
         var catalog = new PipelineCatalog();
         var profiles = catalog.GetProfiles();
 
-        Assert.Equal(5, profiles.Count);
+        Assert.Equal(6, profiles.Count);
         Assert.Contains(profiles, p => p.Id == "standard-os-upgrade");
         Assert.Contains(profiles, p => p.Id == "k8s-node-rolling-upgrade");
         Assert.Contains(profiles, p => p.Id == "safe-reboot-verify");
+        Assert.Contains(profiles, p => p.Id == "k8s-node-safe-reboot");
         Assert.Contains(profiles, p => p.Id == "preflight-dryrun");
         Assert.Contains(profiles, p => p.Id == "hypervisor-snapshot-only");
 
@@ -523,6 +606,9 @@ public class DagOrchestrationTests
         var reboot = catalog.GetProfile("safe-reboot-verify")!;
         Assert.Equal(4, reboot.Steps.Count);
 
+        var k8sReboot = catalog.GetProfile("k8s-node-safe-reboot")!;
+        Assert.Equal(7, k8sReboot.Steps.Count);
+
         var dryrun = catalog.GetProfile("preflight-dryrun")!;
         Assert.Equal(3, dryrun.Steps.Count);
 
@@ -533,6 +619,12 @@ public class DagOrchestrationTests
         Assert.Equal("k8s-node-rolling-upgrade", catalog.GetRecommendedProfileId("k8s_node", "linux_debian"));
         Assert.Equal("standard-os-upgrade", catalog.GetRecommendedProfileId("proxmox_vm", "linux_debian"));
         Assert.Equal("standard-os-upgrade", catalog.GetRecommendedProfileId("baremetal", "linux_ubuntu"));
+
+        // Reboot Recommendation
+        Assert.Equal("k8s-node-safe-reboot", catalog.GetRecommendedRebootProfileId("k8s_node"));
+        Assert.Equal("k8s-node-safe-reboot", catalog.GetRecommendedRebootProfileId("proxmox_vm", isKubernetesNode: true));
+        Assert.Equal("safe-reboot-verify", catalog.GetRecommendedRebootProfileId("proxmox_vm"));
+        Assert.Equal("safe-reboot-verify", catalog.GetRecommendedRebootProfileId("baremetal"));
     }
 
     [Fact]
@@ -554,9 +646,11 @@ public class DagOrchestrationTests
 
         var profiles = await response.Content.ReadFromJsonAsync<List<PipelineProfileDto>>();
         Assert.NotNull(profiles);
-        Assert.Equal(5, profiles.Count);
+        Assert.Equal(6, profiles.Count);
         Assert.Contains(profiles, p => p.Id == "standard-os-upgrade" && p.Steps.Count == 8);
         Assert.Contains(profiles, p => p.Id == "k8s-node-rolling-upgrade" && p.Steps.Count == 11);
+        Assert.Contains(profiles, p => p.Id == "safe-reboot-verify" && p.Steps.Count == 4);
+        Assert.Contains(profiles, p => p.Id == "k8s-node-safe-reboot" && p.Steps.Count == 7);
     }
 
     [Fact]
@@ -622,6 +716,133 @@ public class DagOrchestrationTests
         var request = new CreateJobRequest(hostId, "invalid-pipeline-xyz");
         var postResponse = await client.PostAsJsonAsync("/api/v1/jobs", request);
         Assert.Equal(HttpStatusCode.NotFound, postResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task PackageUpgradeStep_GeneratesResilientScript_WithNeedRestartAndAudit()
+    {
+        using var factory = new DagTestAppFactory();
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+        var connMgr = scope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+        var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "ubuntu-node-resilient",
+            IpAddress = "192.168.1.18",
+            OsFamily = "linux_ubuntu",
+            TargetType = "baremetal",
+            Agent = new AgentState
+            {
+                Installed = true,
+                LastSeenAt = DateTimeOffset.UtcNow
+            }
+        };
+        var job = new UpdateJob
+        {
+            Id = jobId,
+            TargetHostId = hostId,
+            Status = UpdateJobState.Running
+        };
+        db.Hosts.Add(host);
+        db.UpdateJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        string? executedScript = null;
+        var mockExecutor = new MockCommandExecutor
+        {
+            OnExecute = (hId, jId, cmd, args) =>
+            {
+                executedScript = args.Length > 1 ? args[1] : null;
+                return new AgentCommandResult(true, 0, null);
+            }
+        };
+
+        var context = new JobExecutionContext(
+            job,
+            host,
+            scopeFactory,
+            hubContext,
+            mockExecutor,
+            connMgr,
+            NullLogger.Instance
+        );
+
+        var step = new PackageUpgradeStep();
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.NotNull(executedScript);
+        Assert.DoesNotContain("NEEDRESTART_SUSPEND=1", executedScript);
+        Assert.Contains("unset NEEDRESTART_SUSPEND", executedScript);
+        Assert.Contains("NEEDRESTART_MODE=a", executedScript);
+        Assert.Contains("APT_LISTCHANGES_FRONTEND=none", executedScript);
+        Assert.Contains("UCF_FORCE_CONFOLD=1", executedScript);
+        Assert.Contains("dpkg --configure -a", executedScript);
+    }
+
+    [Fact]
+    public async Task PackageUpgradeStep_Fails_WhenExitCode100_And_AuditFails()
+    {
+        using var factory = new DagTestAppFactory();
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+        var connMgr = scope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+        var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "ubuntu-broken-node",
+            IpAddress = "192.168.1.19",
+            OsFamily = "linux_ubuntu",
+            TargetType = "baremetal",
+            Agent = new AgentState
+            {
+                Installed = true,
+                LastSeenAt = DateTimeOffset.UtcNow
+            }
+        };
+        var job = new UpdateJob
+        {
+            Id = jobId,
+            TargetHostId = hostId,
+            Status = UpdateJobState.Running
+        };
+        db.Hosts.Add(host);
+        db.UpdateJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        var mockExecutor = new MockCommandExecutor
+        {
+            OnExecute = (hId, jId, cmd, args) => new AgentCommandResult(false, 100, "Process exited with code 100")
+        };
+
+        var context = new JobExecutionContext(
+            job,
+            host,
+            scopeFactory,
+            hubContext,
+            mockExecutor,
+            connMgr,
+            NullLogger.Instance
+        );
+
+        var step = new PackageUpgradeStep();
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("Package upgrade failed with exit code 100", result.Message);
     }
 
     private class MockStep : IJobStep

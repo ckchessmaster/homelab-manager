@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchJobs, fetchJob, createJob } from '../../api/jobs'
+import { useMemo } from 'react'
+import { fetchJobs, fetchJob, createJob, type JobSummary } from '../../api/jobs'
 
 export const JOBS_QUERY_KEY = ['jobs']
 
@@ -9,6 +10,27 @@ export function useJobs(hostId?: string) {
     queryFn: () => fetchJobs(hostId),
     refetchInterval: 3000,
   })
+}
+
+export function useActiveJobsByHost() {
+  const { data: jobs } = useJobs()
+  return useMemo(() => {
+    const map = new Map<string, JobSummary>()
+    if (!jobs) return map
+    for (const job of jobs) {
+      const s = job.status?.toLowerCase()
+      if (
+        s === 'running' ||
+        s === 'pending' ||
+        s === 'verifying' ||
+        s === 'awaitingreconnect' ||
+        s === 'awaitingapproval'
+      ) {
+        map.set(job.targetHostId, job)
+      }
+    }
+    return map
+  }, [jobs])
 }
 
 export function useJob(jobId: string | null) {

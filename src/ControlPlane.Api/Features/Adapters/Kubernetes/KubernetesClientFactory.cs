@@ -95,7 +95,7 @@ public class KubernetesClientFactory : IKubernetesClientFactory
         }
 
         var client = new k8s.Kubernetes(config);
-        client.HttpClient.Timeout = TimeSpan.FromSeconds(10);
+        client.HttpClient.Timeout = TimeSpan.FromSeconds(60);
         return client;
     }
 
@@ -126,7 +126,7 @@ public class KubernetesClientFactory : IKubernetesClientFactory
         }
 
         var defaultClient = new k8s.Kubernetes(config);
-        defaultClient.HttpClient.Timeout = TimeSpan.FromSeconds(10);
+        defaultClient.HttpClient.Timeout = TimeSpan.FromSeconds(60);
         return defaultClient;
     }
 

@@ -24,6 +24,25 @@ public class DeterministicRebootStep : IJobStep
         var forceReboot = context.State.ContainsKey("ForceReboot");
         var needsReboot = _alwaysReboot || forceReboot || context.TargetHost.Agent.PendingReboot;
 
+        if (!needsReboot && context.ConnectionManager.IsOnline(context.HostId))
+        {
+            // Execute live reboot probe on the agent node to avoid relying on stale DB cache
+            var checkScript = "if [ -f /var/run/reboot-required ] || [ -f /run/reboot-required ]; then exit 0; fi; if command -v needrestart >/dev/null 2>&1 && needrestart -b 2>/dev/null | grep -Eq 'NEEDRESTART-KSTA: [23]'; then exit 0; fi; if command -v needs-restarting >/dev/null 2>&1 && ! needs-restarting -r >/dev/null 2>&1; then exit 0; fi; exit 1";
+            var probeResult = await context.CommandExecutor.ExecuteCommandAsync(
+                context.HostId,
+                context.JobId,
+                "sh",
+                new[] { "-c", checkScript },
+                ct
+            );
+            if (probeResult.Success)
+            {
+                needsReboot = true;
+                context.TargetHost.Agent.PendingReboot = true;
+                await context.EmitLogAsync("system", "[REBOOT] Live probe detected pending reboot flag on node. Proceeding with reboot.", ct);
+            }
+        }
+
         if (!needsReboot)
         {
             context.State["RebootSkipped"] = true;

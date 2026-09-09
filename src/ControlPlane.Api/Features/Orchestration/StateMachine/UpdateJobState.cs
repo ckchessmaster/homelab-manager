@@ -12,4 +12,5 @@ public static class UpdateJobState
     public const string Completed = "Completed";
     public const string Failed = "Failed";
     public const string RolledBack = "RolledBack";
+    public const string Cancelled = "Cancelled";
 }

@@ -9,18 +9,47 @@ export interface TerminalRef {
   clear: () => void
   focus: () => void
   getSelection: () => string
+  getAllText: () => string
   scrollToBottom: () => void
+}
+
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {}
+
+  try {
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-9999px'
+    textArea.style.top = '-9999px'
+    textArea.style.opacity = '0'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    const successful = document.execCommand('copy')
+    document.body.removeChild(textArea)
+    return successful
+  } catch {
+    return false
+  }
 }
 
 interface TerminalCanvasProps {
   autoScroll?: boolean
+  readOnly?: boolean
   className?: string
   onData?: (data: string) => void
   onScrollPositionChange?: (isAtBottom: boolean) => void
 }
 
 export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
-  ({ autoScroll = true, className = '', onData, onScrollPositionChange }, ref) => {
+  ({ autoScroll = true, readOnly = false, className = '', onData, onScrollPositionChange }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const terminalRef = useRef<Terminal | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
@@ -81,6 +110,21 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
       getSelection: () => {
         return terminalRef.current?.getSelection() ?? ''
       },
+      getAllText: () => {
+        if (!terminalRef.current) return ''
+        const buffer = terminalRef.current.buffer.active
+        const lines: string[] = []
+        for (let i = 0; i < buffer.length; i++) {
+          const line = buffer.getLine(i)
+          if (line) {
+            lines.push(line.translateToString(true))
+          }
+        }
+        while (lines.length > 0 && lines[lines.length - 1] === '') {
+          lines.pop()
+        }
+        return lines.join('\n')
+      },
       scrollToBottom: () => {
         terminalRef.current?.scrollToBottom()
       },
@@ -90,8 +134,10 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
       if (!containerRef.current) return
 
       const term = new Terminal({
-        cursorBlink: true,
-        cursorStyle: 'bar',
+        cursorBlink: !readOnly,
+        cursorStyle: readOnly ? 'underline' : 'bar',
+        cursorInactiveStyle: 'none',
+        disableStdin: readOnly,
         fontSize: 13,
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
         lineHeight: 1.25,
@@ -125,6 +171,23 @@ export const TerminalCanvas = forwardRef<TerminalRef, TerminalCanvasProps>(
       const fitAddon = new FitAddon()
       term.loadAddon(fitAddon)
       term.open(containerRef.current)
+
+      // Allow Ctrl+C / Cmd+C copy and prevent typing in read-only mode
+      term.attachCustomKeyEventHandler((event) => {
+        if ((event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
+          if (term.hasSelection()) {
+            return false
+          }
+        }
+        if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A')) {
+          term.selectAll()
+          return false
+        }
+        if (readOnly) {
+          return false
+        }
+        return true
+      })
 
       terminalRef.current = term
       fitAddonRef.current = fitAddon

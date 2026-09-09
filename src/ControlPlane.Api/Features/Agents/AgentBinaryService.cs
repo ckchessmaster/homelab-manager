@@ -2,7 +2,7 @@ namespace ControlPlane.Api.Features.Agents;
 
 public class AgentBinaryService
 {
-    public const string CurrentAgentVersion = "1.1.0";
+    public const string CurrentAgentVersion = "1.1.1";
 
     public virtual string? GetBinaryPath(string arch)
     {

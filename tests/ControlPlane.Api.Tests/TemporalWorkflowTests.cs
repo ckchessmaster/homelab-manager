@@ -168,7 +168,7 @@ public class TemporalWorkflowTests : IDisposable
             return Task.FromResult(true);
         }
 
-        public Task<K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default)
+        public Task<K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default, Func<string, Task>? onProgress = null)
         {
             Drained = true;
             return Task.FromResult(new K8sDrainResult(nodeName, true, 3, 0, null));

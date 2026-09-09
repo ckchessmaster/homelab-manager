@@ -25,6 +25,7 @@ public class HostUpgradeWorkflowState
     public string Status { get; set; } = "Pending";
     public string? ActiveStep { get; set; }
     public List<string> CompletedSteps { get; set; } = new();
+    public List<string> SkippedSteps { get; set; } = new();
     public bool AwaitingApproval { get; set; }
     public bool RebootApproved { get; set; }
     public bool Cancelled { get; set; }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,7 +24,7 @@ import (
 )
 
 var (
-	Version = "1.1.0"
+	Version = "1.1.1"
 )
 
 type HeartbeatPayload struct {
@@ -46,10 +47,12 @@ type CommandEnvelope struct {
 }
 
 type UpdateEnvelope struct {
-	Type          string `json:"type"`
-	JobID         string `json:"jobId"`
-	DownloadURL   string `json:"downloadUrl"`
-	TargetVersion string `json:"targetVersion"`
+	Type          string   `json:"type"`
+	JobID         string   `json:"jobId"`
+	DownloadURL   string   `json:"downloadUrl"`
+	TargetVersion string   `json:"targetVersion"`
+	Command       string   `json:"command"`
+	Args          []string `json:"args"`
 }
 
 type FrameEnvelope struct {
@@ -57,6 +60,29 @@ type FrameEnvelope struct {
 	NodeID string       `json:"nodeId"`
 	Frame  runner.Frame `json:"frame"`
 }
+
+type PackageCache struct {
+	mu      sync.RWMutex
+	summary *packages.PackageSummary
+}
+
+func (pc *PackageCache) Get() *packages.PackageSummary {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+	return pc.summary
+}
+
+func (pc *PackageCache) Set(s *packages.PackageSummary) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	pc.summary = s
+}
+
+const (
+	writeWait  = 5 * time.Second
+	pongWait   = 35 * time.Second
+	pingPeriod = 15 * time.Second
+)
 
 func main() {
 	cfg, err := config.LoadConfig(Version)
@@ -89,9 +115,38 @@ func main() {
 		cancel()
 	}()
 
+	pkgCache := &PackageCache{}
+
+	// Initial package inspection in background immediately
+	go func() {
+		inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer inspectCancel()
+		if s, err := pkgInspector.Inspect(inspectCtx); err == nil {
+			pkgCache.Set(s)
+		}
+	}()
+
+	// Periodic package inspection every 10 minutes
+	go func() {
+		pkgTicker := time.NewTicker(10 * time.Minute)
+		defer pkgTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pkgTicker.C:
+				inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 60*time.Second)
+				if s, err := pkgInspector.Inspect(inspectCtx); err == nil {
+					pkgCache.Set(s)
+				}
+				inspectCancel()
+			}
+		}
+	}()
+
 	// Outbound persistent connection loop
 	backoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
+	maxBackoff := 15 * time.Second
 
 	for {
 		select {
@@ -101,20 +156,38 @@ func main() {
 		default:
 		}
 
-		err := runAgentSession(ctx, cfg, hostname, collector, pkgInspector, procRunner)
-		if err != nil && ctx.Err() == nil {
-			log.Printf("[Agent] Session ended with error: %v. Reconnecting in %v...", err, backoff)
+		sessionStart := time.Now()
+		err := runAgentSession(ctx, cfg, hostname, collector, pkgCache, procRunner, func() {
+			// Successfully connected & registered
+			backoff = 1 * time.Second
+		})
+
+		if ctx.Err() != nil {
+			log.Println("[Agent] Exiting cleanly.")
+			return
+		}
+
+		// If session was connected for more than 10 seconds, reset backoff for fast recovery
+		if time.Since(sessionStart) > 10*time.Second {
+			backoff = 1 * time.Second
+		}
+
+		if err != nil {
+			// Add slight jitter (0-500ms) to prevent thundering herd
+			jitter := time.Duration(rand.Intn(500)) * time.Millisecond
+			sleepDuration := backoff + jitter
+			log.Printf("[Agent] Session ended with error: %v. Reconnecting in %v...", err, sleepDuration.Round(time.Millisecond))
+
 			select {
-			case <-time.After(backoff):
+			case <-time.After(sleepDuration):
 			case <-ctx.Done():
 				return
 			}
+
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
 			}
-		} else {
-			backoff = 1 * time.Second
 		}
 	}
 }
@@ -124,8 +197,9 @@ func runAgentSession(
 	cfg *config.Config,
 	hostname string,
 	collector metrics.Collector,
-	pkgInspector packages.Inspector,
+	pkgCache *PackageCache,
 	procRunner *runner.ProcessRunner,
+	onConnected func(),
 ) error {
 	u, err := url.Parse(cfg.HubURL)
 	if err != nil {
@@ -137,6 +211,7 @@ func runAgentSession(
 		headers.Set("Authorization", "Bearer "+cfg.Token)
 		headers.Set("X-ControlPlane-Node-Id", cfg.NodeID)
 	}
+	headers.Set("X-ControlPlane-Hostname", hostname)
 
 	log.Printf("[Agent] Dialing hub at %s...", u.String())
 	dialer := websocket.DefaultDialer
@@ -150,23 +225,47 @@ func runAgentSession(
 	defer conn.Close()
 
 	log.Printf("[Agent] Connected to hub. Node registration verified.")
+	if onConnected != nil {
+		onConnected()
+	}
 
 	var writeMu sync.Mutex
 	writeJSON := func(v interface{}) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		conn.SetWriteDeadline(time.Now().Add(writeWait))
 		return conn.WriteJSON(v)
 	}
 
+	// Set initial read deadline
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+
+	// Keepalive: handle incoming ping frames from server by responding with pong and extending deadline
+	conn.SetPingHandler(func(appData string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(writeWait))
+	})
+
+	// Keepalive: handle incoming pong frames from server by extending deadline
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	// Send initial heartbeat immediately upon connection
-	sendHeartbeat(cfg, hostname, collector, pkgInspector, writeJSON)
+	sendHeartbeat(cfg, hostname, collector, pkgCache, writeJSON)
 
 	// Periodic heartbeat timer
 	ticker := time.NewTicker(cfg.HeartbeatInterval)
 	defer ticker.Stop()
 
-	errChan := make(chan error, 2)
+	// Periodic client ping ticker
+	pingTicker := time.NewTicker(pingPeriod)
+	defer pingTicker.Stop()
+
+	errChan := make(chan error, 3)
 
 	// Heartbeat sender loop
 	go func() {
@@ -175,8 +274,27 @@ func runAgentSession(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := sendHeartbeat(cfg, hostname, collector, pkgInspector, writeJSON); err != nil {
+				if err := sendHeartbeat(cfg, hostname, collector, pkgCache, writeJSON); err != nil {
 					log.Printf("[Agent] Heartbeat transmission failed: %v", err)
+					errChan <- err
+					return
+				}
+			}
+		}
+	}()
+
+	// Outgoing ping sender loop (keeps NAT tables active and triggers pong)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pingTicker.C:
+				writeMu.Lock()
+				err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(writeWait))
+				writeMu.Unlock()
+				if err != nil {
+					log.Printf("[Agent] Ping transmission failed: %v", err)
 					errChan <- err
 					return
 				}
@@ -192,6 +310,7 @@ func runAgentSession(
 				errChan <- err
 				return
 			}
+			conn.SetReadDeadline(time.Now().Add(pongWait))
 
 			var base struct {
 				Type string `json:"type"`
@@ -211,6 +330,12 @@ func runAgentSession(
 			} else if base.Type == "CMD_SELF_UPDATE" {
 				var updateEnv UpdateEnvelope
 				if err := json.Unmarshal(message, &updateEnv); err == nil {
+					if updateEnv.DownloadURL == "" && updateEnv.Command != "" {
+						updateEnv.DownloadURL = updateEnv.Command
+					}
+					if updateEnv.TargetVersion == "" && len(updateEnv.Args) > 0 {
+						updateEnv.TargetVersion = updateEnv.Args[0]
+					}
 					go func(envelope UpdateEnvelope) {
 						log.Printf("[Agent] Handling CMD_SELF_UPDATE for Job %s (Target: %s)", envelope.JobID, envelope.TargetVersion)
 						_ = lifecycle.PerformSelfUpdate(ctx, envelope.JobID, cfg.NodeID, envelope.DownloadURL, envelope.TargetVersion, cfg.Token, writeJSON)
@@ -250,11 +375,16 @@ func sendHeartbeat(
 	cfg *config.Config,
 	hostname string,
 	collector metrics.Collector,
-	pkgInspector packages.Inspector,
+	pkgCache *PackageCache,
 	writeFn func(interface{}) error,
 ) error {
 	m, _ := collector.Collect()
-	pkg, _ := pkgInspector.Inspect(context.Background())
+	pkg := pkgCache.Get()
+
+	pkgManager := ""
+	if pkg != nil {
+		pkgManager = pkg.PackageManager
+	}
 
 	payload := HeartbeatPayload{
 		Type:           "HEARTBEAT",
@@ -263,7 +393,7 @@ func sendHeartbeat(
 		AgentVersion:   cfg.Version,
 		KernelVersion:  collector.KernelVersion(),
 		PendingReboot:  collector.IsRebootRequired(),
-		PackageManager: pkg.PackageManager,
+		PackageManager: pkgManager,
 		Metrics:        m,
 		PackageSummary: pkg,
 	}

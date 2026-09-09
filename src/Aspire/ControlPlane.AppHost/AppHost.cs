@@ -17,7 +17,8 @@ var temporalDb = postgres.AddDatabase("TemporalDatabase", "temporal");
 var zitadelDb = postgres.AddDatabase("ZitadelDatabase", "zitadel");
 
 var temporal = builder.AddContainer("temporal", "temporalio/temporal")
-    .WithArgs("server", "start-dev", "--ip", "0.0.0.0", "--port", "7233", "--ui-port", "8233")
+    .WithArgs("server", "start-dev", "--ip", "0.0.0.0", "--port", "7233", "--ui-port", "8233", "--db-filename", "/home/temporal/temporal.db")
+    .WithVolume("temporal-data", "/home/temporal")
     .WithHttpEndpoint(port: 7233, targetPort: 7233, name: "grpc")
     .WithHttpEndpoint(port: 8233, targetPort: 8233, name: "ui");
 

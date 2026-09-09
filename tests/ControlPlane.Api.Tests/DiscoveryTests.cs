@@ -61,7 +61,7 @@ public class DiscoveryTests
 
         public Task<bool> CordonNodeAsync(string nodeName, CancellationToken ct = default) => Task.FromResult(true);
         public Task<bool> UncordonNodeAsync(string nodeName, CancellationToken ct = default) => Task.FromResult(true);
-        public Task<K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default) => Task.FromResult(new K8sDrainResult(nodeName, true, 0, 0, null));
+        public Task<K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default, Func<string, Task>? onProgress = null) => Task.FromResult(new K8sDrainResult(nodeName, true, 0, 0, null));
         public Task<K8sNodeStatus?> GetNodeStatusAsync(string nodeName, CancellationToken ct = default) => Task.FromResult<K8sNodeStatus?>(new K8sNodeStatus(nodeName, true, false, "192.168.1.10", 5));
     }
 

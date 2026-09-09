@@ -1,10 +1,16 @@
+using System.Security.Claims;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
+using ControlPlane.Api.Features.Orchestration;
+using ControlPlane.Api.Features.Orchestration.Pipelines;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
+using Microsoft.AspNetCore.Mvc;
 
 namespace ControlPlane.Api.Features.Hosts;
+
+public record RebootHostRequest(string? PipelineId = null, bool Force = false);
 
 public static class HostEndpoints
 {
@@ -111,10 +117,62 @@ public static class HostEndpoints
         .WithSummary("Remove a managed host from inventory")
         .RequireAuthorization(AuthConstants.RequireAdmin);
 
+        group.MapGet("/{id:guid}/reboot-impact", async (
+            Guid id,
+            IHostCorrelationService correlationService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var impact = await correlationService.GetRebootImpactAsync(id, cancellationToken);
+                return Results.Ok(impact);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"Host with ID '{id}' was not found." });
+            }
+        })
+        .WithName("GetHostRebootImpact")
+        .WithSummary("Evaluate hypervisor and Kubernetes cluster impact before rebooting a host");
+
+        group.MapGet("/{id:guid}/correlation", async (
+            Guid id,
+            IHostCorrelationService correlationService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var correlation = await correlationService.GetHostCorrelationAsync(id, cancellationToken);
+                return Results.Ok(correlation);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"Host with ID '{id}' was not found." });
+            }
+        })
+        .WithName("GetHostCorrelation")
+        .WithSummary("Retrieve hypervisor, VM, and Kubernetes correlation links for a host");
+
+        group.MapPost("/sync-correlation", async (
+            IHostCorrelationService correlationService,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await correlationService.SyncHostCorrelationsAsync(cancellationToken);
+            return Results.Ok(result);
+        })
+        .WithName("SyncHostCorrelations")
+        .WithSummary("Synchronize and persist Proxmox hypervisor and Kubernetes cluster correlations to the database")
+        .RequireAuthorization(AuthConstants.RequireOperator);
+
         group.MapPost("/{id:guid}/reboot", async (
             Guid id,
+            [FromBody] RebootHostRequest? request,
             ControlPlaneDbContext db,
+            JobOrchestratorService jobOrchestrator,
+            IPipelineCatalog pipelineCatalog,
             AgentConnectionManager connectionManager,
+            IHostCorrelationService correlationService,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var host = await db.Hosts.FindAsync(new object[] { id }, cancellationToken);
@@ -128,48 +186,45 @@ public static class HostEndpoints
                 return Results.BadRequest(new { message = $"Agent for host '{host.Hostname}' is currently offline. Cannot initiate reboot." });
             }
 
-            var jobId = Guid.NewGuid();
-            var job = new UpdateJob
+            // Check correlation & reboot impact
+            var impact = await correlationService.GetRebootImpactAsync(host.Id, cancellationToken);
+            if (impact.RequiresConfirmation && (request == null || !request.Force))
             {
-                Id = jobId,
-                TargetHostId = host.Id,
-                InitiatedBy = "Operator",
-                Status = "Running",
-                ActiveStep = "Rebooting node",
-                StartedAt = DateTimeOffset.UtcNow
-            };
-
-            db.UpdateJobs.Add(job);
-            await db.SaveChangesAsync(cancellationToken);
-
-            var cmdEnvelope = new AgentCommandEnvelope
-            {
-                Type = "EXECUTE_COMMAND",
-                JobId = jobId,
-                Command = "systemctl",
-                Args = new[] { "reboot" }
-            };
-
-            var dispatched = await connectionManager.SendCommandAsync(host.Id, cmdEnvelope, cancellationToken);
-            if (!dispatched)
-            {
-                job.Status = "Failed";
-                job.FailureReason = "Failed to dispatch reboot command to connected agent.";
-                job.CompletedAt = DateTimeOffset.UtcNow;
-                await db.SaveChangesAsync(cancellationToken);
-                return Results.StatusCode(StatusCodes.Status502BadGateway);
+                return Results.Conflict(new
+                {
+                    message = $"Reboot confirmation required: {string.Join(" ", impact.WarningMessages)}",
+                    impact
+                });
             }
 
-            return Results.Accepted($"/api/v1/jobs/{jobId}", new
+            var isK8s = host.Kubernetes != null || string.Equals(host.TargetType, "k8s_node", StringComparison.OrdinalIgnoreCase);
+            var pipelineId = !string.IsNullOrWhiteSpace(request?.PipelineId)
+                ? request.PipelineId
+                : pipelineCatalog.GetRecommendedRebootProfileId(host.TargetType, host.OsFamily, isK8s);
+
+            var initiatedBy = user.Identity?.Name ?? "Operator";
+            var (job, error) = await jobOrchestrator.CreateAndStartJobAsync(
+                host.Id,
+                pipelineId,
+                initiatedBy,
+                cancellationToken);
+
+            if (job == null)
             {
-                jobId,
+                return Results.Conflict(new { message = error ?? $"Failed to start reboot DAG pipeline for host '{host.Hostname}'." });
+            }
+
+            return Results.Accepted($"/api/v1/jobs/{job.Id}", new
+            {
+                jobId = job.Id,
                 hostId = host.Id,
-                status = "Running",
+                pipelineId = job.PipelineId,
+                status = job.Status,
                 message = $"Reboot initiated for {host.Hostname}"
             });
         })
         .WithName("RebootHost")
-        .WithSummary("Dispatch a reboot command to a connected host agent")
+        .WithSummary("Dispatch an orchestrated reboot DAG pipeline to a connected host agent")
         .RequireAuthorization(AuthConstants.RequireOperator);
 
         return group;

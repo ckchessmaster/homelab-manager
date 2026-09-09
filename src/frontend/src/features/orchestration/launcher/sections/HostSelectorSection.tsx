@@ -1,5 +1,6 @@
-import { Server, CheckCircle2, AlertCircle, ArrowUpCircle } from 'lucide-react'
+import { Server, CheckCircle2, AlertCircle, ArrowUpCircle, GitFork } from 'lucide-react'
 import type { Host } from '../../../../api/hosts'
+import type { JobSummary } from '../../../../api/jobs'
 import { Badge } from '../../../../components/ui/badge'
 
 export interface HostSelectorSectionProps {
@@ -8,6 +9,7 @@ export interface HostSelectorSectionProps {
   onSelectHost: (hostId: string) => void
   disabled?: boolean
   initialHost?: Host | null
+  activeJobsByHost?: Map<string, JobSummary>
 }
 
 export function HostSelectorSection({
@@ -16,8 +18,10 @@ export function HostSelectorSection({
   onSelectHost,
   disabled = false,
   initialHost = null,
+  activeJobsByHost,
 }: HostSelectorSectionProps) {
   const selectedHost = initialHost || availableHosts.find((h) => h.id === selectedHostId)
+  const initialActiveJob = initialHost ? activeJobsByHost?.get(initialHost.id) : null
 
   return (
     <div className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-3">
@@ -51,10 +55,17 @@ export function HostSelectorSection({
               {initialHost.osFamily} &bull; {initialHost.agent?.upgradablePackagesCount ?? 0} updates pending
             </div>
           </div>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <CheckCircle2 className="w-3 h-3" />
-            Agent Online
-          </span>
+          {initialActiveJob ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 animate-pulse">
+              <GitFork className="w-3 h-3 text-sky-400" />
+              DAG in Progress
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <CheckCircle2 className="w-3 h-3" />
+              Agent Online
+            </span>
+          )}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -66,11 +77,12 @@ export function HostSelectorSection({
           >
             <option value="">-- Choose Target Managed Host --</option>
             {availableHosts.map((h) => {
-              const isOnline = h.agent?.installed
+              const isOnline = h.agent?.isOnline ?? h.agent?.installed
+              const activeJob = activeJobsByHost?.get(h.id)
               const updatesCount = h.agent?.upgradablePackagesCount || 0
               return (
-                <option key={h.id} value={h.id}>
-                  {h.hostname} ({h.ipAddress}) — {h.osFamily} [{h.targetType || 'host'}] {updatesCount > 0 ? `(${updatesCount} updates)` : ''} {!isOnline ? '[OFFLINE]' : ''}
+                <option key={h.id} value={h.id} disabled={Boolean(activeJob)}>
+                  {h.hostname} ({h.ipAddress}) — {h.osFamily} [{h.targetType || 'host'}]{activeJob ? ` [DAG IN PROGRESS: ${activeJob.activeStep || activeJob.status}]` : updatesCount > 0 ? ` (${updatesCount} updates)` : ''}{!isOnline ? ' [OFFLINE]' : ''}
                 </option>
               )
             })}

@@ -53,6 +53,7 @@ builder.Services.AddTemporalOrchestration(builder.Configuration);
 builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
 builder.Services.AddScoped<NodeAdoptionService>();
 builder.Services.AddScoped<HostService>();
+builder.Services.AddScoped<IHostCorrelationService, HostCorrelationService>();
 builder.Services.AddSingleton<AgentBinaryService>();
 builder.Services.AddScoped<MassAgentUpdateService>();
 builder.Services.AddScoped<ProxmoxProbeService>();

@@ -20,11 +20,28 @@ export interface AgentState {
   lastSeenAt?: string | null
   pendingReboot: boolean
   upgradablePackagesCount: number
+  isOnline?: boolean
 }
 
 export interface KubernetesTarget {
   clusterId?: string | null
   nodeName?: string | null
+}
+
+export interface HypervisorHostSummary {
+  hostId: string
+  hostname: string
+  friendlyName?: string | null
+  nodeName?: string | null
+}
+
+export interface HostedVmSummary {
+  hostId: string
+  hostname: string
+  friendlyName?: string | null
+  vmid: number
+  targetType: string
+  isOnline: boolean
 }
 
 export interface Host {
@@ -45,6 +62,8 @@ export interface Host {
   agent: AgentState
   createdAt: string
   updatedAt: string
+  hypervisor?: HypervisorHostSummary | null
+  hostedVms?: HostedVmSummary[] | null
 }
 
 export interface CreateHostPayload {
@@ -55,6 +74,9 @@ export interface CreateHostPayload {
   targetType: string
   proxmoxNode?: string
   proxmoxVmid?: number
+  proxmoxInstanceId?: string
+  k8sClusterId?: string
+  k8sNodeName?: string
   idracIp?: string
   unifiSwitchMac?: string
   unifiSwitchPort?: number
@@ -68,6 +90,9 @@ export interface UpdateHostPayload {
   targetType?: string
   proxmoxNode?: string
   proxmoxVmid?: number
+  proxmoxInstanceId?: string
+  k8sClusterId?: string
+  k8sNodeName?: string
   idracIp?: string
   unifiSwitchMac?: string
   unifiSwitchPort?: number
@@ -276,16 +301,107 @@ export async function adoptNodesBatch(payload: BatchAdoptNodesPayload): Promise<
 }
 
 
+export interface CorrelatedVm {
+  vmid: number
+  name: string
+  type: string
+  status: string
+  hostId?: string | null
+  hostname?: string | null
+  ipAddress?: string | null
+  isAgentOnline: boolean
+  k8sClusterId?: string | null
+  k8sNodeName?: string | null
+}
+
+export interface CorrelatedHypervisor {
+  hostId?: string | null
+  hostname: string
+  friendlyName?: string | null
+  proxmoxNode: string
+  instanceId?: string | null
+  isOnline: boolean
+}
+
+export interface CorrelatedKubernetes {
+  clusterId: string
+  nodeName: string
+  roles: string[]
+  isReady: boolean
+  runningPodsCount: number
+}
+
+export interface HostCorrelation {
+  hostId: string
+  hostname: string
+  isHypervisor: boolean
+  hypervisorNode?: string | null
+  hostedVms: CorrelatedVm[]
+  isVm: boolean
+  hypervisor?: CorrelatedHypervisor | null
+  isKubernetesNode: boolean
+  kubernetes?: CorrelatedKubernetes | null
+}
+
+export interface KubernetesClusterImpact {
+  clusterId: string
+  nodeName: string
+  isControlPlane: boolean
+  isOnlyControlPlane: boolean
+  totalNodes: number
+  readyNodes: number
+  runningPodsCount: number
+  quorumAtRisk: boolean
+  summary: string
+}
+
+export interface HostRebootImpact {
+  hostId: string
+  hostname: string
+  isHypervisor: boolean
+  hypervisorNode?: string | null
+  affectedRunningVms: CorrelatedVm[]
+  isKubernetesNode: boolean
+  kubernetesImpact?: KubernetesClusterImpact | null
+  hasWarnings: boolean
+  requiresConfirmation: boolean
+  warningMessages: string[]
+}
+
 export interface RebootHostResponse {
   jobId: string
   hostId: string
+  pipelineId?: string
   status: string
   message: string
 }
 
-export async function rebootHost(hostId: string): Promise<RebootHostResponse> {
+export interface SyncCorrelationResult {
+  success: boolean
+  correlatedKubernetesNodes: number
+  correlatedProxmoxHosts: number
+  totalHostsUpdated: number
+  messages: string[]
+}
+
+export async function syncHostCorrelations(): Promise<SyncCorrelationResult> {
+  return apiClient<SyncCorrelationResult>('/api/v1/hosts/sync-correlation', {
+    method: 'POST',
+  })
+}
+
+export async function fetchHostRebootImpact(id: string): Promise<HostRebootImpact> {
+  return apiClient<HostRebootImpact>(`/api/v1/hosts/${id}/reboot-impact`)
+}
+
+export async function fetchHostCorrelation(id: string): Promise<HostCorrelation> {
+  return apiClient<HostCorrelation>(`/api/v1/hosts/${id}/correlation`)
+}
+
+export async function rebootHost(hostId: string, pipelineId?: string, force = false): Promise<RebootHostResponse> {
   return apiClient<RebootHostResponse>(`/api/v1/hosts/${hostId}/reboot`, {
     method: 'POST',
+    body: JSON.stringify({ pipelineId, force }),
   })
 }
 
