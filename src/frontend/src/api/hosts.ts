@@ -405,3 +405,28 @@ export async function rebootHost(hostId: string, pipelineId?: string, force = fa
   })
 }
 
+export function isBaremetalHost(h: Host): boolean {
+  const isPhysicalTarget =
+    h.targetType === 'baremetal' ||
+    h.targetType === 'physical' ||
+    h.targetType === 'proxmox_node' ||
+    h.targetType === 'hypervisor'
+  const isNotGuestVm = !h.proxmox || h.proxmox.vmid <= 0
+  return isPhysicalTarget && isNotGuestVm
+}
+
+export function isProxmoxHost(h: Host): boolean {
+  return Boolean(h.proxmox || h.targetType?.startsWith('proxmox') || h.proxmoxInstanceId)
+}
+
+export function isKubernetesHost(h: Host): boolean {
+  return Boolean(
+    h.kubernetes?.clusterId ||
+    h.kubernetes?.nodeName ||
+    h.k8sClusterId ||
+    h.k8sNodeName ||
+    h.targetType?.includes('k8s') ||
+    h.targetType?.includes('kubernetes')
+  )
+}
+

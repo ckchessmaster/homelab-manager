@@ -18,7 +18,9 @@ import {
   GitFork,
 } from 'lucide-react'
 import type { Host } from '../../api/hosts'
+import { isBaremetalHost, isProxmoxHost, isKubernetesHost } from '../../api/hosts'
 import type { JobSummary } from '../../api/jobs'
+import type { PlatformFilter } from './HostFilterPills'
 import { Badge } from '../../components/ui/badge'
 import { AgentStatusBadge, RebootBadge, UpdatesBadge } from './HostStatusBadge'
 import {
@@ -31,6 +33,7 @@ import {
 
 interface GroupedHostViewProps {
   hosts: Host[]
+  platformFilter?: PlatformFilter
   onInspect: (host: Host) => void
   onOpenTerminal: (host: Host) => void
   onTriggerUpdate: (host: Host) => void
@@ -46,6 +49,7 @@ interface GroupedHostViewProps {
 
 export function GroupedHostView({
   hosts,
+  platformFilter,
   onInspect,
   onOpenTerminal,
   onTriggerUpdate,
@@ -90,16 +94,9 @@ export function GroupedHostView({
 
   // Partition hosts into Proxmox, Kubernetes, and Baremetal groups
   const groups = useMemo(() => {
-    const proxmoxHosts = hosts.filter(
-      (h) => h.proxmox || h.targetType.startsWith('proxmox') || h.proxmoxInstanceId
-    )
-    const k8sHosts = hosts.filter(
-      (h) => h.kubernetes?.clusterId || h.kubernetes?.nodeName || h.k8sClusterId || h.k8sNodeName || h.targetType === 'kubernetes_node' || h.targetType === 'k8s_node'
-    )
-    const baremetalHosts = hosts.filter(
-      (h) => (h.targetType === 'baremetal' || h.targetType === 'hypervisor' || h.targetType === 'proxmox_node') &&
-        !h.kubernetes?.clusterId && !h.k8sNodeName && !h.proxmox
-    )
+    const proxmoxHosts = hosts.filter(isProxmoxHost)
+    const k8sHosts = hosts.filter(isKubernetesHost)
+    const baremetalHosts = hosts.filter(isBaremetalHost)
 
     // Further subgroup Proxmox by node or instance
     const proxmoxByNode = new Map<string, Host[]>()
@@ -107,6 +104,19 @@ export function GroupedHostView({
       const key = h.proxmox?.node || h.proxmoxInstanceId || 'Default Proxmox Node'
       if (!proxmoxByNode.has(key)) proxmoxByNode.set(key, [])
       proxmoxByNode.get(key)!.push(h)
+    }
+
+    // Sort each Proxmox node's hosts: hypervisor node first, then guest VMs sorted by VMID/hostname
+    for (const list of proxmoxByNode.values()) {
+      list.sort((a, b) => {
+        const aIsGuest = (a.proxmox && a.proxmox.vmid > 0) || a.targetType === 'proxmox_vm' || a.targetType === 'proxmox_lxc' || a.targetType === 'proxmox_qemu'
+        const bIsGuest = (b.proxmox && b.proxmox.vmid > 0) || b.targetType === 'proxmox_vm' || b.targetType === 'proxmox_lxc' || b.targetType === 'proxmox_qemu'
+        if (aIsGuest !== bIsGuest) return aIsGuest ? 1 : -1
+        const aVmid = a.proxmox?.vmid || 0
+        const bVmid = b.proxmox?.vmid || 0
+        if (aVmid !== bVmid) return aVmid - bVmid
+        return a.hostname.localeCompare(b.hostname)
+      })
     }
 
     // Subgroup K8s by clusterId
@@ -374,10 +384,21 @@ export function GroupedHostView({
     badgeText: string,
     badgeColor: 'purple' | 'info' | 'warning',
     sectionHosts: Host[],
-    borderAccent: string
+    borderAccent: string,
+    isProxmoxGroup = false
   ) => {
     if (sectionHosts.length === 0) return null
     const isCollapsed = Boolean(collapsedGroups[id])
+    const hasHypervisor =
+      isProxmoxGroup &&
+      sectionHosts.some((h) => {
+        const isGuest =
+          (h.proxmox && h.proxmox.vmid > 0) ||
+          h.targetType === 'proxmox_vm' ||
+          h.targetType === 'proxmox_lxc' ||
+          h.targetType === 'proxmox_qemu'
+        return !isGuest
+      })
 
     return (
       <div
@@ -423,14 +444,71 @@ export function GroupedHostView({
         {/* Hosts List */}
         {!isCollapsed && (
           <div className="space-y-2 pt-1">
-            {sectionHosts.map((h) => renderHostRow(h))}
+            {sectionHosts.map((h) => {
+              const isGuest =
+                (h.proxmox && h.proxmox.vmid > 0) ||
+                h.targetType === 'proxmox_vm' ||
+                h.targetType === 'proxmox_lxc' ||
+                h.targetType === 'proxmox_qemu'
+              return renderHostRow(h, hasHypervisor && isGuest)
+            })}
           </div>
         )}
       </div>
     )
   }
 
-  if (hosts.length === 0) {
+  const showProxmox = !platformFilter || platformFilter === 'all' || platformFilter === 'proxmox'
+  const showK8s = !platformFilter || platformFilter === 'all' || platformFilter === 'kubernetes'
+  const showBaremetal = !platformFilter || platformFilter === 'all' || platformFilter === 'baremetal'
+
+  const renderedProxmox = showProxmox
+    ? groups.proxmox.map((grp) =>
+        renderSection(
+          grp.id,
+          grp.title,
+          grp.icon,
+          grp.badgeText,
+          grp.badgeColor,
+          grp.hosts,
+          'border-purple-900/40 hover:border-purple-800/60',
+          true
+        )
+      )
+    : []
+
+  const renderedK8s = showK8s
+    ? groups.k8s.map((grp) =>
+        renderSection(
+          grp.id,
+          grp.title,
+          grp.icon,
+          grp.badgeText,
+          grp.badgeColor,
+          grp.hosts,
+          'border-sky-900/40 hover:border-sky-800/60'
+        )
+      )
+    : []
+
+  const renderedBaremetal = showBaremetal
+    ? renderSection(
+        groups.baremetal.id,
+        groups.baremetal.title,
+        groups.baremetal.icon,
+        groups.baremetal.badgeText,
+        groups.baremetal.badgeColor,
+        groups.baremetal.hosts,
+        'border-amber-900/40 hover:border-amber-800/60'
+      )
+    : null
+
+  const hasAnySections =
+    renderedProxmox.some(Boolean) ||
+    renderedK8s.some(Boolean) ||
+    Boolean(renderedBaremetal)
+
+  if (hosts.length === 0 || !hasAnySections) {
     return (
       <div className="p-12 text-center rounded-xl border border-zinc-800 bg-zinc-900/40">
         <Server className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
@@ -444,42 +522,9 @@ export function GroupedHostView({
 
   return (
     <div className="space-y-4">
-      {/* Proxmox Groups */}
-      {groups.proxmox.map((grp) =>
-        renderSection(
-          grp.id,
-          grp.title,
-          grp.icon,
-          grp.badgeText,
-          grp.badgeColor,
-          grp.hosts,
-          'border-purple-900/40 hover:border-purple-800/60'
-        )
-      )}
-
-      {/* Kubernetes Groups */}
-      {groups.k8s.map((grp) =>
-        renderSection(
-          grp.id,
-          grp.title,
-          grp.icon,
-          grp.badgeText,
-          grp.badgeColor,
-          grp.hosts,
-          'border-sky-900/40 hover:border-sky-800/60'
-        )
-      )}
-
-      {/* Baremetal Servers */}
-      {renderSection(
-        groups.baremetal.id,
-        groups.baremetal.title,
-        groups.baremetal.icon,
-        groups.baremetal.badgeText,
-        groups.baremetal.badgeColor,
-        groups.baremetal.hosts,
-        'border-amber-900/40 hover:border-amber-800/60'
-      )}
+      {renderedProxmox}
+      {renderedK8s}
+      {renderedBaremetal}
     </div>
   )
 }

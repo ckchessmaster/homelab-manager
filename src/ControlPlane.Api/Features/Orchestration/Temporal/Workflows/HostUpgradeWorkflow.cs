@@ -57,7 +57,11 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
     {
         var defaultOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(2) };
         var preflightOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(2) };
-        var snapshotOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(10) };
+        var snapshotOptions = new ActivityOptions
+        {
+            StartToCloseTimeout = TimeSpan.FromMinutes(10),
+            RetryPolicy = new() { MaximumAttempts = 1 }
+        };
         var k8sOptions = new ActivityOptions { StartToCloseTimeout = TimeSpan.FromMinutes(5) };
         var drainOptions = new ActivityOptions
         {

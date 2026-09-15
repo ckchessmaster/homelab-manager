@@ -688,36 +688,68 @@ public class ProxmoxClient : IProxmoxClient
         var vmType = isLxc ? "lxc" : "qemu";
         var endpoint = $"/nodes/{Uri.EscapeDataString(node)}/{vmType}/{vmid}/feature?feature=snapshot";
 
-        using var request = CreateRequest(options, HttpMethod.Get, endpoint);
-        using var response = await SendAsync(options, request, ct);
-
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            _logger.LogWarning("Proxmox feature check for {VmType} {Vmid} on node {Node} returned status code {StatusCode}", vmType, vmid, node, response.StatusCode);
-            return true;
-        }
+            using var request = CreateRequest(options, HttpMethod.Get, endpoint);
+            using var response = await SendAsync(options, request, ct);
 
-        var root = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
-        if (root.TryGetProperty("data", out var dataProp) && dataProp.ValueKind == JsonValueKind.Object)
-        {
-            if (dataProp.TryGetProperty("hasFeature", out var featureProp))
+            var root = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+            if (root.TryGetProperty("data", out var dataProp))
             {
-                if (featureProp.ValueKind == JsonValueKind.Number)
+                if (dataProp.ValueKind == JsonValueKind.Object)
                 {
-                    return featureProp.GetInt32() == 1;
+                    if (dataProp.TryGetProperty("hasFeature", out var featureProp))
+                    {
+                        if (featureProp.ValueKind == JsonValueKind.Number)
+                        {
+                            return featureProp.GetInt32() == 1;
+                        }
+                        if (featureProp.ValueKind == JsonValueKind.True)
+                        {
+                            return true;
+                        }
+                        if (featureProp.ValueKind == JsonValueKind.False)
+                        {
+                            return false;
+                        }
+                    }
                 }
-                if (featureProp.ValueKind == JsonValueKind.True)
+                else if (dataProp.ValueKind == JsonValueKind.Number)
+                {
+                    return dataProp.GetInt32() == 1;
+                }
+                else if (dataProp.ValueKind == JsonValueKind.True)
                 {
                     return true;
                 }
-                if (featureProp.ValueKind == JsonValueKind.False)
+                else if (dataProp.ValueKind == JsonValueKind.False)
                 {
                     return false;
                 }
             }
-        }
 
-        return true;
+            return true;
+        }
+        catch (HttpRequestException ex)
+        {
+            var msg = ex.Message;
+            if (msg.Contains("snapshot feature is not available", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("does not support snapshot", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("storage does not support snapshots", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("Proxmox reports snapshots not supported for {VmType} {Vmid} on node {Node}: {Message}", vmType, vmid, node, msg);
+                return false;
+            }
+
+            _logger.LogWarning(ex, "Proxmox feature check for {VmType} {Vmid} on node {Node} failed: {Message}", vmType, vmid, node, ex.Message);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Proxmox feature check for {VmType} {Vmid} on node {Node} failed: {Message}", vmType, vmid, node, ex.Message);
+            throw;
+        }
     }
 
     private static void ValidateConfiguration(ProxmoxOptions options)

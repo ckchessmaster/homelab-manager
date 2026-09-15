@@ -29,6 +29,12 @@ test.describe('Modern Grouped Inventory & Application Workloads Hub', () => {
     // Switch back to Flat List
     await page.getByRole('button', { name: /Flat List/i }).click()
     await expect(page.getByRole('table')).toBeVisible()
+
+    // Filter by Baremetal / Physical - should show both baremetal nodes and physical PVE hypervisors
+    await page.getByRole('button', { name: /Baremetal \/ Physical/i }).click()
+    await expect(page.getByText('pve-node-01')).toBeVisible()
+    await expect(page.getByText('k8s-control-01')).toBeVisible()
+    await expect(page.getByText('ubuntu-worker-01')).not.toBeVisible()
   })
 
   test('navigates to Applications & Workloads, inspects pods, and scales deployment', async ({ page }) => {

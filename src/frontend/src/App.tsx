@@ -18,6 +18,7 @@ import { getApiKey } from './api/client'
 import { CallbackPage } from './features/auth/CallbackPage'
 import { AuthGatePage } from './features/auth/AuthGatePage'
 import { useAuthUser } from './features/auth/useAuthUser'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AuthenticatedApp() {
   const [activeTab, setActiveTab] = useState<NavTab>('hosts')
@@ -93,19 +94,27 @@ function AuthenticatedApp() {
       )}
 
       {activeTab === 'workloads' && (
-        <WorkloadsPage />
+        <ErrorBoundary fallbackTitle="Applications & Workloads Encountered an Error">
+          <WorkloadsPage />
+        </ErrorBoundary>
       )}
 
       {activeTab === 'discovery' && (
-        <DiscoveryView onSelectHost={() => setActiveTab('hosts')} />
+        <ErrorBoundary fallbackTitle="Service Discovery Encountered an Error">
+          <DiscoveryView onSelectHost={() => setActiveTab('hosts')} />
+        </ErrorBoundary>
       )}
 
       {activeTab === 'adapters' && (
-        <AdaptersView />
+        <ErrorBoundary fallbackTitle="Infrastructure Adapters Encountered an Error">
+          <AdaptersView />
+        </ErrorBoundary>
       )}
 
       {activeTab === 'workflows' && (
-        <WorkflowsView />
+        <ErrorBoundary fallbackTitle="Workflows & DAGs Encountered an Error">
+          <WorkflowsView />
+        </ErrorBoundary>
       )}
 
       {activeTab === 'settings' && (

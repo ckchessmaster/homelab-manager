@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Layers,
   Play,
@@ -35,11 +35,29 @@ export function FleetRollingLauncherModal({
 
   // Selected host IDs
   const [selectedHostIds, setSelectedHostIds] = useState<string[]>(() => {
-    // Default select all hosts with updates or online, excluding active DAGs
     return availableHosts
-      .filter((h) => h.agent?.installed && (h.agent?.upgradablePackagesCount || 0) > 0 && !activeJobsByHost.has(h.id))
+      .filter((h) => (h.agent?.isOnline ?? h.agent?.installed) && !activeJobsByHost.has(h.id))
       .map((h) => h.id)
   })
+
+  const hasInitializedRef = useRef(false)
+
+  // Automatically select eligible hosts once when modal opens or availableHosts loads
+  useEffect(() => {
+    if (!isOpen) {
+      hasInitializedRef.current = false
+      return
+    }
+
+    // Only auto-select on initial modal open or first load of availableHosts for this session
+    if (!hasInitializedRef.current && availableHosts.length > 0) {
+      hasInitializedRef.current = true
+      const eligible = availableHosts
+        .filter((h) => (h.agent?.isOnline ?? h.agent?.installed) && !activeJobsByHost.has(h.id))
+        .map((h) => h.id)
+      setSelectedHostIds(eligible.length > 0 ? eligible : availableHosts.map((h) => h.id))
+    }
+  }, [isOpen, availableHosts, activeJobsByHost])
 
   // Concurrency & Policies
   const [maxParallelism, setMaxParallelism] = useState<number>(1)
@@ -171,6 +189,13 @@ export function FleetRollingLauncherModal({
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setSelectedHostIds(availableHosts.map((h) => h.id))}
+                  className="px-2 py-1 rounded text-[11px] font-mono bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
+                >
+                  Select All
+                </button>
                 <button
                   type="button"
                   onClick={selectAllK8s}

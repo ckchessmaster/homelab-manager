@@ -19,12 +19,13 @@ import type { JobSummary } from '../../../api/jobs'
 import { useRollingUpgrade } from './useRollingUpgrade'
 import { WorkflowCanvasModal } from '../canvas/WorkflowCanvasModal'
 import { Button } from '../../../components/ui/button'
+import { ErrorBoundary } from '../../../components/ErrorBoundary'
 
 export interface FleetRollingDashboardModalProps {
   isOpen: boolean
   onClose: () => void
   batchId: string | null
-  targetHosts: Host[]
+  targetHosts?: Host[]
   onOpenTerminalForJob?: (job: JobSummary) => void
 }
 
@@ -32,11 +33,14 @@ export function FleetRollingDashboardModal({
   isOpen,
   onClose,
   batchId,
-  targetHosts,
+  targetHosts = [],
   onOpenTerminalForJob,
 }: FleetRollingDashboardModalProps) {
   const {
     data: batchData,
+    isLoading,
+    isError,
+    error,
     isFetching,
     refetch,
     pauseFleet,
@@ -51,18 +55,20 @@ export function FleetRollingDashboardModal({
   const [selectedNodeHost, setSelectedNodeHost] = useState<Host | null>(null)
   const [isNodeDagOpen, setIsNodeDagOpen] = useState(false)
 
-  if (!isOpen || !batchId) return null
-
   const state = batchData?.state
-  const status = batchData?.executionStatus || state?.status || 'Running'
-  const isPaused = state?.isPaused || status === 'Paused'
-  const isCompleted = status === 'Completed'
-  const isFailed = status === 'Failed' || status === 'PartiallyFailed'
-  const isCancelled = status === 'Cancelled' || state?.cancelled
 
   const displayHosts = useMemo(() => {
-    if (targetHosts && targetHosts.length > 0) return targetHosts
-    if (state?.hostProgresses) {
+    if (targetHosts && targetHosts.length > 0) {
+      return targetHosts.map((th) => {
+        const hp = state?.hostProgresses?.[th.id]
+        if (!hp) return th
+        return {
+          ...th,
+          hostname: hp.hostname || th.hostname,
+        }
+      })
+    }
+    if (state?.hostProgresses && typeof state.hostProgresses === 'object') {
       return Object.values(state.hostProgresses).map((hp) => ({
         id: hp.hostId,
         hostname: hp.hostname,
@@ -89,6 +95,14 @@ export function FleetRollingDashboardModal({
     return []
   }, [targetHosts, state?.hostProgresses])
 
+  if (!isOpen || !batchId) return null
+
+  const status = batchData?.executionStatus || state?.status || 'Running'
+  const isPaused = state?.isPaused || status === 'Paused'
+  const isCompleted = status === 'Completed'
+  const isFailed = status === 'Failed' || status === 'PartiallyFailed'
+  const isCancelled = status === 'Cancelled' || state?.cancelled
+
   const totalHosts = state?.totalHosts || displayHosts.length
   const completedHosts = state?.completedHosts || 0
   const progressPercent = totalHosts > 0 ? Math.round((completedHosts / totalHosts) * 100) : 0
@@ -112,8 +126,9 @@ export function FleetRollingDashboardModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 md:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-[1400px] h-[90vh] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
+      <ErrorBoundary fallbackTitle="Fleet Dashboard Encountered an Error" onReset={onClose}>
+        <div className="relative w-full max-w-[1400px] h-[90vh] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+          {/* Header */}
         <div className="px-6 py-4 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
@@ -125,7 +140,7 @@ export function FleetRollingDashboardModal({
                   Fleet Rolling Upgrade Progress
                 </h3>
                 <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
-                  Batch: {batchId.substring(0, 8)}...
+                  Batch: {batchId?.slice(0, 8) || '—'}...
                 </span>
                 <span
                   className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
@@ -233,7 +248,45 @@ export function FleetRollingDashboardModal({
 
         {/* Node Cards List */}
         <div className="flex-1 p-6 overflow-y-auto space-y-3">
-          {displayHosts.map((host: Host, idx: number) => {
+          {isLoading && displayHosts.length === 0 ? (
+            <div className="h-64 flex flex-col items-center justify-center text-center space-y-3">
+              <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+              <p className="text-sm font-medium text-zinc-300">
+                Connecting to Temporal fleet execution stream...
+              </p>
+              <p className="text-xs text-zinc-500">
+                Fetching real-time state for batch {batchId?.slice(0, 8)}...
+              </p>
+            </div>
+          ) : isError ? (
+            <div className="p-6 rounded-xl bg-rose-950/20 border border-rose-800/50 text-center space-y-3 my-4">
+              <AlertCircle className="w-8 h-8 text-rose-400 mx-auto" />
+              <p className="text-sm font-semibold text-rose-200">
+                Failed to load fleet upgrade telemetry
+              </p>
+              <p className="text-xs text-rose-300/80 max-w-md mx-auto">
+                {error?.message || 'Unable to connect to the rolling upgrade workflow execution.'}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                className="text-xs gap-1.5 border-rose-800 text-rose-300 hover:text-white mx-auto"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Retry Connection
+              </Button>
+            </div>
+          ) : displayHosts.length === 0 ? (
+            <div className="h-64 flex flex-col items-center justify-center text-center space-y-2 text-zinc-500">
+              <Server className="w-8 h-8 text-zinc-600" />
+              <p className="text-sm font-medium text-zinc-400">No Target Nodes Recorded</p>
+              <p className="text-xs text-zinc-500 max-w-sm">
+                No active or queued host records found for batch {batchId?.slice(0, 8)}...
+              </p>
+            </div>
+          ) : (
+            displayHosts.map((host: Host, idx: number) => {
             const progress = state?.hostProgresses?.[host.id]
             const hostStatus = progress?.status || 'Pending'
             const isNodeRunning = hostStatus === 'Running'
@@ -351,13 +404,13 @@ export function FleetRollingDashboardModal({
                 </div>
               </div>
             )
-          })}
+          }))}
         </div>
 
         {/* Footer */}
         <div className="px-6 py-2.5 bg-zinc-900/90 border-t border-zinc-800 flex items-center justify-between text-xs text-zinc-400 shrink-0">
           <div className="flex items-center gap-3">
-            <span>Concurrency: <strong>{state?.totalHosts || targetHosts.length} hosts targeted</strong></span>
+            <span>Concurrency: <strong>{state?.totalHosts || targetHosts?.length || displayHosts.length} hosts targeted</strong></span>
             <span>&bull;</span>
             <span>Engine: <strong>Temporal Child Workflows</strong></span>
           </div>
@@ -366,6 +419,7 @@ export function FleetRollingDashboardModal({
           </div>
         </div>
       </div>
+    </ErrorBoundary>
 
       {/* Individual Node DAG Drill-down Modal */}
       {selectedNodeJob && selectedNodeHost && (

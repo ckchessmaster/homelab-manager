@@ -457,6 +457,117 @@ export async function setupMockApi(page: Page, options?: {
     })
   })
 
+  let mockRollingBatches: any[] = []
+
+  // Active rolling batch
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/orchestration\/temporal\/batch\/active/, async (route) => {
+    const active = mockRollingBatches.find((b) => b.status === 'Running' || b.status === 'Paused') || null
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(active),
+    })
+  })
+
+  // Start rolling upgrade batch
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/orchestration\/temporal\/batch\/rolling-upgrade/, async (route) => {
+    const payload = route.request().postDataJSON()
+    const batchId = `batch-${Date.now()}`
+    const workflowId = `rolling-upgrade-${batchId}`
+    const targetHostIds: string[] = payload.hostIds || []
+    const targetHostObjects = hosts.filter((h) => targetHostIds.includes(h.id))
+    const hostnames = targetHostObjects.map((h) => h.hostname)
+
+    const hostProgresses: Record<string, any> = {}
+    for (const h of targetHostObjects) {
+      hostProgresses[h.id] = {
+        hostId: h.id,
+        hostname: h.hostname,
+        status: 'Pending',
+        currentStep: null,
+      }
+    }
+
+    const newBatch = {
+      batchId,
+      workflowId,
+      status: 'Running',
+      totalHosts: targetHostIds.length,
+      completedHosts: 0,
+      failedHosts: 0,
+      activeHostname: hostnames[0] || null,
+      isPaused: false,
+      hostIds: targetHostIds,
+      hostnames,
+      initiatedBy: payload.initiatedBy || 'Operator',
+      startedAt: new Date().toISOString(),
+      hostProgresses,
+    }
+    mockRollingBatches.unshift(newBatch)
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        batchId,
+        workflowId,
+        totalHosts: targetHostIds.length,
+        targetHostIds,
+      }),
+    })
+  })
+
+  // Batch status endpoint
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/orchestration\/temporal\/batch\/[^/]+\/status/, async (route) => {
+    const url = route.request().url()
+    const match = url.match(/\/batch\/([^/]+)\/status/)
+    const batchId = match ? match[1] : 'mock-batch'
+    const found = mockRollingBatches.find((b) => b.batchId === batchId)
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        workflowId: found?.workflowId || `rolling-upgrade-${batchId}`,
+        executionStatus: found?.status || 'Running',
+        state: found
+          ? {
+              batchId: found.batchId,
+              status: found.status,
+              totalHosts: found.totalHosts,
+              completedHosts: found.completedHosts,
+              failedHosts: found.failedHosts,
+              activeHostname: found.activeHostname,
+              isPaused: found.isPaused,
+              cancelled: false,
+              hostProgresses: found.hostProgresses || {},
+            }
+          : null,
+      }),
+    })
+  })
+
+  // Batch signal endpoint
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/orchestration\/temporal\/batch\/[^/]+\/signals\/[^/]+/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, signal: 'ack', workflowId: 'mock-wf' }),
+    })
+  })
+
+  // List batches endpoint (must be registered after more specific subpaths)
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/orchestration\/temporal\/batch(\?.*)?$/, async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockRollingBatches),
+      })
+    } else {
+      await route.continue()
+    }
+  })
+
   await page.route(/^https?:\/\/[^/]+\/api\/v1\/orchestration\/temporal\/workflows\/rolling\/start/, async (route) => {
     await route.fulfill({
       status: 200,

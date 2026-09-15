@@ -173,9 +173,19 @@ export interface RollingBatchSummary {
 }
 
 export async function listRollingBatches(): Promise<RollingBatchSummary[]> {
-  return apiClient<RollingBatchSummary[]>('/api/v1/orchestration/temporal/batch')
+  try {
+    const res = await apiClient<RollingBatchSummary[]>('/api/v1/orchestration/temporal/batch')
+    return Array.isArray(res) ? res : []
+  } catch (err) {
+    console.error('Failed to list rolling batches:', err)
+    return []
+  }
 }
 
 export async function getActiveRollingBatch(): Promise<RollingBatchSummary | null> {
-  return apiClient<RollingBatchSummary | null>('/api/v1/orchestration/temporal/batch/active')
+  try {
+    return await apiClient<RollingBatchSummary | null>('/api/v1/orchestration/temporal/batch/active')
+  } catch {
+    return null
+  }
 }

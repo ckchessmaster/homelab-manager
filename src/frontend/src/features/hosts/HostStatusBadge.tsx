@@ -1,17 +1,35 @@
-import { Server, Box, Layers, AlertTriangle, ArrowUpCircle } from 'lucide-react'
+import { Server, Box, Layers, AlertTriangle, ArrowUpCircle, Cpu } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
 import type { AgentState } from '../../api/hosts'
 
 export function TargetTypeBadge({ type }: { type: string }) {
   switch (type.toLowerCase()) {
     case 'baremetal':
+    case 'physical':
       return (
         <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-300 bg-zinc-800/60 px-2 py-0.5 rounded border border-zinc-700/50">
           <Server className="h-3 w-3 text-zinc-400" />
           Bare-Metal
         </span>
       )
+    case 'proxmox_node':
+    case 'hypervisor':
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-300 bg-purple-950/40 px-2 py-0.5 rounded border border-purple-800/40">
+          <Server className="h-3 w-3 text-purple-400" />
+          Proxmox VE Host
+        </span>
+      )
+    case 'k8s_node':
+    case 'kubernetes_node':
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-sky-300 bg-sky-950/40 px-2 py-0.5 rounded border border-sky-800/40">
+          <Cpu className="h-3 w-3 text-sky-400" />
+          Kubernetes Node
+        </span>
+      )
     case 'proxmox_vm':
+    case 'proxmox_qemu':
       return (
         <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-300 bg-purple-950/40 px-2 py-0.5 rounded border border-purple-800/40">
           <Box className="h-3 w-3 text-purple-400" />

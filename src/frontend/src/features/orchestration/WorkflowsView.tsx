@@ -61,16 +61,57 @@ export function WorkflowsView() {
     refetchInterval: 3000,
   })
 
+  // Ensure rollingBatches is always an array
+  const batchesList = useMemo(() => {
+    return Array.isArray(rollingBatches) ? rollingBatches : []
+  }, [rollingBatches])
+
   // Detect currently active rolling batch
   const activeRollingBatch = useMemo(() => {
-    return rollingBatches?.find((b) => b.status === 'Running' || b.status === 'Paused') || null
-  }, [rollingBatches])
+    return batchesList.find((b) => b.status === 'Running' || b.status === 'Paused') || null
+  }, [batchesList])
 
   // Fleet rolling modal state
   const [isFleetLauncherOpen, setIsFleetLauncherOpen] = useState(false)
   const [activeFleetBatchId, setActiveFleetBatchId] = useState<string | null>(null)
   const [activeFleetHosts, setActiveFleetHosts] = useState<Host[]>([])
   const [isFleetDashboardOpen, setIsFleetDashboardOpen] = useState(false)
+
+  // Resolve target hosts and open dashboard for a fleet batch
+  const handleOpenFleetDashboard = useMemo(() => {
+    return (batch: { batchId: string; hostIds?: string[]; hostnames?: string[] }) => {
+      setActiveFleetBatchId(batch.batchId)
+      const resolvedHosts: Host[] = (batch.hostIds || []).map((id, index) => {
+        const found = hosts?.find((h) => h.id === id)
+        if (found) return found
+        const hostname = batch.hostnames?.[index] || `host-${id.slice(0, 8)}`
+        return {
+          id,
+          hostname,
+          friendlyName: hostname,
+          ipAddress: '—',
+          osFamily: 'linux',
+          targetType: 'server',
+          proxmox: null,
+          kubernetes: null,
+          idrac: null,
+          networkPort: null,
+          agent: {
+            installed: true,
+            version: '1.0',
+            lastSeenAt: null,
+            pendingReboot: false,
+            upgradablePackagesCount: 0,
+            isOnline: true,
+          },
+          createdAt: '',
+          updatedAt: '',
+        } as Host
+      })
+      setActiveFleetHosts(resolvedHosts)
+      setIsFleetDashboardOpen(true)
+    }
+  }, [hosts])
 
   // Canvas modal state
   const [canvasJob, setCanvasJob] = useState<JobSummary | null>(null)
@@ -286,11 +327,7 @@ export function WorkflowsView() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setActiveFleetBatchId(activeRollingBatch.batchId)
-                setActiveFleetHosts([])
-                setIsFleetDashboardOpen(true)
-              }}
+              onClick={() => handleOpenFleetDashboard(activeRollingBatch)}
               className="text-xs h-9 gap-1.5 border-indigo-500 bg-indigo-950/80 hover:bg-indigo-900/80 text-indigo-200 hover:text-white font-medium shadow-md shadow-indigo-950/50"
               title="View live active rolling fleet upgrade progress"
             >
@@ -402,11 +439,7 @@ export function WorkflowsView() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setActiveFleetBatchId(activeRollingBatch.batchId)
-                setActiveFleetHosts([])
-                setIsFleetDashboardOpen(true)
-              }}
+              onClick={() => handleOpenFleetDashboard(activeRollingBatch)}
               className="text-xs h-8 px-3 gap-1.5 border-indigo-500/60 bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-200 hover:text-white font-medium"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
@@ -442,7 +475,7 @@ export function WorkflowsView() {
               }`}
             >
               <Layers className="w-3 h-3 text-indigo-400" />
-              Fleet Upgrades ({rollingBatches?.length || 0})
+              Fleet Upgrades ({batchesList.length})
               {activeRollingBatch && (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               )}
@@ -512,14 +545,14 @@ export function WorkflowsView() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {(!rollingBatches || rollingBatches.length === 0) ? (
+          {batchesList.length === 0 ? (
             <TableRow>
               <TableCell colSpan={8} className="h-32 text-center text-zinc-500 text-xs">
                 No rolling fleet upgrade executions recorded yet. Click &quot;Rolling Fleet Upgrade&quot; above to launch one.
               </TableCell>
             </TableRow>
           ) : (
-            rollingBatches.map((batch) => {
+            batchesList.map((batch) => {
               const percent = batch.totalHosts > 0 ? Math.round((batch.completedHosts / batch.totalHosts) * 100) : 0
               return (
                 <TableRow key={batch.batchId} className="border-zinc-800/60 hover:bg-zinc-800/30 transition-colors">
@@ -581,11 +614,7 @@ export function WorkflowsView() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        setActiveFleetBatchId(batch.batchId)
-                        setActiveFleetHosts([])
-                        setIsFleetDashboardOpen(true)
-                      }}
+                      onClick={() => handleOpenFleetDashboard(batch)}
                       className="text-xs h-7 px-2.5 gap-1.5 border-indigo-700/80 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white inline-flex items-center"
                     >
                       <Layers className="w-3.5 h-3.5" />

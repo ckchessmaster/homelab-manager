@@ -57,37 +57,60 @@ public class ProxmoxSnapshotStep : IJobStep
         var isLxc = targetType == "proxmox_lxc";
         var node = proxmoxTarget.Node;
         var vmid = proxmoxTarget.Vmid;
-
-        // Check if VM storage backend supports snapshots
-        var hasSnapshotSupport = await client.HasSnapshotFeatureAsync(node, vmid, isLxc, ct);
-        if (!hasSnapshotSupport)
-        {
-            await context.EmitLogAsync(
-                "system",
-                $"[SNAPSHOT] Notice: {(isLxc ? "LXC" : "VM")} {vmid} on Proxmox node '{node}' is backed by storage that does not support snapshots ('snapshot feature is not available'). Skipping safety snapshot and continuing update pipeline.",
-                ct
-            );
-            return JobStepResult.Succeeded("Skipped: Proxmox storage does not support snapshots.");
-        }
-
         var snapName = $"cp-pre-update-{DateTime.UtcNow:yyyyMMddHHmmss}";
         var description = $"ControlPlane pre-update safety snapshot. Expires: {DateTimeOffset.UtcNow.AddHours(24):O}";
 
-        await context.EmitLogAsync(
-            "system",
-            $"[SNAPSHOT] Creating pre-update hypervisor snapshot '{snapName}' on Proxmox node '{node}' for {(isLxc ? "LXC" : "VM")} {vmid}...",
-            ct
-        );
-
         try
         {
+            // Check if VM storage backend supports snapshots
+            bool hasSnapshotSupport = true;
+            try
+            {
+                hasSnapshotSupport = await client.HasSnapshotFeatureAsync(node, vmid, isLxc, ct);
+            }
+            catch (Exception featEx)
+            {
+                context.Logger.LogWarning(featEx, "Failed querying snapshot feature for VM {Vmid} on node {Node}: {Message}", vmid, node, featEx.Message);
+                if (featEx.Message.Contains("snapshot feature is not available", StringComparison.OrdinalIgnoreCase) ||
+                    featEx.Message.Contains("does not support snapshot", StringComparison.OrdinalIgnoreCase) ||
+                    featEx.Message.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
+                    featEx.Message.Contains("storage does not support snapshots", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasSnapshotSupport = false;
+                }
+                else
+                {
+                    throw;
+                }
+            }
+
+            if (!hasSnapshotSupport)
+            {
+                await context.EmitLogAsync(
+                    "system",
+                    $"[SNAPSHOT] Notice: {(isLxc ? "LXC" : "VM")} {vmid} on Proxmox node '{node}' is backed by storage that does not support snapshots ('snapshot feature is not available'). Skipping safety snapshot and continuing update pipeline.",
+                    ct
+                );
+                return JobStepResult.Succeeded("Skipped: Proxmox storage does not support snapshots.");
+            }
+
+            await context.EmitLogAsync(
+                "system",
+                $"[SNAPSHOT] Creating pre-update hypervisor snapshot '{snapName}' on Proxmox node '{node}' for {(isLxc ? "LXC" : "VM")} {vmid}...",
+                ct
+            );
+
             var upid = await client.CreateVmSnapshotAsync(node, vmid, snapName, description, isLxc, ct);
             await context.EmitLogAsync("system", $"[SNAPSHOT] Snapshot task accepted (UPID: {upid}). Polling for task completion...", ct);
 
             var taskStatus = await client.PollTaskCompletionAsync(node, upid, ct: ct);
             if (!taskStatus.IsSuccess)
             {
-                if (taskStatus.ExitStatus != null && taskStatus.ExitStatus.Contains("snapshot feature is not available", StringComparison.OrdinalIgnoreCase))
+                if (taskStatus.ExitStatus != null &&
+                    (taskStatus.ExitStatus.Contains("snapshot feature is not available", StringComparison.OrdinalIgnoreCase) ||
+                     taskStatus.ExitStatus.Contains("does not support snapshot", StringComparison.OrdinalIgnoreCase) ||
+                     taskStatus.ExitStatus.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
+                     taskStatus.ExitStatus.Contains("storage does not support snapshots", StringComparison.OrdinalIgnoreCase)))
                 {
                     await context.EmitLogAsync(
                         "system",
@@ -111,6 +134,20 @@ public class ProxmoxSnapshotStep : IJobStep
         catch (Exception ex)
         {
             context.Logger.LogError(ex, "Failed to create Proxmox snapshot {SnapName} on node {Node} for {Vmid}", snapName, node, vmid);
+
+            if (ex.Message.Contains("snapshot feature is not available", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("does not support snapshot", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("storage does not support snapshots", StringComparison.OrdinalIgnoreCase))
+            {
+                await context.EmitLogAsync(
+                    "system",
+                    $"[SNAPSHOT] Notice: Proxmox reported snapshots not supported for {(isLxc ? "LXC" : "VM")} {vmid} ({ex.Message}). Skipping safety snapshot and continuing update pipeline.",
+                    ct
+                );
+                return JobStepResult.Succeeded("Skipped: Proxmox storage does not support snapshots.");
+            }
+
             await context.EmitLogAsync("system", $"[SNAPSHOT] Exception creating snapshot: {ex.Message}", ct);
             return JobStepResult.Failed($"Proxmox snapshot creation failed: {ex.Message}", ex);
         }

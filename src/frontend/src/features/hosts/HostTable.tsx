@@ -69,6 +69,7 @@ import { RebootHostModal } from './RebootHostModal'
 import { LaunchWorkflowModal } from '../orchestration/LaunchWorkflowModal'
 import { SnapshotManagementModal } from '../snapshots/SnapshotManagementModal'
 import type { Host, HostFilterParams } from '../../api/hosts'
+import { isBaremetalHost, isProxmoxHost, isKubernetesHost } from '../../api/hosts'
 
 interface HostTableProps {
   onOpenAddModal: () => void
@@ -182,29 +183,11 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
     if (!hosts) return []
     let result = hosts
     if (platformFilter === 'proxmox') {
-      result = result.filter(
-        (h) => h.proxmox || h.targetType?.startsWith('proxmox') || h.proxmoxInstanceId
-      )
+      result = result.filter(isProxmoxHost)
     } else if (platformFilter === 'kubernetes') {
-      result = result.filter(
-        (h) =>
-          Boolean(
-            h.kubernetes?.clusterId ||
-            h.kubernetes?.nodeName ||
-            h.k8sClusterId ||
-            h.k8sNodeName ||
-            h.targetType?.includes('k8s') ||
-            h.targetType?.includes('kubernetes')
-          )
-      )
+      result = result.filter(isKubernetesHost)
     } else if (platformFilter === 'baremetal') {
-      result = result.filter(
-        (h) =>
-          (h.targetType === 'baremetal' || h.targetType === 'physical') &&
-          !h.kubernetes?.clusterId &&
-          !h.k8sClusterId &&
-          !h.proxmox
-      )
+      result = result.filter(isBaremetalHost)
     }
 
     if (currentHealthFilter === 'healthy') {
@@ -584,6 +567,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
       ) : viewMode === 'grouped' ? (
         <GroupedHostView
           hosts={displayHosts}
+          platformFilter={platformFilter}
           onInspect={(h) => setInspectHost(h)}
           onOpenTerminal={(h) => setTerminalHost(h)}
           onTriggerUpdate={(h) => handleTriggerUpdate(h)}

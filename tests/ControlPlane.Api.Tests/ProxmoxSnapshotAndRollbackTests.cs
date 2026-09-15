@@ -1025,4 +1025,109 @@ public class ProxmoxSnapshotAndRollbackTests
         Assert.Null(job.SnapshotIdentifier);
         Assert.Empty(mockClient.CreatedSnapshots);
     }
+
+    [Fact]
+    public async Task ProxmoxClient_HasSnapshotFeatureAsync_ReturnsFalse_WhenDataIsDirectNumberZero()
+    {
+        var mockHandler = new MockHttpMessageHandler(req =>
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{ "data": 0 }""")
+            };
+        });
+
+        var client = new HttpClient(mockHandler);
+        var factory = new MockHttpClientFactory(client);
+        var options = Options.Create(new ProxmoxOptions
+        {
+            BaseUrl = "https://pve.homelab.local:8006",
+            ApiTokenId = "root@pam!token1",
+            ApiTokenSecret = "secret-123"
+        });
+
+        var poller = new ProxmoxTaskPoller(NullLogger<ProxmoxTaskPoller>.Instance);
+        var proxmoxClient = new ProxmoxClient(factory, options, poller, NullLogger<ProxmoxClient>.Instance);
+
+        var result = await proxmoxClient.HasSnapshotFeatureAsync("pve-01", 100, isLxc: false);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ProxmoxClient_HasSnapshotFeatureAsync_ReturnsFalse_WhenHttpThrowsNotSupported()
+    {
+        var mockHandler = new MockHttpMessageHandler(req =>
+        {
+            return new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"errors": "snapshot feature is not available for this guest"}""")
+            };
+        });
+
+        var client = new HttpClient(mockHandler);
+        var factory = new MockHttpClientFactory(client);
+        var options = Options.Create(new ProxmoxOptions
+        {
+            BaseUrl = "https://pve.homelab.local:8006",
+            ApiTokenId = "root@pam!token1",
+            ApiTokenSecret = "secret-123"
+        });
+
+        var poller = new ProxmoxTaskPoller(NullLogger<ProxmoxTaskPoller>.Instance);
+        var proxmoxClient = new ProxmoxClient(factory, options, poller, NullLogger<ProxmoxClient>.Instance);
+
+        var result = await proxmoxClient.HasSnapshotFeatureAsync("pve-01", 100, isLxc: false);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ProxmoxSnapshotStep_SkipsGracefully_WhenCreateVmSnapshotThrowsFeatureUnsupported()
+    {
+        var mockClient = new MockProxmoxClient
+        {
+            OnHasSnapshotFeature = (_, _, _) => true,
+            OnCreateSnapshot = (_, _, _, _, _) => throw new HttpRequestException("Proxmox API request failed: snapshot feature is not available")
+        };
+
+        var host = new HostEntity
+        {
+            Id = Guid.NewGuid(),
+            Hostname = "game-host-linux",
+            IpAddress = "192.168.1.150",
+            OsFamily = "linux_debian",
+            TargetType = "proxmox_vm",
+            Proxmox = new ProxmoxTarget { Node = "proxmox", Vmid = 109 }
+        };
+        var job = new UpdateJob
+        {
+            Id = Guid.NewGuid(),
+            TargetHostId = host.Id,
+            TargetHost = host,
+            Status = UpdateJobState.Running
+        };
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSignalR();
+        var sp = services.BuildServiceProvider();
+        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+        var hubContext = sp.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+
+        var context = new JobExecutionContext(
+            job,
+            host,
+            scopeFactory,
+            hubContext,
+            new MockCommandExecutor(),
+            new AgentConnectionManager(NullLogger<AgentConnectionManager>.Instance),
+            NullLogger.Instance
+        );
+
+        var step = new ProxmoxSnapshotStep(mockClient);
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains("Skipped", result.Message);
+        Assert.Null(job.SnapshotIdentifier);
+    }
 }

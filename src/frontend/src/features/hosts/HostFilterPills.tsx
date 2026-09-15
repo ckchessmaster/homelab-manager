@@ -10,6 +10,7 @@ import {
   LayoutGrid,
 } from 'lucide-react'
 import type { Host } from '../../api/hosts'
+import { isBaremetalHost, isProxmoxHost, isKubernetesHost } from '../../api/hosts'
 
 export type PlatformFilter = 'all' | 'proxmox' | 'kubernetes' | 'baremetal'
 export type HealthFilter = 'all' | 'reboot' | 'updates' | 'healthy'
@@ -36,27 +37,9 @@ export function HostFilterPills({
 }: HostFilterPillsProps) {
   const counts = {
     all: hosts.length,
-    proxmox: hosts.filter(
-      (h) => h.proxmox || h.targetType?.startsWith('proxmox') || h.proxmoxInstanceId
-    ).length,
-    kubernetes: hosts.filter(
-      (h) =>
-        Boolean(
-          h.kubernetes?.clusterId ||
-          h.kubernetes?.nodeName ||
-          h.k8sClusterId ||
-          h.k8sNodeName ||
-          h.targetType?.includes('k8s') ||
-          h.targetType?.includes('kubernetes')
-        )
-    ).length,
-    baremetal: hosts.filter(
-      (h) =>
-        (h.targetType === 'baremetal' || h.targetType === 'physical') &&
-        !h.kubernetes?.clusterId &&
-        !h.k8sClusterId &&
-        !h.proxmox
-    ).length,
+    proxmox: hosts.filter(isProxmoxHost).length,
+    kubernetes: hosts.filter(isKubernetesHost).length,
+    baremetal: hosts.filter(isBaremetalHost).length,
     reboot: hosts.filter((h) => h.agent?.pendingReboot).length,
     updates: hosts.filter((h) => (h.agent?.upgradablePackagesCount || 0) > 0).length,
     healthy: hosts.filter(

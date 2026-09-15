@@ -187,6 +187,10 @@ public class AgentHubTests
         var wsClient2 = factory.Server.CreateWebSocketClient();
         var socket2 = await wsClient2.ConnectAsync(uri, cts.Token);
         Assert.Equal(WebSocketState.Open, socket2.State);
+        for (int i = 0; i < 50 && !connManager.IsOnline(hostId); i++)
+        {
+            await Task.Delay(10);
+        }
         Assert.True(connManager.IsOnline(hostId));
 
         // Close socket 1 (its finally block executes Unregister)

@@ -102,13 +102,19 @@ public class TemporalWorkflowTests : IDisposable
         public bool HasSnapshotSupport { get; set; } = true;
         public string CreatedSnapshotName { get; set; } = string.Empty;
         public bool RollbackInvoked { get; set; }
+        public Func<string, int, bool, bool>? OnHasSnapshotFeature { get; set; }
+        public Func<string, int, string, string?, bool, string>? OnCreateSnapshot { get; set; }
 
         public Task<bool> HasSnapshotFeatureAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
-            Task.FromResult(HasSnapshotSupport);
+            Task.FromResult(OnHasSnapshotFeature?.Invoke(node, vmid, isLxc) ?? HasSnapshotSupport);
 
         public Task<string> CreateVmSnapshotAsync(string node, int vmid, string snapname, string? description = null, bool isLxc = false, CancellationToken ct = default)
         {
             CreatedSnapshotName = snapname;
+            if (OnCreateSnapshot != null)
+            {
+                return Task.FromResult(OnCreateSnapshot(node, vmid, snapname, description, isLxc));
+            }
             return Task.FromResult("UPID:node:1234");
         }
 
@@ -378,6 +384,137 @@ public class TemporalWorkflowTests : IDisposable
 
         Assert.True(rollbackResult.Success);
         Assert.True(proxmoxClient.RollbackInvoked);
+    }
+
+    [Fact]
+    public async Task ProxmoxActivities_CreateSnapshotAsync_SkipsGracefully_WhenFeatureCheckReturnsFalse()
+    {
+        var services = new ServiceCollection();
+        var db = CreateDbContext();
+        services.AddSingleton(db);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "pve-vm-nosnap",
+            TargetType = "proxmox_vm",
+            Proxmox = new ProxmoxTarget { Node = "node-1", Vmid = 101 }
+        };
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync();
+
+        var proxmoxClient = new TestProxmoxClient { HasSnapshotSupport = false };
+        var logEmitter = new TestWorkflowLogEmitter();
+
+        var activities = new ProxmoxActivities(
+            scopeFactory,
+            logEmitter,
+            NullLogger<ProxmoxActivities>.Instance,
+            proxmoxClient
+        );
+
+        var result = await activities.CreateSnapshotAsync(
+            new ProxmoxSnapshotInput(jobId, hostId, "pve-vm-nosnap", "proxmox_vm")
+        );
+
+        Assert.True(result.Success);
+        Assert.False(result.Created);
+        Assert.Contains("Skipped", result.Message);
+        Assert.Contains(logEmitter.Logs, l => l.Line.Contains("does not support snapshots"));
+    }
+
+    [Fact]
+    public async Task ProxmoxActivities_CreateSnapshotAsync_SkipsGracefully_WhenCreateThrowsFeatureNotAvailable()
+    {
+        var services = new ServiceCollection();
+        var db = CreateDbContext();
+        services.AddSingleton(db);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "pve-vm-nosnap-create",
+            TargetType = "proxmox_vm",
+            Proxmox = new ProxmoxTarget { Node = "node-1", Vmid = 102 }
+        };
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync();
+
+        var proxmoxClient = new TestProxmoxClient
+        {
+            HasSnapshotSupport = true,
+            OnCreateSnapshot = (_, _, _, _, _) => throw new HttpRequestException("Proxmox API request failed with status 400: snapshot feature is not available")
+        };
+        var logEmitter = new TestWorkflowLogEmitter();
+
+        var activities = new ProxmoxActivities(
+            scopeFactory,
+            logEmitter,
+            NullLogger<ProxmoxActivities>.Instance,
+            proxmoxClient
+        );
+
+        var result = await activities.CreateSnapshotAsync(
+            new ProxmoxSnapshotInput(jobId, hostId, "pve-vm-nosnap-create", "proxmox_vm")
+        );
+
+        Assert.True(result.Success);
+        Assert.False(result.Created);
+        Assert.Contains("Skipped", result.Message);
+        Assert.Contains(logEmitter.Logs, l => l.Line.Contains("snapshots not supported"));
+    }
+
+    [Fact]
+    public async Task ProxmoxActivities_CreateSnapshotAsync_FailsCleanly_WhenApiThrowsAuthError()
+    {
+        var services = new ServiceCollection();
+        var db = CreateDbContext();
+        services.AddSingleton(db);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "pve-vm-auth-err",
+            TargetType = "proxmox_vm",
+            Proxmox = new ProxmoxTarget { Node = "node-1", Vmid = 103 }
+        };
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync();
+
+        var proxmoxClient = new TestProxmoxClient
+        {
+            OnHasSnapshotFeature = (_, _, _) => throw new HttpRequestException("Proxmox API request failed with status 401 (Authentication failed!): ")
+        };
+        var logEmitter = new TestWorkflowLogEmitter();
+
+        var activities = new ProxmoxActivities(
+            scopeFactory,
+            logEmitter,
+            NullLogger<ProxmoxActivities>.Instance,
+            proxmoxClient
+        );
+
+        // Must not throw an unhandled exception to Temporal!
+        var result = await activities.CreateSnapshotAsync(
+            new ProxmoxSnapshotInput(jobId, hostId, "pve-vm-auth-err", "proxmox_vm")
+        );
+
+        Assert.False(result.Success);
+        Assert.False(result.Created);
+        Assert.Contains("401", result.Message);
+        Assert.Contains(logEmitter.Logs, l => l.Line.Contains("Exception creating snapshot"));
     }
 
     [Fact]
