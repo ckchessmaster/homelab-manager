@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using ControlPlane.Api.Features.Adapters.Config;
 using k8s;
 using k8s.Autorest;
@@ -10,6 +13,24 @@ namespace ControlPlane.Api.Features.Adapters.Kubernetes;
 
 public class KubernetesAdapter : IKubernetesAdapter
 {
+    public static readonly HashSet<string> ProtectedNamespaces = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "kube-system",
+        "ingress-nginx",
+        "cilium",
+        "cert-manager",
+        "longhorn-system",
+        "controlplane",
+        "monitoring"
+    };
+
+    public static readonly HashSet<string> SystemCriticalNamespaces = new(ProtectedNamespaces, StringComparer.OrdinalIgnoreCase)
+    {
+        "default",
+        "kube-public",
+        "kube-node-lease"
+    };
+
     private readonly IKubernetes _client;
     private readonly ILogger<KubernetesAdapter> _logger;
 
@@ -492,6 +513,43 @@ public class KubernetesAdapter : IKubernetesAdapter
         }
     }
 
+    public async Task<bool> DeleteNamespaceAsync(string namespaceName, CancellationToken ct = default)
+    {
+        _logger.LogWarning("Deleting Kubernetes namespace '{Namespace}'...", namespaceName);
+        await _client.CoreV1.DeleteNamespaceAsync(namespaceName, cancellationToken: ct);
+        _logger.LogInformation("Namespace '{Namespace}' deletion initiated successfully.", namespaceName);
+        return true;
+    }
+
+    public async Task<bool> CreateNamespaceAsync(
+        string namespaceName,
+        Dictionary<string, string>? labels = null,
+        Dictionary<string, string>? annotations = null,
+        CancellationToken ct = default)
+    {
+        _logger.LogInformation("Creating Kubernetes namespace '{Namespace}'...", namespaceName);
+        var ns = new V1Namespace
+        {
+            Metadata = new V1ObjectMeta
+            {
+                Name = namespaceName,
+                Labels = labels,
+                Annotations = annotations
+            }
+        };
+        try
+        {
+            await _client.CoreV1.CreateNamespaceAsync(ns, cancellationToken: ct);
+            _logger.LogInformation("Namespace '{Namespace}' created successfully.", namespaceName);
+            return true;
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+        {
+            _logger.LogWarning("Namespace '{Namespace}' already exists.", namespaceName);
+            throw new InvalidOperationException($"Namespace '{namespaceName}' already exists.");
+        }
+    }
+
     public async Task<List<K8sDeploymentSummaryDto>> ListDeploymentsAsync(string? namespaceName = null, CancellationToken ct = default)
     {
         try
@@ -620,5 +678,1466 @@ public class KubernetesAdapter : IKubernetesAdapter
             _logger.LogError(ex, "Failed to list Kubernetes pods");
             return new List<K8sPodSummaryDto>();
         }
+    }
+
+    public async Task<List<K8sWorkloadItemDto>> ListAllWorkloadsAsync(string? namespaceName = null, CancellationToken ct = default)
+    {
+        var result = new List<K8sWorkloadItemDto>();
+        try
+        {
+            // 1. Deployments
+            var deployments = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.AppsV1.ListDeploymentForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.AppsV1.ListNamespacedDeploymentAsync(namespaceName, cancellationToken: ct);
+
+            if (deployments?.Items != null)
+            {
+                foreach (var d in deployments.Items)
+                {
+                    var ns = d.Metadata?.NamespaceProperty ?? "default";
+                    var images = d.Spec?.Template?.Spec?.Containers?.Select(c => c.Image).Where(i => !string.IsNullOrWhiteSpace(i)).Select(i => i!).ToList() ?? new();
+                    var isProtected = ProtectedNamespaces.Contains(ns) || d.Metadata?.Annotations?.ContainsKey("controlplane.io/protected") == true;
+                    result.Add(new K8sWorkloadItemDto(
+                        Name: d.Metadata?.Name ?? string.Empty,
+                        Namespace: ns,
+                        Kind: "Deployment",
+                        DesiredReplicas: d.Spec?.Replicas ?? 0,
+                        ReadyReplicas: d.Status?.ReadyReplicas ?? 0,
+                        AvailableReplicas: d.Status?.AvailableReplicas ?? 0,
+                        Images: images,
+                        CreationTimestamp: d.Metadata?.CreationTimestamp,
+                        IsProtected: isProtected
+                    ));
+                }
+            }
+
+            // 2. StatefulSets
+            var statefulSets = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.AppsV1.ListStatefulSetForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.AppsV1.ListNamespacedStatefulSetAsync(namespaceName, cancellationToken: ct);
+
+            if (statefulSets?.Items != null)
+            {
+                foreach (var s in statefulSets.Items)
+                {
+                    var ns = s.Metadata?.NamespaceProperty ?? "default";
+                    var images = s.Spec?.Template?.Spec?.Containers?.Select(c => c.Image).Where(i => !string.IsNullOrWhiteSpace(i)).Select(i => i!).ToList() ?? new();
+                    var isProtected = ProtectedNamespaces.Contains(ns) || s.Metadata?.Annotations?.ContainsKey("controlplane.io/protected") == true;
+                    result.Add(new K8sWorkloadItemDto(
+                        Name: s.Metadata?.Name ?? string.Empty,
+                        Namespace: ns,
+                        Kind: "StatefulSet",
+                        DesiredReplicas: s.Spec?.Replicas ?? 0,
+                        ReadyReplicas: s.Status?.ReadyReplicas ?? 0,
+                        AvailableReplicas: s.Status?.CurrentReplicas ?? 0,
+                        Images: images,
+                        CreationTimestamp: s.Metadata?.CreationTimestamp,
+                        IsProtected: isProtected
+                    ));
+                }
+            }
+
+            // 3. DaemonSets
+            var daemonSets = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.AppsV1.ListDaemonSetForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.AppsV1.ListNamespacedDaemonSetAsync(namespaceName, cancellationToken: ct);
+
+            if (daemonSets?.Items != null)
+            {
+                foreach (var ds in daemonSets.Items)
+                {
+                    var ns = ds.Metadata?.NamespaceProperty ?? "default";
+                    var images = ds.Spec?.Template?.Spec?.Containers?.Select(c => c.Image).Where(i => !string.IsNullOrWhiteSpace(i)).Select(i => i!).ToList() ?? new();
+                    var isProtected = ProtectedNamespaces.Contains(ns) || ds.Metadata?.Annotations?.ContainsKey("controlplane.io/protected") == true;
+                    result.Add(new K8sWorkloadItemDto(
+                        Name: ds.Metadata?.Name ?? string.Empty,
+                        Namespace: ns,
+                        Kind: "DaemonSet",
+                        DesiredReplicas: ds.Status?.DesiredNumberScheduled ?? 0,
+                        ReadyReplicas: ds.Status?.NumberReady ?? 0,
+                        AvailableReplicas: ds.Status?.NumberAvailable ?? 0,
+                        Images: images,
+                        CreationTimestamp: ds.Metadata?.CreationTimestamp,
+                        IsProtected: isProtected
+                    ));
+                }
+            }
+
+            // 4. CronJobs
+            var cronJobs = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.BatchV1.ListCronJobForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.BatchV1.ListNamespacedCronJobAsync(namespaceName, cancellationToken: ct);
+
+            if (cronJobs?.Items != null)
+            {
+                foreach (var cj in cronJobs.Items)
+                {
+                    var ns = cj.Metadata?.NamespaceProperty ?? "default";
+                    var images = cj.Spec?.JobTemplate?.Spec?.Template?.Spec?.Containers?.Select(c => c.Image).Where(i => !string.IsNullOrWhiteSpace(i)).Select(i => i!).ToList() ?? new();
+                    var isProtected = ProtectedNamespaces.Contains(ns) || cj.Metadata?.Annotations?.ContainsKey("controlplane.io/protected") == true;
+                    result.Add(new K8sWorkloadItemDto(
+                        Name: cj.Metadata?.Name ?? string.Empty,
+                        Namespace: ns,
+                        Kind: "CronJob",
+                        DesiredReplicas: 0,
+                        ReadyReplicas: cj.Status?.Active?.Count ?? 0,
+                        AvailableReplicas: 0,
+                        Images: images,
+                        CreationTimestamp: cj.Metadata?.CreationTimestamp,
+                        Schedule: cj.Spec?.Schedule,
+                        Suspend: cj.Spec?.Suspend,
+                        LastScheduleTime: cj.Status?.LastScheduleTime,
+                        IsProtected: isProtected
+                    ));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list all Kubernetes workloads");
+        }
+
+        return result;
+    }
+
+    public async Task<bool> RestartWorkloadAsync(string kind, string namespaceName, string name, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Triggering rollout restart for {Kind} '{Namespace}/{Name}'...", kind, namespaceName, name);
+        try
+        {
+            var nowIso = DateTime.UtcNow.ToString("o");
+            var patchStr = $"{{\"spec\":{{\"template\":{{\"metadata\":{{\"annotations\":{{\"kubectl.kubernetes.io/restartedAt\":\"{nowIso}\"}}}}}}}}}}";
+            var patch = new V1Patch(patchStr, V1Patch.PatchType.MergePatch);
+
+            switch (kind.ToLowerInvariant())
+            {
+                case "deployment":
+                    await _client.AppsV1.PatchNamespacedDeploymentAsync(patch, name, namespaceName, cancellationToken: ct);
+                    break;
+                case "statefulset":
+                    await _client.AppsV1.PatchNamespacedStatefulSetAsync(patch, name, namespaceName, cancellationToken: ct);
+                    break;
+                case "daemonset":
+                    await _client.AppsV1.PatchNamespacedDaemonSetAsync(patch, name, namespaceName, cancellationToken: ct);
+                    break;
+                default:
+                    _logger.LogWarning("Unsupported workload kind '{Kind}' for rollout restart", kind);
+                    return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to restart {Kind} '{Namespace}/{Name}'", kind, namespaceName, name);
+            return false;
+        }
+    }
+
+    public async Task<bool> RecreateWorkloadPodsAsync(string kind, string namespaceName, string name, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Hard recreating pods for {Kind} '{Namespace}/{Name}'...", kind, namespaceName, name);
+        try
+        {
+            var pods = await _client.CoreV1.ListNamespacedPodAsync(namespaceName, cancellationToken: ct);
+            var prefix = $"{name}-";
+            var matchingPods = pods.Items.Where(p => (p.Metadata?.Name?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                                                     string.Equals(p.Metadata?.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            foreach (var pod in matchingPods)
+            {
+                if (pod.Metadata?.Name != null)
+                {
+                    await _client.CoreV1.DeleteNamespacedPodAsync(pod.Metadata.Name, namespaceName, cancellationToken: ct);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to recreate pods for {Kind} '{Namespace}/{Name}'", kind, namespaceName, name);
+            return false;
+        }
+    }
+
+    public async Task<bool> TriggerCronJobAsync(string namespaceName, string cronJobName, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Manually triggering ad-hoc run for CronJob '{Namespace}/{Name}'...", namespaceName, cronJobName);
+        try
+        {
+            var cronJob = await _client.BatchV1.ReadNamespacedCronJobAsync(cronJobName, namespaceName, cancellationToken: ct);
+            var suffix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var jobName = $"{cronJobName}-manual-{suffix}";
+            if (jobName.Length > 63)
+            {
+                jobName = jobName.Substring(0, 63).TrimEnd('-');
+            }
+
+            var job = new V1Job
+            {
+                Metadata = new V1ObjectMeta
+                {
+                    Name = jobName,
+                    NamespaceProperty = namespaceName,
+                    Labels = new Dictionary<string, string>
+                    {
+                        ["app.kubernetes.io/managed-by"] = "controlplane",
+                        ["job-name"] = jobName
+                    },
+                    Annotations = new Dictionary<string, string>
+                    {
+                        ["controlplane.io/triggered-from"] = cronJobName
+                    }
+                },
+                Spec = cronJob.Spec?.JobTemplate?.Spec
+            };
+
+            await _client.BatchV1.CreateNamespacedJobAsync(job, namespaceName, cancellationToken: ct);
+            _logger.LogInformation("Created ad-hoc Job '{JobName}' from CronJob '{CronJobName}'.", jobName, cronJobName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to trigger CronJob '{Namespace}/{Name}'", namespaceName, cronJobName);
+            return false;
+        }
+    }
+
+    public async Task<K8sAppBundleDto?> GetAppBundleAsync(string namespaceName, string appName, CancellationToken ct = default)
+    {
+        try
+        {
+            V1Deployment? deployment = null;
+            V1StatefulSet? statefulSet = null;
+
+            try
+            {
+                deployment = await _client.AppsV1.ReadNamespacedDeploymentAsync(appName, namespaceName, cancellationToken: ct);
+            }
+            catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+            {
+                try
+                {
+                    statefulSet = await _client.AppsV1.ReadNamespacedStatefulSetAsync(appName, namespaceName, cancellationToken: ct);
+                }
+                catch (HttpOperationException) { }
+            }
+
+            if (deployment == null && statefulSet == null)
+            {
+                return null;
+            }
+
+            var kind = deployment != null ? "Deployment" : "StatefulSet";
+            var replicas = deployment?.Spec?.Replicas ?? statefulSet?.Spec?.Replicas ?? 1;
+            var podSpec = deployment?.Spec?.Template?.Spec ?? statefulSet?.Spec?.Template?.Spec;
+            var mainContainer = podSpec?.Containers?.FirstOrDefault();
+            var image = mainContainer?.Image ?? "unknown";
+
+            var ports = new List<K8sAppPortMapping>();
+            if (mainContainer?.Ports != null)
+            {
+                foreach (var p in mainContainer.Ports)
+                {
+                    ports.Add(new K8sAppPortMapping(
+                        Name: p.Name ?? "http",
+                        ContainerPort: p.ContainerPort,
+                        ServicePort: p.ContainerPort,
+                        Protocol: p.Protocol ?? "TCP"
+                    ));
+                }
+            }
+
+            // Look up service
+            V1Service? service = null;
+            try
+            {
+                service = await _client.CoreV1.ReadNamespacedServiceAsync(appName, namespaceName, cancellationToken: ct);
+            }
+            catch (HttpOperationException) { }
+
+            if (service?.Spec?.Ports != null)
+            {
+                for (int i = 0; i < service.Spec.Ports.Count; i++)
+                {
+                    var sp = service.Spec.Ports[i];
+                    if (i < ports.Count)
+                    {
+                        ports[i] = ports[i] with { ServicePort = sp.Port };
+                    }
+                    else
+                    {
+                        ports.Add(new K8sAppPortMapping(sp.Name ?? "port", sp.TargetPort?.Value != null && int.TryParse(sp.TargetPort.Value, out var tp) ? tp : sp.Port, sp.Port, sp.Protocol ?? "TCP"));
+                    }
+                }
+            }
+
+            // Look up ingress
+            V1Ingress? ingress = null;
+            try
+            {
+                ingress = await _client.NetworkingV1.ReadNamespacedIngressAsync(appName, namespaceName, cancellationToken: ct);
+            }
+            catch (HttpOperationException) { }
+
+            string? ingressHost = ingress?.Spec?.Rules?.FirstOrDefault()?.Host;
+            string? ingressPath = ingress?.Spec?.Rules?.FirstOrDefault()?.Http?.Paths?.FirstOrDefault()?.Path;
+            bool tlsEnabled = ingress?.Spec?.Tls?.Any() ?? false;
+
+            // Env vars
+            var envVars = new List<K8sAppEnvVar>();
+            if (mainContainer?.Env != null)
+            {
+                foreach (var env in mainContainer.Env)
+                {
+                    envVars.Add(new K8sAppEnvVar(env.Name, env.Value ?? string.Empty, env.ValueFrom?.SecretKeyRef != null));
+                }
+            }
+
+            // Volumes & PVCs
+            var volumeMounts = new List<K8sAppVolumeMount>();
+            if (mainContainer?.VolumeMounts != null && podSpec?.Volumes != null)
+            {
+                foreach (var vm in mainContainer.VolumeMounts)
+                {
+                    var vol = podSpec.Volumes.FirstOrDefault(v => v.Name == vm.Name);
+                    if (vol?.PersistentVolumeClaim != null)
+                    {
+                        volumeMounts.Add(new K8sAppVolumeMount(
+                            Name: vm.Name,
+                            MountPath: vm.MountPath,
+                            PvcName: vol.PersistentVolumeClaim.ClaimName
+                        ));
+                    }
+                }
+            }
+
+            var cpuReq = mainContainer?.Resources?.Requests?.TryGetValue("cpu", out var cr) == true ? cr.Value : null;
+            var cpuLim = mainContainer?.Resources?.Limits?.TryGetValue("cpu", out var cl) == true ? cl.Value : null;
+            var memReq = mainContainer?.Resources?.Requests?.TryGetValue("memory", out var mr) == true ? mr.Value : null;
+            var memLim = mainContainer?.Resources?.Limits?.TryGetValue("memory", out var ml) == true ? ml.Value : null;
+
+            // Raw YAML
+            var yamlParts = new List<string>();
+            if (deployment != null) yamlParts.Add(k8s.KubernetesYaml.Serialize(deployment));
+            if (statefulSet != null) yamlParts.Add(k8s.KubernetesYaml.Serialize(statefulSet));
+            if (service != null) yamlParts.Add(k8s.KubernetesYaml.Serialize(service));
+            if (ingress != null) yamlParts.Add(k8s.KubernetesYaml.Serialize(ingress));
+            var rawYaml = string.Join("---\n", yamlParts);
+
+            return new K8sAppBundleDto(
+                Name: appName,
+                Namespace: namespaceName,
+                Kind: kind,
+                Replicas: replicas,
+                Image: image,
+                Ports: ports,
+                IngressHost: ingressHost,
+                IngressPath: ingressPath,
+                TlsEnabled: tlsEnabled,
+                EnvironmentVariables: envVars,
+                VolumeMounts: volumeMounts,
+                CpuRequest: cpuReq,
+                CpuLimit: cpuLim,
+                MemoryRequest: memReq,
+                MemoryLimit: memLim,
+                RawYaml: rawYaml
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get app bundle for '{Namespace}/{Name}'", namespaceName, appName);
+            return null;
+        }
+    }
+
+    public async Task<K8sApplyResultDto> ApplyManifestYamlAsync(string yamlContent, bool dryRun = false, CancellationToken ct = default)
+    {
+        var affected = new List<string>();
+        var warnings = new List<string>();
+        try
+        {
+            var docs = Regex.Split(yamlContent, @"^---\s*$", RegexOptions.Multiline)
+                .Select(d => d.Trim())
+                .Where(d => !string.IsNullOrWhiteSpace(d))
+                .ToList();
+
+            var dryRunOption = dryRun ? "All" : null;
+
+            foreach (var doc in docs)
+            {
+                var kindMatch = Regex.Match(doc, @"kind:\s*([A-Za-z0-9]+)");
+                if (!kindMatch.Success) continue;
+                var kind = kindMatch.Groups[1].Value;
+
+                var nameMatch = Regex.Match(doc, @"name:\s*([A-Za-z0-9\-.]+)");
+                var name = nameMatch.Success ? nameMatch.Groups[1].Value : "unknown";
+
+                var nsMatch = Regex.Match(doc, @"namespace:\s*([A-Za-z0-9\-.]+)");
+                var ns = nsMatch.Success ? nsMatch.Groups[1].Value : "default";
+
+                switch (kind.ToLowerInvariant())
+                {
+                    case "deployment":
+                        var dep = k8s.KubernetesYaml.Deserialize<V1Deployment>(doc);
+                        try
+                        {
+                            await _client.AppsV1.CreateNamespacedDeploymentAsync(dep, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Deployment/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.AppsV1.ReplaceNamespacedDeploymentAsync(dep, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Deployment/{name} (updated)");
+                        }
+                        break;
+
+                    case "statefulset":
+                        var ss = k8s.KubernetesYaml.Deserialize<V1StatefulSet>(doc);
+                        try
+                        {
+                            await _client.AppsV1.CreateNamespacedStatefulSetAsync(ss, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"StatefulSet/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.AppsV1.ReplaceNamespacedStatefulSetAsync(ss, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"StatefulSet/{name} (updated)");
+                        }
+                        break;
+
+                    case "service":
+                        var svc = k8s.KubernetesYaml.Deserialize<V1Service>(doc);
+                        try
+                        {
+                            await _client.CoreV1.CreateNamespacedServiceAsync(svc, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Service/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            var patch = new V1Patch(k8s.KubernetesYaml.Serialize(svc), V1Patch.PatchType.MergePatch);
+                            await _client.CoreV1.PatchNamespacedServiceAsync(patch, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Service/{name} (patched)");
+                        }
+                        break;
+
+                    case "ingress":
+                        var ing = k8s.KubernetesYaml.Deserialize<V1Ingress>(doc);
+                        try
+                        {
+                            await _client.NetworkingV1.CreateNamespacedIngressAsync(ing, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Ingress/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.NetworkingV1.ReplaceNamespacedIngressAsync(ing, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Ingress/{name} (updated)");
+                        }
+                        break;
+
+                    case "persistentvolumeclaim":
+                        var pvc = k8s.KubernetesYaml.Deserialize<V1PersistentVolumeClaim>(doc);
+                        try
+                        {
+                            await _client.CoreV1.CreateNamespacedPersistentVolumeClaimAsync(pvc, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"PersistentVolumeClaim/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            affected.Add($"PersistentVolumeClaim/{name} (unchanged)");
+                        }
+                        break;
+
+                    case "secret":
+                        var sec = k8s.KubernetesYaml.Deserialize<V1Secret>(doc);
+                        try
+                        {
+                            await _client.CoreV1.CreateNamespacedSecretAsync(sec, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Secret/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.CoreV1.ReplaceNamespacedSecretAsync(sec, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Secret/{name} (updated)");
+                        }
+                        break;
+
+                    case "configmap":
+                        var cm = k8s.KubernetesYaml.Deserialize<V1ConfigMap>(doc);
+                        try
+                        {
+                            await _client.CoreV1.CreateNamespacedConfigMapAsync(cm, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"ConfigMap/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.CoreV1.ReplaceNamespacedConfigMapAsync(cm, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"ConfigMap/{name} (updated)");
+                        }
+                        break;
+
+                    case "daemonset":
+                        var ds = k8s.KubernetesYaml.Deserialize<V1DaemonSet>(doc);
+                        try
+                        {
+                            await _client.AppsV1.CreateNamespacedDaemonSetAsync(ds, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"DaemonSet/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.AppsV1.ReplaceNamespacedDaemonSetAsync(ds, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"DaemonSet/{name} (updated)");
+                        }
+                        break;
+
+                    case "serviceaccount":
+                        var sa = k8s.KubernetesYaml.Deserialize<V1ServiceAccount>(doc);
+                        try
+                        {
+                            await _client.CoreV1.CreateNamespacedServiceAccountAsync(sa, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"ServiceAccount/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.CoreV1.ReplaceNamespacedServiceAccountAsync(sa, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"ServiceAccount/{name} (updated)");
+                        }
+                        break;
+
+                    case "job":
+                        var job = k8s.KubernetesYaml.Deserialize<V1Job>(doc);
+                        try
+                        {
+                            await _client.BatchV1.CreateNamespacedJobAsync(job, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"Job/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            affected.Add($"Job/{name} (already exists)");
+                        }
+                        break;
+
+                    case "cronjob":
+                        var cj = k8s.KubernetesYaml.Deserialize<V1CronJob>(doc);
+                        try
+                        {
+                            await _client.BatchV1.CreateNamespacedCronJobAsync(cj, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"CronJob/{name} (created)");
+                        }
+                        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+                        {
+                            await _client.BatchV1.ReplaceNamespacedCronJobAsync(cj, name, ns, dryRun: dryRunOption, cancellationToken: ct);
+                            affected.Add($"CronJob/{name} (updated)");
+                        }
+                        break;
+
+                    default:
+                        warnings.Add($"Resource kind '{kind}' skipped during manifest apply.");
+                        break;
+                }
+            }
+
+            var msg = dryRun
+                ? $"Dry run completed successfully for {affected.Count} resource(s)."
+                : $"Applied successfully: {affected.Count} resource(s) processed.";
+
+            return new K8sApplyResultDto(true, msg, affected, warnings);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply manifest YAML");
+            return new K8sApplyResultDto(false, $"Failed to apply manifest: {ex.Message}", affected, warnings);
+        }
+    }
+
+    public async Task<bool> DeleteAppBundleAsync(string namespaceName, string appName, K8sDeleteOptionsDto options, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Cascading deleting app bundle '{Namespace}/{Name}' with options {@Options}", namespaceName, appName, options);
+        try
+        {
+            if (options.DeleteWorkload)
+            {
+                try { await _client.AppsV1.DeleteNamespacedDeploymentAsync(appName, namespaceName, cancellationToken: ct); } catch (HttpOperationException) { }
+                try { await _client.AppsV1.DeleteNamespacedStatefulSetAsync(appName, namespaceName, cancellationToken: ct); } catch (HttpOperationException) { }
+                try { await _client.AppsV1.DeleteNamespacedDaemonSetAsync(appName, namespaceName, cancellationToken: ct); } catch (HttpOperationException) { }
+            }
+
+            if (options.DeleteService)
+            {
+                try { await _client.CoreV1.DeleteNamespacedServiceAsync(appName, namespaceName, cancellationToken: ct); } catch (HttpOperationException) { }
+            }
+
+            if (options.DeleteIngress)
+            {
+                try { await _client.NetworkingV1.DeleteNamespacedIngressAsync(appName, namespaceName, cancellationToken: ct); } catch (HttpOperationException) { }
+            }
+
+            if (options.DeletePvc)
+            {
+                var pvcs = await _client.CoreV1.ListNamespacedPersistentVolumeClaimAsync(namespaceName, cancellationToken: ct);
+                var prefix = $"{appName}-";
+                var matchingPvcs = pvcs.Items.Where(p => (p.Metadata?.Name?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                                                         string.Equals(p.Metadata?.Name, appName, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                foreach (var pvc in matchingPvcs)
+                {
+                    if (pvc.Metadata?.Name != null)
+                    {
+                        try { await _client.CoreV1.DeleteNamespacedPersistentVolumeClaimAsync(pvc.Metadata.Name, namespaceName, cancellationToken: ct); } catch (HttpOperationException) { }
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cascading delete app bundle '{Namespace}/{Name}'", namespaceName, appName);
+            return false;
+        }
+    }
+
+    public async Task<List<K8sIngressSummaryDto>> ListIngressesAsync(string? namespaceName = null, CancellationToken ct = default)
+    {
+        var result = new List<K8sIngressSummaryDto>();
+        try
+        {
+            var ingresses = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.NetworkingV1.ListIngressForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.NetworkingV1.ListNamespacedIngressAsync(namespaceName, cancellationToken: ct);
+
+            if (ingresses?.Items == null) return result;
+
+            foreach (var ing in ingresses.Items)
+            {
+                var hosts = new List<string>();
+                var paths = new List<K8sIngressRulePathDto>();
+                if (ing.Spec?.Rules != null)
+                {
+                    foreach (var rule in ing.Spec.Rules)
+                    {
+                        if (!string.IsNullOrWhiteSpace(rule.Host)) hosts.Add(rule.Host);
+                        if (rule.Http?.Paths != null)
+                        {
+                            foreach (var p in rule.Http.Paths)
+                            {
+                                paths.Add(new K8sIngressRulePathDto(
+                                    Path: p.Path ?? "/",
+                                    PathType: p.PathType ?? "Prefix",
+                                    ServiceName: p.Backend?.Service?.Name ?? "unknown",
+                                    ServicePort: p.Backend?.Service?.Port?.Number ?? 80
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                var tlsHosts = ing.Spec?.Tls?.SelectMany(t => t.Hosts ?? new List<string>()).Distinct().ToList() ?? new List<string>();
+                var annotations = ing.Metadata?.Annotations != null ? new Dictionary<string, string>(ing.Metadata.Annotations) : new Dictionary<string, string>();
+
+                result.Add(new K8sIngressSummaryDto(
+                    Name: ing.Metadata?.Name ?? string.Empty,
+                    Namespace: ing.Metadata?.NamespaceProperty ?? "default",
+                    IngressClass: ing.Spec?.IngressClassName ?? annotations.GetValueOrDefault("kubernetes.io/ingress.class"),
+                    Hosts: hosts,
+                    Paths: paths,
+                    TlsHosts: tlsHosts,
+                    Annotations: annotations,
+                    CreationTimestamp: ing.Metadata?.CreationTimestamp
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list Ingresses");
+        }
+
+        return result;
+    }
+
+    public async Task<List<K8sCertificateSummaryDto>> ListCertificatesAsync(string? namespaceName = null, CancellationToken ct = default)
+    {
+        var result = new List<K8sCertificateSummaryDto>();
+        try
+        {
+            try
+            {
+                var certsObj = string.IsNullOrWhiteSpace(namespaceName)
+                    ? await _client.CustomObjects.ListClusterCustomObjectAsync("cert-manager.io", "v1", "certificates", cancellationToken: ct)
+                    : await _client.CustomObjects.ListNamespacedCustomObjectAsync("cert-manager.io", "v1", namespaceName, "certificates", cancellationToken: ct);
+
+                if (certsObj is JsonElement element && element.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var cert in items.EnumerateArray())
+                    {
+                        var name = cert.GetProperty("metadata").GetProperty("name").GetString() ?? string.Empty;
+                        var ns = cert.GetProperty("metadata").GetProperty("namespace").GetString() ?? "default";
+                        string? issuer = cert.TryGetProperty("spec", out var spec) && spec.TryGetProperty("issuerRef", out var ir) && ir.TryGetProperty("name", out var iname) ? iname.GetString() : null;
+                        string? secretName = spec.TryGetProperty("secretName", out var sn) ? sn.GetString() : null;
+
+                        bool isReady = false;
+                        DateTime? notAfter = null;
+                        DateTime? renewalTime = null;
+                        var conditions = new List<string>();
+
+                        if (cert.TryGetProperty("status", out var status))
+                        {
+                            if (status.TryGetProperty("notAfter", out var na) && na.TryGetDateTime(out var nadt)) notAfter = nadt;
+                            if (status.TryGetProperty("renewalTime", out var rt) && rt.TryGetDateTime(out var rtdt)) renewalTime = rtdt;
+                            if (status.TryGetProperty("conditions", out var conds) && conds.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var c in conds.EnumerateArray())
+                                {
+                                    var type = c.TryGetProperty("type", out var ctProp) ? ctProp.GetString() : "";
+                                    var cstatus = c.TryGetProperty("status", out var csProp) ? csProp.GetString() : "";
+                                    conditions.Add($"{type}:{cstatus}");
+                                    if (type == "Ready" && cstatus == "True") isReady = true;
+                                }
+                            }
+                        }
+
+                        result.Add(new K8sCertificateSummaryDto(
+                            Name: name,
+                            Namespace: ns,
+                            Issuer: issuer,
+                            SecretName: secretName,
+                            IsReady: isReady,
+                            RenewalTime: renewalTime,
+                            NotAfter: notAfter,
+                            Conditions: conditions
+                        ));
+                    }
+                }
+            }
+            catch
+            {
+                var secrets = string.IsNullOrWhiteSpace(namespaceName)
+                    ? await _client.CoreV1.ListSecretForAllNamespacesAsync(fieldSelector: "type=kubernetes.io/tls", cancellationToken: ct)
+                    : await _client.CoreV1.ListNamespacedSecretAsync(namespaceName, fieldSelector: "type=kubernetes.io/tls", cancellationToken: ct);
+
+                if (secrets?.Items != null)
+                {
+                    foreach (var s in secrets.Items)
+                    {
+                        result.Add(new K8sCertificateSummaryDto(
+                            Name: s.Metadata?.Name ?? string.Empty,
+                            Namespace: s.Metadata?.NamespaceProperty ?? "default",
+                            Issuer: "Kubernetes TLS Secret",
+                            SecretName: s.Metadata?.Name,
+                            IsReady: true,
+                            RenewalTime: null,
+                            NotAfter: null,
+                            Conditions: new List<string> { "Ready:True" }
+                        ));
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to list certificates");
+        }
+
+        return result;
+    }
+
+    public async Task<K8sStorageOverviewDto> GetStorageOverviewAsync(string? namespaceName = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var pvcs = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.CoreV1.ListPersistentVolumeClaimForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.CoreV1.ListNamespacedPersistentVolumeClaimAsync(namespaceName, cancellationToken: ct);
+
+            var storageClasses = await _client.StorageV1.ListStorageClassAsync(cancellationToken: ct);
+            var pods = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.CoreV1.ListPodForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.CoreV1.ListNamespacedPodAsync(namespaceName, cancellationToken: ct);
+
+            var pvcToPods = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            if (pods?.Items != null)
+            {
+                foreach (var pod in pods.Items)
+                {
+                    var podName = pod.Metadata?.Name ?? string.Empty;
+                    var podNs = pod.Metadata?.NamespaceProperty ?? "default";
+                    if (pod.Spec?.Volumes != null)
+                    {
+                        foreach (var vol in pod.Spec.Volumes)
+                        {
+                            if (!string.IsNullOrWhiteSpace(vol.PersistentVolumeClaim?.ClaimName))
+                            {
+                                var key = $"{podNs}/{vol.PersistentVolumeClaim.ClaimName}";
+                                if (!pvcToPods.TryGetValue(key, out var list))
+                                {
+                                    list = new List<string>();
+                                    pvcToPods[key] = list;
+                                }
+                                list.Add(podName);
+                            }
+                        }
+                    }
+                }
+            }
+
+            var scDtos = new List<K8sStorageClassDto>();
+            bool longhornDetected = false;
+            if (storageClasses?.Items != null)
+            {
+                foreach (var sc in storageClasses.Items)
+                {
+                    var prov = sc.Provisioner ?? string.Empty;
+                    if (prov.Contains("longhorn", StringComparison.OrdinalIgnoreCase)) longhornDetected = true;
+                    bool isDefault = sc.Metadata?.Annotations?.TryGetValue("storageclass.kubernetes.io/is-default-class", out var def) == true && def == "true";
+
+                    scDtos.Add(new K8sStorageClassDto(
+                        Name: sc.Metadata?.Name ?? string.Empty,
+                        Provisioner: prov,
+                        ReclaimPolicy: sc.ReclaimPolicy ?? "Delete",
+                        VolumeBindingMode: sc.VolumeBindingMode ?? "Immediate",
+                        IsDefault: isDefault
+                    ));
+                }
+            }
+
+            var pvcDtos = new List<K8sPvcSummaryDto>();
+            long totalCapacityBytes = 0;
+            int boundCount = 0;
+
+            if (pvcs?.Items != null)
+            {
+                foreach (var pvc in pvcs.Items)
+                {
+                    var pName = pvc.Metadata?.Name ?? string.Empty;
+                    var pNs = pvc.Metadata?.NamespaceProperty ?? "default";
+                    var status = pvc.Status?.Phase ?? "Unknown";
+                    if (status == "Bound") boundCount++;
+
+                    var capStr = pvc.Status?.Capacity?.TryGetValue("storage", out var cap) == true ? cap.Value : null;
+                    if (!string.IsNullOrWhiteSpace(capStr))
+                    {
+                        totalCapacityBytes += ParseQuantityToBytes(capStr);
+                    }
+
+                    var key = $"{pNs}/{pName}";
+                    var mountingPods = pvcToPods.TryGetValue(key, out var plist) ? plist : new List<string>();
+
+                    pvcDtos.Add(new K8sPvcSummaryDto(
+                        Name: pName,
+                        Namespace: pNs,
+                        Status: status,
+                        VolumeName: pvc.Spec?.VolumeName,
+                        Capacity: capStr,
+                        StorageClass: pvc.Spec?.StorageClassName,
+                        AccessModes: pvc.Spec?.AccessModes?.ToList() ?? new List<string>(),
+                        MountingPods: mountingPods,
+                        CreationTimestamp: pvc.Metadata?.CreationTimestamp
+                    ));
+                }
+            }
+
+            return new K8sStorageOverviewDto(
+                TotalPvcs: pvcDtos.Count,
+                BoundPvcs: boundCount,
+                TotalCapacityBytes: totalCapacityBytes,
+                Pvcs: pvcDtos,
+                StorageClasses: scDtos,
+                LonghornDetected: longhornDetected
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get storage overview");
+            return new K8sStorageOverviewDto(0, 0, 0, new List<K8sPvcSummaryDto>(), new List<K8sStorageClassDto>(), false);
+        }
+    }
+
+    public async Task<K8sClusterVitalsDto> GetClusterVitalsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var nodes = await _client.CoreV1.ListNodeAsync(cancellationToken: ct);
+            var nodeVitals = new List<K8sNodeVitalDto>();
+            long totalAllocCpu = 0;
+            long totalAllocMem = 0;
+            long totalUsedCpu = 0;
+            long totalUsedMem = 0;
+            bool metricsServerAvailable = false;
+
+            var nodeUsageMap = new Dictionary<string, (long cpuMillis, long memBytes)>(StringComparer.OrdinalIgnoreCase);
+            var podVitals = new List<K8sPodVitalDto>();
+
+            try
+            {
+                var nodeMetrics = await _client.CustomObjects.ListClusterCustomObjectAsync("metrics.k8s.io", "v1beta1", "nodes", cancellationToken: ct);
+                if (nodeMetrics is JsonElement nmElem && nmElem.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+                {
+                    metricsServerAvailable = true;
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        var nname = item.GetProperty("metadata").GetProperty("name").GetString() ?? "";
+                        long cpuM = 0;
+                        long memB = 0;
+                        if (item.TryGetProperty("usage", out var usage))
+                        {
+                            if (usage.TryGetProperty("cpu", out var cpuProp)) cpuM = ParseCpuToMillis(cpuProp.GetString());
+                            if (usage.TryGetProperty("memory", out var memProp)) memB = ParseQuantityToBytes(memProp.GetString());
+                        }
+                        nodeUsageMap[nname] = (cpuM, memB);
+                        totalUsedCpu += cpuM;
+                        totalUsedMem += memB;
+                    }
+                }
+
+                var podMetrics = await _client.CustomObjects.ListClusterCustomObjectAsync("metrics.k8s.io", "v1beta1", "pods", cancellationToken: ct);
+                if (podMetrics is JsonElement pmElem && pmElem.TryGetProperty("items", out var pitems) && pitems.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var pitem in pitems.EnumerateArray())
+                    {
+                        var pname = pitem.GetProperty("metadata").GetProperty("name").GetString() ?? "";
+                        var pns = pitem.GetProperty("metadata").GetProperty("namespace").GetString() ?? "default";
+                        long podCpu = 0;
+                        long podMem = 0;
+                        if (pitem.TryGetProperty("containers", out var containers) && containers.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var c in containers.EnumerateArray())
+                            {
+                                if (c.TryGetProperty("usage", out var cusage))
+                                {
+                                    if (cusage.TryGetProperty("cpu", out var ccpu)) podCpu += ParseCpuToMillis(ccpu.GetString());
+                                    if (cusage.TryGetProperty("memory", out var cmem)) podMem += ParseQuantityToBytes(cmem.GetString());
+                                }
+                            }
+                        }
+                        podVitals.Add(new K8sPodVitalDto(pname, pns, podCpu, podMem));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("metrics.k8s.io metrics-server not available: {Message}", ex.Message);
+            }
+
+            if (nodes?.Items != null)
+            {
+                foreach (var n in nodes.Items)
+                {
+                    var name = n.Metadata?.Name ?? string.Empty;
+                    var allocatable = n.Status?.Allocatable;
+                    long cpuAlloc = allocatable?.TryGetValue("cpu", out var ca) == true ? ParseCpuToMillis(ca.Value) : 0;
+                    long memAlloc = allocatable?.TryGetValue("memory", out var ma) == true ? ParseQuantityToBytes(ma.Value) : 0;
+                    totalAllocCpu += cpuAlloc;
+                    totalAllocMem += memAlloc;
+
+                    var (cpuUsed, memUsed) = nodeUsageMap.TryGetValue(name, out var u) ? u : (0L, 0L);
+
+                    bool diskPressure = n.Status?.Conditions?.Any(c => c.Type == "DiskPressure" && c.Status == "True") ?? false;
+                    bool memoryPressure = n.Status?.Conditions?.Any(c => c.Type == "MemoryPressure" && c.Status == "True") ?? false;
+                    bool pidPressure = n.Status?.Conditions?.Any(c => c.Type == "PIDPressure" && c.Status == "True") ?? false;
+                    bool ready = n.Status?.Conditions?.Any(c => c.Type == "Ready" && c.Status == "True") ?? false;
+
+                    nodeVitals.Add(new K8sNodeVitalDto(
+                        NodeName: name,
+                        CpuUsageMillis: cpuUsed,
+                        CpuAllocatableMillis: cpuAlloc,
+                        MemoryUsageBytes: memUsed,
+                        MemoryAllocatableBytes: memAlloc,
+                        DiskPressure: diskPressure,
+                        MemoryPressure: memoryPressure,
+                        PidPressure: pidPressure,
+                        Ready: ready
+                    ));
+                }
+            }
+
+            return new K8sClusterVitalsDto(
+                MetricsServerAvailable: metricsServerAvailable,
+                TotalCpuUsageMillis: totalUsedCpu,
+                TotalCpuAllocatableMillis: totalAllocCpu,
+                TotalMemoryUsageBytes: totalUsedMem,
+                TotalMemoryAllocatableBytes: totalAllocMem,
+                Nodes: nodeVitals,
+                TopPods: podVitals.OrderByDescending(p => p.CpuUsageMillis).Take(10).ToList()
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get cluster vitals");
+            return new K8sClusterVitalsDto(false, 0, 0, 0, 0, new List<K8sNodeVitalDto>(), new List<K8sPodVitalDto>());
+        }
+    }
+
+    private static long ParseCpuToMillis(string? cpu)
+    {
+        if (string.IsNullOrWhiteSpace(cpu)) return 0;
+        cpu = cpu.Trim();
+        if (cpu.EndsWith("m", StringComparison.OrdinalIgnoreCase))
+        {
+            if (long.TryParse(cpu.Substring(0, cpu.Length - 1), out var m)) return m;
+        }
+        if (cpu.EndsWith("n", StringComparison.OrdinalIgnoreCase))
+        {
+            if (long.TryParse(cpu.Substring(0, cpu.Length - 1), out var n)) return n / 1_000_000;
+        }
+        if (double.TryParse(cpu, System.Globalization.CultureInfo.InvariantCulture, out var cores))
+        {
+            return (long)(cores * 1000);
+        }
+        return 0;
+    }
+
+    private static long ParseQuantityToBytes(string? q)
+    {
+        if (string.IsNullOrWhiteSpace(q)) return 0;
+        q = q.Trim();
+        long mult = 1;
+        if (q.EndsWith("Ki", StringComparison.OrdinalIgnoreCase)) { mult = 1024L; q = q[..^2]; }
+        else if (q.EndsWith("Mi", StringComparison.OrdinalIgnoreCase)) { mult = 1024L * 1024L; q = q[..^2]; }
+        else if (q.EndsWith("Gi", StringComparison.OrdinalIgnoreCase)) { mult = 1024L * 1024L * 1024L; q = q[..^2]; }
+        else if (q.EndsWith("Ti", StringComparison.OrdinalIgnoreCase)) { mult = 1024L * 1024L * 1024L * 1024L; q = q[..^2]; }
+        else if (q.EndsWith("K", StringComparison.OrdinalIgnoreCase)) { mult = 1000L; q = q[..^1]; }
+        else if (q.EndsWith("M", StringComparison.OrdinalIgnoreCase)) { mult = 1000L * 1000L; q = q[..^1]; }
+        else if (q.EndsWith("G", StringComparison.OrdinalIgnoreCase)) { mult = 1000L * 1000L * 1000L; q = q[..^1]; }
+        else if (q.EndsWith("T", StringComparison.OrdinalIgnoreCase)) { mult = 1000L * 1000L * 1000L * 1000L; q = q[..^1]; }
+
+        if (double.TryParse(q, System.Globalization.CultureInfo.InvariantCulture, out var val))
+        {
+            return (long)(val * mult);
+        }
+        return 0;
+    }
+
+    // --- Secrets & ConfigMaps ---
+
+    public async Task<List<K8sSecretSummaryDto>> ListSecretsAsync(string? namespaceName = null, CancellationToken ct = default)
+    {
+        var result = new List<K8sSecretSummaryDto>();
+        try
+        {
+            var secrets = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.CoreV1.ListSecretForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.CoreV1.ListNamespacedSecretAsync(namespaceName, cancellationToken: ct);
+
+            foreach (var s in secrets.Items)
+            {
+                var name = s.Metadata?.Name ?? "unknown";
+                var ns = s.Metadata?.NamespaceProperty ?? "default";
+                var type = s.Type ?? "Opaque";
+                var keys = s.Data?.Keys.ToList() ?? new List<string>();
+                var isSystem = SystemCriticalNamespaces.Contains(ns) || type.StartsWith("kubernetes.io/service-account-token", StringComparison.OrdinalIgnoreCase);
+
+                result.Add(new K8sSecretSummaryDto(
+                    Name: name,
+                    Namespace: ns,
+                    Type: type,
+                    KeysCount: keys.Count,
+                    Keys: keys,
+                    CreationTimestamp: s.Metadata?.CreationTimestamp,
+                    IsSystem: isSystem
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list secrets in namespace {Namespace}", namespaceName);
+        }
+        return result.OrderBy(s => s.Namespace).ThenBy(s => s.Name).ToList();
+    }
+
+    public async Task<K8sSecretDetailDto?> GetSecretAsync(string namespaceName, string secretName, bool maskValues = true, CancellationToken ct = default)
+    {
+        try
+        {
+            var s = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName, cancellationToken: ct);
+            if (s == null) return null;
+
+            var data = new Dictionary<string, string>();
+            if (s.Data != null)
+            {
+                foreach (var kvp in s.Data)
+                {
+                    if (maskValues)
+                    {
+                        data[kvp.Key] = "********";
+                    }
+                    else
+                    {
+                        try
+                        {
+                            data[kvp.Key] = Encoding.UTF8.GetString(kvp.Value);
+                        }
+                        catch
+                        {
+                            data[kvp.Key] = Convert.ToBase64String(kvp.Value);
+                        }
+                    }
+                }
+            }
+
+            return new K8sSecretDetailDto(
+                Name: s.Metadata?.Name ?? secretName,
+                Namespace: s.Metadata?.NamespaceProperty ?? namespaceName,
+                Type: s.Type ?? "Opaque",
+                Data: data,
+                Labels: s.Metadata?.Labels != null ? new Dictionary<string, string>(s.Metadata.Labels) : null,
+                Annotations: s.Metadata?.Annotations != null ? new Dictionary<string, string>(s.Metadata.Annotations) : null,
+                CreationTimestamp: s.Metadata?.CreationTimestamp
+            );
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get secret {Namespace}/{Name}", namespaceName, secretName);
+            return null;
+        }
+    }
+
+    public async Task<K8sResourceOperationResultDto> CreateSecretAsync(string namespaceName, K8sCreateSecretRequestDto request, CancellationToken ct = default)
+    {
+        if (!IsValidK8sResourceName(request.Name))
+        {
+            return new K8sResourceOperationResultDto(
+                false,
+                $"Secret name '{request.Name}' is invalid. In Kubernetes, resource names must consist of lowercase alphanumeric characters, '-' or '.', and start and end with an alphanumeric character (e.g. 'my-secret').",
+                request.Name
+            );
+        }
+
+        try
+        {
+            await EnsureNamespaceExistsAsync(namespaceName, ct);
+
+            var secret = new V1Secret
+            {
+                Metadata = new V1ObjectMeta
+                {
+                    Name = request.Name,
+                    NamespaceProperty = namespaceName,
+                    Labels = request.Labels,
+                    Annotations = request.Annotations,
+                },
+                Type = !string.IsNullOrWhiteSpace(request.Type) ? request.Type : "Opaque",
+                StringData = request.StringData ?? new Dictionary<string, string>()
+            };
+
+            try
+            {
+                await _client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName, cancellationToken: ct);
+                return new K8sResourceOperationResultDto(true, $"Secret '{request.Name}' created successfully in '{namespaceName}'.", request.Name);
+            }
+            catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+            {
+                var existing = await _client.CoreV1.ReadNamespacedSecretAsync(request.Name, namespaceName, cancellationToken: ct);
+                secret.Metadata.ResourceVersion = existing?.Metadata?.ResourceVersion;
+                if (request.StringData != null)
+                {
+                    secret.Data = request.StringData.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => Encoding.UTF8.GetBytes(kvp.Value)
+                    );
+                    secret.StringData = null;
+                }
+                await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, request.Name, namespaceName, cancellationToken: ct);
+                return new K8sResourceOperationResultDto(true, $"Secret '{request.Name}' updated successfully in '{namespaceName}'.", request.Name);
+            }
+            catch (HttpOperationException ex)
+            {
+                var detail = ExtractK8sErrorMessage(ex);
+                _logger.LogError(ex, "Failed to create secret {Namespace}/{Name}: {Detail}", namespaceName, request.Name, detail);
+                return new K8sResourceOperationResultDto(false, detail, request.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create/replace secret {Namespace}/{Name}", namespaceName, request.Name);
+            return new K8sResourceOperationResultDto(false, ex.Message, request.Name);
+        }
+    }
+
+    public async Task<K8sResourceOperationResultDto> UpdateSecretAsync(string namespaceName, string secretName, K8sCreateSecretRequestDto request, CancellationToken ct = default)
+    {
+        try
+        {
+            var existing = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName, cancellationToken: ct);
+            if (existing == null)
+            {
+                return new K8sResourceOperationResultDto(false, $"Secret '{secretName}' not found in '{namespaceName}'.", secretName);
+            }
+
+            var secret = new V1Secret
+            {
+                Metadata = new V1ObjectMeta
+                {
+                    Name = secretName,
+                    NamespaceProperty = namespaceName,
+                    ResourceVersion = existing.Metadata?.ResourceVersion,
+                    Labels = request.Labels ?? existing.Metadata?.Labels,
+                    Annotations = request.Annotations ?? existing.Metadata?.Annotations,
+                },
+                Type = !string.IsNullOrWhiteSpace(request.Type) ? request.Type : existing.Type ?? "Opaque",
+                Data = (request.StringData ?? new Dictionary<string, string>()).ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => Encoding.UTF8.GetBytes(kvp.Value)
+                )
+            };
+
+            await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, secretName, namespaceName, cancellationToken: ct);
+            return new K8sResourceOperationResultDto(true, $"Secret '{secretName}' updated successfully in '{namespaceName}'.", secretName);
+        }
+        catch (HttpOperationException ex)
+        {
+            var detail = ExtractK8sErrorMessage(ex);
+            _logger.LogError(ex, "Failed to update secret {Namespace}/{Name}: {Detail}", namespaceName, secretName, detail);
+            return new K8sResourceOperationResultDto(false, detail, secretName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update secret {Namespace}/{Name}", namespaceName, secretName);
+            return new K8sResourceOperationResultDto(false, ex.Message, secretName);
+        }
+    }
+
+    public async Task<bool> DeleteSecretAsync(string namespaceName, string secretName, CancellationToken ct = default)
+    {
+        try
+        {
+            await _client.CoreV1.DeleteNamespacedSecretAsync(secretName, namespaceName, cancellationToken: ct);
+            return true;
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete secret {Namespace}/{Name}", namespaceName, secretName);
+            return false;
+        }
+    }
+
+    public async Task<List<K8sConfigMapSummaryDto>> ListConfigMapsAsync(string? namespaceName = null, CancellationToken ct = default)
+    {
+        var result = new List<K8sConfigMapSummaryDto>();
+        try
+        {
+            var cms = string.IsNullOrWhiteSpace(namespaceName)
+                ? await _client.CoreV1.ListConfigMapForAllNamespacesAsync(cancellationToken: ct)
+                : await _client.CoreV1.ListNamespacedConfigMapAsync(namespaceName, cancellationToken: ct);
+
+            foreach (var c in cms.Items)
+            {
+                var name = c.Metadata?.Name ?? "unknown";
+                var ns = c.Metadata?.NamespaceProperty ?? "default";
+                var keys = c.Data?.Keys.ToList() ?? new List<string>();
+                var isSystem = SystemCriticalNamespaces.Contains(ns) || name.StartsWith("kube-root-ca.crt", StringComparison.OrdinalIgnoreCase);
+
+                result.Add(new K8sConfigMapSummaryDto(
+                    Name: name,
+                    Namespace: ns,
+                    KeysCount: keys.Count,
+                    Keys: keys,
+                    CreationTimestamp: c.Metadata?.CreationTimestamp,
+                    IsSystem: isSystem
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list config maps in namespace {Namespace}", namespaceName);
+        }
+        return result.OrderBy(c => c.Namespace).ThenBy(c => c.Name).ToList();
+    }
+
+    public async Task<K8sConfigMapDetailDto?> GetConfigMapAsync(string namespaceName, string configMapName, CancellationToken ct = default)
+    {
+        try
+        {
+            var c = await _client.CoreV1.ReadNamespacedConfigMapAsync(configMapName, namespaceName, cancellationToken: ct);
+            if (c == null) return null;
+
+            return new K8sConfigMapDetailDto(
+                Name: c.Metadata?.Name ?? configMapName,
+                Namespace: c.Metadata?.NamespaceProperty ?? namespaceName,
+                Data: c.Data != null ? new Dictionary<string, string>(c.Data) : new Dictionary<string, string>(),
+                Labels: c.Metadata?.Labels != null ? new Dictionary<string, string>(c.Metadata.Labels) : null,
+                Annotations: c.Metadata?.Annotations != null ? new Dictionary<string, string>(c.Metadata.Annotations) : null,
+                CreationTimestamp: c.Metadata?.CreationTimestamp
+            );
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get config map {Namespace}/{Name}", namespaceName, configMapName);
+            return null;
+        }
+    }
+
+    public async Task<K8sResourceOperationResultDto> CreateConfigMapAsync(string namespaceName, K8sCreateConfigMapRequestDto request, CancellationToken ct = default)
+    {
+        if (!IsValidK8sResourceName(request.Name))
+        {
+            return new K8sResourceOperationResultDto(
+                false,
+                $"ConfigMap name '{request.Name}' is invalid. In Kubernetes, resource names must consist of lowercase alphanumeric characters, '-' or '.', and start and end with an alphanumeric character (e.g. 'my-config').",
+                request.Name
+            );
+        }
+
+        try
+        {
+            await EnsureNamespaceExistsAsync(namespaceName, ct);
+
+            var cm = new V1ConfigMap
+            {
+                Metadata = new V1ObjectMeta
+                {
+                    Name = request.Name,
+                    NamespaceProperty = namespaceName,
+                    Labels = request.Labels,
+                    Annotations = request.Annotations,
+                },
+                Data = request.Data ?? new Dictionary<string, string>()
+            };
+
+            try
+            {
+                await _client.CoreV1.CreateNamespacedConfigMapAsync(cm, namespaceName, cancellationToken: ct);
+                return new K8sResourceOperationResultDto(true, $"ConfigMap '{request.Name}' created successfully in '{namespaceName}'.", request.Name);
+            }
+            catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
+            {
+                var existing = await _client.CoreV1.ReadNamespacedConfigMapAsync(request.Name, namespaceName, cancellationToken: ct);
+                cm.Metadata.ResourceVersion = existing?.Metadata?.ResourceVersion;
+                await _client.CoreV1.ReplaceNamespacedConfigMapAsync(cm, request.Name, namespaceName, cancellationToken: ct);
+                return new K8sResourceOperationResultDto(true, $"ConfigMap '{request.Name}' updated successfully in '{namespaceName}'.", request.Name);
+            }
+            catch (HttpOperationException ex)
+            {
+                var detail = ExtractK8sErrorMessage(ex);
+                _logger.LogError(ex, "Failed to create config map {Namespace}/{Name}: {Detail}", namespaceName, request.Name, detail);
+                return new K8sResourceOperationResultDto(false, detail, request.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create/replace config map {Namespace}/{Name}", namespaceName, request.Name);
+            return new K8sResourceOperationResultDto(false, ex.Message, request.Name);
+        }
+    }
+
+    public async Task<K8sResourceOperationResultDto> UpdateConfigMapAsync(string namespaceName, string configMapName, K8sCreateConfigMapRequestDto request, CancellationToken ct = default)
+    {
+        try
+        {
+            var existing = await _client.CoreV1.ReadNamespacedConfigMapAsync(configMapName, namespaceName, cancellationToken: ct);
+            if (existing == null)
+            {
+                return new K8sResourceOperationResultDto(false, $"ConfigMap '{configMapName}' not found in '{namespaceName}'.", configMapName);
+            }
+
+            var cm = new V1ConfigMap
+            {
+                Metadata = new V1ObjectMeta
+                {
+                    Name = configMapName,
+                    NamespaceProperty = namespaceName,
+                    ResourceVersion = existing.Metadata?.ResourceVersion,
+                    Labels = request.Labels ?? existing.Metadata?.Labels,
+                    Annotations = request.Annotations ?? existing.Metadata?.Annotations,
+                },
+                Data = request.Data ?? new Dictionary<string, string>()
+            };
+
+            await _client.CoreV1.ReplaceNamespacedConfigMapAsync(cm, configMapName, namespaceName, cancellationToken: ct);
+            return new K8sResourceOperationResultDto(true, $"ConfigMap '{configMapName}' updated successfully in '{namespaceName}'.", configMapName);
+        }
+        catch (HttpOperationException ex)
+        {
+            var detail = ExtractK8sErrorMessage(ex);
+            _logger.LogError(ex, "Failed to update config map {Namespace}/{Name}: {Detail}", namespaceName, configMapName, detail);
+            return new K8sResourceOperationResultDto(false, detail, configMapName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update config map {Namespace}/{Name}", namespaceName, configMapName);
+            return new K8sResourceOperationResultDto(false, ex.Message, configMapName);
+        }
+    }
+
+    public async Task<bool> DeleteConfigMapAsync(string namespaceName, string configMapName, CancellationToken ct = default)
+    {
+        try
+        {
+            await _client.CoreV1.DeleteNamespacedConfigMapAsync(configMapName, namespaceName, cancellationToken: ct);
+            return true;
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete config map {Namespace}/{Name}", namespaceName, configMapName);
+            return false;
+        }
+    }
+
+    private static bool IsValidK8sResourceName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 253) return false;
+        return System.Text.RegularExpressions.Regex.IsMatch(name, @"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$");
+    }
+
+    private async Task EnsureNamespaceExistsAsync(string namespaceName, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(namespaceName) || namespaceName == "default") return;
+        try
+        {
+            await _client.CoreV1.ReadNamespaceAsync(namespaceName, cancellationToken: ct);
+        }
+        catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.NotFound)
+        {
+            try
+            {
+                var nsObj = new V1Namespace { Metadata = new V1ObjectMeta { Name = namespaceName } };
+                await _client.CoreV1.CreateNamespaceAsync(nsObj, cancellationToken: ct);
+                _logger.LogInformation("Auto-created missing namespace '{Namespace}'", namespaceName);
+            }
+            catch (Exception createEx)
+            {
+                _logger.LogWarning(createEx, "Could not auto-create namespace '{Namespace}'", namespaceName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check namespace '{Namespace}'", namespaceName);
+        }
+    }
+
+    private static string ExtractK8sErrorMessage(HttpOperationException ex)
+    {
+        if (!string.IsNullOrWhiteSpace(ex.Response?.Content))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(ex.Response.Content);
+                if (doc.RootElement.TryGetProperty("message", out var msgProp) && !string.IsNullOrWhiteSpace(msgProp.GetString()))
+                {
+                    return msgProp.GetString()!;
+                }
+            }
+            catch
+            {
+                return ex.Response.Content;
+            }
+        }
+        return ex.Message;
     }
 }

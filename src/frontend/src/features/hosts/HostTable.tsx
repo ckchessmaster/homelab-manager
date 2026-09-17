@@ -1075,6 +1075,15 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
           }}
           job={canvasJob}
           host={hosts?.find((h) => h.id === canvasJob.targetHostId) ?? null}
+          onOpenTerminal={(job) => {
+            setIsCanvasModalOpen(false)
+            setCanvasJob(null)
+            const targetHost = hosts?.find((h) => h.id === job.targetHostId)
+            if (targetHost) {
+              setTerminalHost(targetHost)
+              setTerminalJobId(job.id)
+            }
+          }}
         />
       )}
 

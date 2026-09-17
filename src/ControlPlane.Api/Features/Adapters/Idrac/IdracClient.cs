@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
@@ -12,13 +13,18 @@ public class IdracClient : IIdracClient
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<IdracClient> _logger;
+    private readonly AgentIpmiExecutor? _agentIpmiExecutor;
 
     public const string InsecureHttpClientName = "IdracInsecureClient";
 
-    public IdracClient(IHttpClientFactory httpClientFactory, ILogger<IdracClient> logger)
+    public IdracClient(
+        IHttpClientFactory httpClientFactory,
+        ILogger<IdracClient> logger,
+        AgentIpmiExecutor? agentIpmiExecutor = null)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _agentIpmiExecutor = agentIpmiExecutor;
     }
 
     private HttpClient CreateClient(bool allowSelfSigned)
@@ -44,6 +50,24 @@ public class IdracClient : IIdracClient
         bool allowSelfSigned = true,
         CancellationToken ct = default)
     {
+        if (bmcUrl.StartsWith("agent://", StringComparison.OrdinalIgnoreCase))
+        {
+            var hostStr = bmcUrl["agent://".Length..].Trim().TrimEnd('/');
+            if (Guid.TryParse(hostStr, out var hostId))
+            {
+                return await TestAgentConnectionAsync(hostId, ct);
+            }
+        }
+
+        if (bmcUrl.StartsWith("ipmi://", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_agentIpmiExecutor == null)
+            {
+                return new IdracTestResultDto(false, "Offline", null, null, "Failed", null, 0, "Host agent IPMI executor is not available.");
+            }
+            return await _agentIpmiExecutor.TestLanConnectionAsync(bmcUrl, username, password, ct);
+        }
+
         var sw = Stopwatch.StartNew();
         try
         {
@@ -55,6 +79,22 @@ public class IdracClient : IIdracClient
 
             if (!response.IsSuccessStatusCode)
             {
+                if (response.StatusCode == HttpStatusCode.NotFound ||
+                    response.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                    response.StatusCode == HttpStatusCode.NotImplemented ||
+                    (int)response.StatusCode >= 500)
+                {
+                    if (_agentIpmiExecutor != null)
+                    {
+                        _logger.LogInformation("Redfish returned {StatusCode} for {BmcUrl}. Attempting fallback to IPMI-over-LAN (RMCP+)", response.StatusCode, bmcUrl);
+                        var lanResult = await _agentIpmiExecutor.TestLanConnectionAsync(bmcUrl, username, password, ct);
+                        if (lanResult.Success)
+                        {
+                            return lanResult;
+                        }
+                    }
+                }
+
                 return new IdracTestResultDto(
                     Success: false,
                     PowerState: "Unknown",
@@ -115,6 +155,24 @@ public class IdracClient : IIdracClient
         bool allowSelfSigned = true,
         CancellationToken ct = default)
     {
+        if (bmcUrl.StartsWith("agent://", StringComparison.OrdinalIgnoreCase))
+        {
+            var hostStr = bmcUrl["agent://".Length..].Trim().TrimEnd('/');
+            if (Guid.TryParse(hostStr, out var hostId))
+            {
+                return await GetAgentVitalsAsync(hostId, ct);
+            }
+        }
+
+        if (bmcUrl.StartsWith("ipmi://", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_agentIpmiExecutor == null)
+            {
+                return new IdracVitalsDto("Unknown", "Unavailable", null, null, null, null, new List<IdracSensorReading>(), new List<IdracFanReading>());
+            }
+            return await _agentIpmiExecutor.GetLanVitalsAsync(bmcUrl, username, password, ct);
+        }
+
         var client = CreateClient(allowSelfSigned);
         var sysUrl = await ResolveSystemUrlAsync(client, bmcUrl, username, password, ct);
 
@@ -142,10 +200,33 @@ public class IdracClient : IIdracClient
                     health = h.GetString();
                 }
             }
+            else if (sysRes.StatusCode == HttpStatusCode.NotFound || (int)sysRes.StatusCode >= 400)
+            {
+                if (_agentIpmiExecutor != null)
+                {
+                    _logger.LogInformation("Redfish system URL returned {Status} for {BmcUrl}. Attempting fallback to IPMI-over-LAN", sysRes.StatusCode, bmcUrl);
+                    try
+                    {
+                        return await _agentIpmiExecutor.GetLanVitalsAsync(bmcUrl, username, password, ct);
+                    }
+                    catch (Exception lanEx)
+                    {
+                        _logger.LogWarning(lanEx, "IPMI-over-LAN fallback also failed for {BmcUrl}", bmcUrl);
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Error reading system info from {BmcUrl}", bmcUrl);
+            if (_agentIpmiExecutor != null)
+            {
+                try
+                {
+                    return await _agentIpmiExecutor.GetLanVitalsAsync(bmcUrl, username, password, ct);
+                }
+                catch { }
+            }
         }
 
         var temperatures = new List<IdracSensorReading>();
@@ -247,23 +328,57 @@ public class IdracClient : IIdracClient
         bool allowSelfSigned = true,
         CancellationToken ct = default)
     {
+        if (bmcUrl.StartsWith("agent://", StringComparison.OrdinalIgnoreCase))
+        {
+            var hostStr = bmcUrl["agent://".Length..].Trim().TrimEnd('/');
+            if (Guid.TryParse(hostStr, out var hostId))
+            {
+                return await ResetAgentSystemAsync(hostId, resetType, ct);
+            }
+        }
+
+        if (bmcUrl.StartsWith("ipmi://", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_agentIpmiExecutor == null)
+            {
+                return new IdracPowerControlResponse(false, "Host agent IPMI executor is not available.");
+            }
+            return await _agentIpmiExecutor.ResetLanSystemAsync(bmcUrl, username, password, resetType, ct);
+        }
+
         _logger.LogInformation("Issuing BMC power action '{ResetType}' to {BmcUrl}...", resetType, bmcUrl);
 
-        var client = CreateClient(allowSelfSigned);
-        var actionUrl = await ResolveResetActionUrlAsync(client, bmcUrl, username, password, ct);
+        try
+        {
+            var client = CreateClient(allowSelfSigned);
+            var actionUrl = await ResolveResetActionUrlAsync(client, bmcUrl, username, password, ct);
 
-        using var request = CreateRequest(HttpMethod.Post, actionUrl, username, password);
-        request.Content = JsonContent.Create(
-            new { ResetType = NormalizeResetType(resetType) },
-            options: new JsonSerializerOptions { PropertyNamingPolicy = null });
+            using var request = CreateRequest(HttpMethod.Post, actionUrl, username, password);
+            request.Content = JsonContent.Create(
+                new { ResetType = NormalizeResetType(resetType) },
+                options: new JsonSerializerOptions { PropertyNamingPolicy = null });
 
-        using var response = await client.SendAsync(request, ct);
-        var success = response.IsSuccessStatusCode;
-        var message = success
-            ? $"Power action '{resetType}' sent successfully."
-            : $"Power action '{resetType}' failed with HTTP {(int)response.StatusCode}.";
+            using var response = await client.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (_agentIpmiExecutor != null)
+                {
+                    _logger.LogInformation("Redfish power action returned {StatusCode} for {BmcUrl}. Attempting fallback to IPMI-over-LAN", response.StatusCode, bmcUrl);
+                    return await _agentIpmiExecutor.ResetLanSystemAsync(bmcUrl, username, password, resetType, ct);
+                }
+            }
 
-        return new IdracPowerControlResponse(success, message);
+            return new IdracPowerControlResponse(true, $"Power action '{resetType}' sent successfully.");
+        }
+        catch (Exception ex)
+        {
+            if (_agentIpmiExecutor != null)
+            {
+                _logger.LogWarning(ex, "Redfish power action failed for {BmcUrl}. Falling back to IPMI-over-LAN", bmcUrl);
+                return await _agentIpmiExecutor.ResetLanSystemAsync(bmcUrl, username, password, resetType, ct);
+            }
+            return new IdracPowerControlResponse(false, $"Redfish power action failed: {ex.Message}");
+        }
     }
 
     private static string NormalizeResetType(string resetType)
@@ -395,5 +510,278 @@ public class IdracClient : IIdracClient
         }
 
         return $"{cleaned}{path}";
+    }
+
+    public async Task<IdracTestResultDto> TestAgentConnectionAsync(Guid hostId, CancellationToken ct = default)
+    {
+        if (_agentIpmiExecutor == null)
+        {
+            return new IdracTestResultDto(false, "Offline", null, null, "Failed", null, 0, "Host agent IPMI executor is not available.");
+        }
+        return await _agentIpmiExecutor.TestConnectionAsync(hostId, ct);
+    }
+
+    public async Task<IdracVitalsDto> GetAgentVitalsAsync(Guid hostId, CancellationToken ct = default)
+    {
+        if (_agentIpmiExecutor == null)
+        {
+            return new IdracVitalsDto("Unknown", "Unavailable", null, null, null, null, new List<IdracSensorReading>(), new List<IdracFanReading>());
+        }
+        return await _agentIpmiExecutor.GetVitalsAsync(hostId, ct);
+    }
+
+    public async Task<IdracPowerControlResponse> ResetAgentSystemAsync(Guid hostId, string resetType, CancellationToken ct = default)
+    {
+        if (_agentIpmiExecutor == null)
+        {
+            return new IdracPowerControlResponse(false, "Host agent IPMI executor is not available.");
+        }
+        return await _agentIpmiExecutor.ResetSystemAsync(hostId, resetType, ct);
+    }
+
+    public async Task<IdracTestResultDto> TestInstanceAsync(IdracStoredInstance config, string password, CancellationToken ct = default)
+    {
+        if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId.HasValue)
+        {
+            return await TestAgentConnectionAsync(config.HostId.Value, ct);
+        }
+
+        return await TestConnectionAsync(config.BmcUrl, config.Username, password, config.AllowSelfSignedCert, ct);
+    }
+
+    public async Task<IdracVitalsDto> GetInstanceVitalsAsync(IdracStoredInstance config, string password, CancellationToken ct = default)
+    {
+        if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId.HasValue)
+        {
+            return await GetAgentVitalsAsync(config.HostId.Value, ct);
+        }
+
+        return await GetVitalsAsync(config.BmcUrl, config.Username, password, config.AllowSelfSignedCert, ct);
+    }
+
+    public async Task<IdracPowerControlResponse> ResetInstanceSystemAsync(IdracStoredInstance config, string password, string resetType, CancellationToken ct = default)
+    {
+        if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId.HasValue)
+        {
+            return await ResetAgentSystemAsync(config.HostId.Value, resetType, ct);
+        }
+
+        return await ResetSystemAsync(config.BmcUrl, config.Username, password, resetType, config.AllowSelfSignedCert, ct);
+    }
+
+    // --- Fan Control ---
+
+    public async Task<BmcFanControlResponse> SetFanControlAsync(
+        string bmcUrl,
+        string username,
+        string password,
+        string mode,
+        int? percentage,
+        bool allowSelfSigned = true,
+        CancellationToken ct = default)
+    {
+        if (bmcUrl.StartsWith("agent://", StringComparison.OrdinalIgnoreCase))
+        {
+            var hostStr = bmcUrl["agent://".Length..].Trim().TrimEnd('/');
+            if (Guid.TryParse(hostStr, out var hostId))
+            {
+                return await SetAgentFanControlAsync(hostId, mode, percentage, ct);
+            }
+        }
+
+        if (_agentIpmiExecutor == null)
+        {
+            return new BmcFanControlResponse(false, "Host agent IPMI executor is not available for fan control.", mode, percentage);
+        }
+
+        return await _agentIpmiExecutor.SetLanFanControlAsync(bmcUrl, username, password, mode, percentage, ct);
+    }
+
+    public async Task<BmcFanControlResponse> SetAgentFanControlAsync(Guid hostId, string mode, int? percentage, CancellationToken ct = default)
+    {
+        if (_agentIpmiExecutor == null)
+        {
+            return new BmcFanControlResponse(false, "Host agent IPMI executor is not available.", mode, percentage);
+        }
+        return await _agentIpmiExecutor.SetFanControlAsync(hostId, mode, percentage, ct);
+    }
+
+    public async Task<BmcFanControlResponse> SetInstanceFanControlAsync(IdracStoredInstance config, string password, string mode, int? percentage, CancellationToken ct = default)
+    {
+        if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId.HasValue)
+        {
+            return await SetAgentFanControlAsync(config.HostId.Value, mode, percentage, ct);
+        }
+        return await SetFanControlAsync(config.BmcUrl, config.Username, password, mode, percentage, config.AllowSelfSignedCert, ct);
+    }
+
+    // --- Chassis Identify (Locator LED / UID) ---
+
+    public async Task<BmcChassisIdentifyResponse> SetChassisIdentifyAsync(
+        string bmcUrl,
+        string username,
+        string password,
+        string state,
+        int durationSeconds = 15,
+        bool allowSelfSigned = true,
+        CancellationToken ct = default)
+    {
+        if (bmcUrl.StartsWith("agent://", StringComparison.OrdinalIgnoreCase))
+        {
+            var hostStr = bmcUrl["agent://".Length..].Trim().TrimEnd('/');
+            if (Guid.TryParse(hostStr, out var hostId))
+            {
+                return await SetAgentChassisIdentifyAsync(hostId, state, durationSeconds, ct);
+            }
+        }
+
+        if (bmcUrl.StartsWith("ipmi://", StringComparison.OrdinalIgnoreCase) || _agentIpmiExecutor == null)
+        {
+            if (_agentIpmiExecutor != null)
+            {
+                return await _agentIpmiExecutor.SetLanChassisIdentifyAsync(bmcUrl, username, password, state, durationSeconds, ct);
+            }
+        }
+
+        // Try Redfish PATCH first
+        try
+        {
+            var client = CreateClient(allowSelfSigned);
+            var sysUrl = await ResolveSystemUrlAsync(client, bmcUrl, username, password, ct);
+            using var req = CreateRequest(HttpMethod.Patch, sysUrl, username, password);
+
+            var isOff = state.Equals("Off", StringComparison.OrdinalIgnoreCase);
+            var indicatorPayload = new
+            {
+                LocationIndicatorActive = !isOff,
+                IndicatorLED = isOff ? "Off" : "Blinking"
+            };
+            req.Content = JsonContent.Create(indicatorPayload);
+
+            using var res = await client.SendAsync(req, ct);
+            if (res.IsSuccessStatusCode)
+            {
+                return new BmcChassisIdentifyResponse(true, $"Chassis locator LED set to '{state}' via Redfish.", state);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Redfish locator LED control failed for {BmcUrl}. Falling back to IPMI-over-LAN", bmcUrl);
+        }
+
+        if (_agentIpmiExecutor != null)
+        {
+            return await _agentIpmiExecutor.SetLanChassisIdentifyAsync(bmcUrl, username, password, state, durationSeconds, ct);
+        }
+
+        return new BmcChassisIdentifyResponse(false, "Failed to set locator LED: no IPMI or Redfish service available.", state);
+    }
+
+    public async Task<BmcChassisIdentifyResponse> SetAgentChassisIdentifyAsync(Guid hostId, string state, int durationSeconds = 15, CancellationToken ct = default)
+    {
+        if (_agentIpmiExecutor == null)
+        {
+            return new BmcChassisIdentifyResponse(false, "Host agent IPMI executor is not available.", state);
+        }
+        return await _agentIpmiExecutor.SetChassisIdentifyAsync(hostId, state, durationSeconds, ct);
+    }
+
+    public async Task<BmcChassisIdentifyResponse> SetInstanceChassisIdentifyAsync(IdracStoredInstance config, string password, string state, int durationSeconds = 15, CancellationToken ct = default)
+    {
+        if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId.HasValue)
+        {
+            return await SetAgentChassisIdentifyAsync(config.HostId.Value, state, durationSeconds, ct);
+        }
+        return await SetChassisIdentifyAsync(config.BmcUrl, config.Username, password, state, durationSeconds, config.AllowSelfSignedCert, ct);
+    }
+
+    // --- Boot Device Override ---
+
+    public async Task<BmcBootOverrideResponse> SetBootOverrideAsync(
+        string bmcUrl,
+        string username,
+        string password,
+        string target,
+        bool allowSelfSigned = true,
+        CancellationToken ct = default)
+    {
+        if (bmcUrl.StartsWith("agent://", StringComparison.OrdinalIgnoreCase))
+        {
+            var hostStr = bmcUrl["agent://".Length..].Trim().TrimEnd('/');
+            if (Guid.TryParse(hostStr, out var hostId))
+            {
+                return await SetAgentBootOverrideAsync(hostId, target, ct);
+            }
+        }
+
+        if (bmcUrl.StartsWith("ipmi://", StringComparison.OrdinalIgnoreCase) || _agentIpmiExecutor == null)
+        {
+            if (_agentIpmiExecutor != null)
+            {
+                return await _agentIpmiExecutor.SetLanBootOverrideAsync(bmcUrl, username, password, target, ct);
+            }
+        }
+
+        // Try Redfish PATCH first
+        try
+        {
+            var client = CreateClient(allowSelfSigned);
+            var sysUrl = await ResolveSystemUrlAsync(client, bmcUrl, username, password, ct);
+            using var req = CreateRequest(HttpMethod.Patch, sysUrl, username, password);
+
+            var redfishTarget = target.ToLowerInvariant() switch
+            {
+                "bios" or "biossetup" or "setup" => "BiosSetup",
+                "pxe" or "network" => "Pxe",
+                "disk" or "hdd" => "Hdd",
+                "cd" or "cdrom" or "dvd" => "Cd",
+                _ => target
+            };
+
+            var bootPayload = new
+            {
+                Boot = new
+                {
+                    BootSourceOverrideTarget = redfishTarget,
+                    BootSourceOverrideEnabled = "Once"
+                }
+            };
+            req.Content = JsonContent.Create(bootPayload);
+
+            using var res = await client.SendAsync(req, ct);
+            if (res.IsSuccessStatusCode)
+            {
+                return new BmcBootOverrideResponse(true, $"One-time boot override set to '{target}' via Redfish.", target);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Redfish boot override failed for {BmcUrl}. Falling back to IPMI-over-LAN", bmcUrl);
+        }
+
+        if (_agentIpmiExecutor != null)
+        {
+            return await _agentIpmiExecutor.SetLanBootOverrideAsync(bmcUrl, username, password, target, ct);
+        }
+
+        return new BmcBootOverrideResponse(false, "Failed to set boot override: no IPMI or Redfish service available.", target);
+    }
+
+    public async Task<BmcBootOverrideResponse> SetAgentBootOverrideAsync(Guid hostId, string target, CancellationToken ct = default)
+    {
+        if (_agentIpmiExecutor == null)
+        {
+            return new BmcBootOverrideResponse(false, "Host agent IPMI executor is not available.", target);
+        }
+        return await _agentIpmiExecutor.SetBootOverrideAsync(hostId, target, ct);
+    }
+
+    public async Task<BmcBootOverrideResponse> SetInstanceBootOverrideAsync(IdracStoredInstance config, string password, string target, CancellationToken ct = default)
+    {
+        if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId.HasValue)
+        {
+            return await SetAgentBootOverrideAsync(config.HostId.Value, target, ct);
+        }
+        return await SetBootOverrideAsync(config.BmcUrl, config.Username, password, target, config.AllowSelfSignedCert, ct);
     }
 }

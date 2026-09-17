@@ -476,14 +476,16 @@ public class AdapterConfigService : IAdapterConfigService
     public async Task<KubernetesClusterDto?> GetKubernetesClusterAsync(string id, CancellationToken ct = default)
     {
         var stored = await LoadStoredClustersAsync(ct);
-        var match = stored.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+        var match = stored.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase)
+                                            || string.Equals(c.Name, id, StringComparison.OrdinalIgnoreCase));
         return match != null ? MapToClusterDto(match) : null;
     }
 
     public async Task<KubernetesStoredCluster?> GetRawKubernetesClusterAsync(string id, CancellationToken ct = default)
     {
         var stored = await LoadStoredClustersAsync(ct);
-        var match = stored.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+        var match = stored.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase)
+                                            || string.Equals(c.Name, id, StringComparison.OrdinalIgnoreCase));
         if (match == null) return null;
 
         return new KubernetesStoredCluster
@@ -552,7 +554,8 @@ public class AdapterConfigService : IAdapterConfigService
     public async Task<bool> DeleteKubernetesClusterAsync(string id, CancellationToken ct = default)
     {
         var stored = await LoadStoredClustersAsync(ct);
-        var existing = stored.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+        var existing = stored.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase)
+                                               || string.Equals(c.Name, id, StringComparison.OrdinalIgnoreCase));
         if (existing == null) return false;
 
         stored.Remove(existing);
@@ -1016,14 +1019,47 @@ public class AdapterConfigService : IAdapterConfigService
     public async Task<List<IdracInstanceDto>> GetIdracInstancesAsync(CancellationToken ct = default)
     {
         var stored = await LoadStoredIdracInstancesAsync(ct);
-        return stored.Select(MapToIdracDto).ToList();
+        Dictionary<Guid, string>? hostMap = null;
+        try
+        {
+            hostMap = await _dbContext.Hosts.AsNoTracking()
+                .Select(h => new { h.Id, Name = h.FriendlyName ?? h.Hostname })
+                .ToDictionaryAsync(h => h.Id, h => h.Name, ct);
+        }
+        catch
+        {
+            // If hosts table not queried or DbContext unavailable in test
+        }
+
+        return stored.Select(inst =>
+        {
+            string? hostName = null;
+            if (inst.HostId.HasValue && hostMap != null && hostMap.TryGetValue(inst.HostId.Value, out var name))
+            {
+                hostName = name;
+            }
+            return MapToIdracDto(inst, hostName);
+        }).ToList();
     }
 
     public async Task<IdracInstanceDto?> GetIdracInstanceAsync(string id, CancellationToken ct = default)
     {
         var stored = await LoadStoredIdracInstancesAsync(ct);
         var match = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
-        return match != null ? MapToIdracDto(match) : null;
+        if (match == null) return null;
+
+        string? hostName = null;
+        if (match.HostId.HasValue)
+        {
+            try
+            {
+                var host = await _dbContext.Hosts.AsNoTracking().FirstOrDefaultAsync(h => h.Id == match.HostId.Value, ct);
+                hostName = host?.FriendlyName ?? host?.Hostname;
+            }
+            catch { }
+        }
+
+        return MapToIdracDto(match, hostName);
     }
 
     public async Task<IdracStoredInstance?> GetRawIdracInstanceAsync(string id, CancellationToken ct = default)
@@ -1041,6 +1077,8 @@ public class AdapterConfigService : IAdapterConfigService
             EncryptedPassword = match.EncryptedPassword,
             HostnameOrIp = match.HostnameOrIp,
             AllowSelfSignedCert = match.AllowSelfSignedCert,
+            ConnectionMode = match.ConnectionMode ?? "network",
+            HostId = match.HostId,
             UpdatedAt = match.UpdatedAt
         };
     }
@@ -1059,15 +1097,29 @@ public class AdapterConfigService : IAdapterConfigService
             encryptedPassword = _encryptionService.Encrypt(request.Password.Trim());
         }
 
+        var connectionMode = string.Equals(request.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase)
+            ? "agent"
+            : "network";
+
+        var bmcUrl = (request.BmcUrl ?? string.Empty).Trim().TrimEnd('/');
+        if (connectionMode == "agent" && string.IsNullOrWhiteSpace(bmcUrl))
+        {
+            bmcUrl = request.HostId.HasValue ? $"agent://{request.HostId.Value}" : "agent://host";
+        }
+
+        var username = (request.Username ?? (connectionMode == "agent" ? "agent" : string.Empty)).Trim();
+
         var entry = new IdracStoredInstance
         {
             Id = id,
             Name = string.IsNullOrWhiteSpace(request.Name) ? id : request.Name.Trim(),
-            BmcUrl = (request.BmcUrl ?? string.Empty).Trim().TrimEnd('/'),
-            Username = (request.Username ?? string.Empty).Trim(),
+            BmcUrl = bmcUrl,
+            Username = username,
             EncryptedPassword = encryptedPassword,
             HostnameOrIp = string.IsNullOrWhiteSpace(request.HostnameOrIp) ? null : request.HostnameOrIp.Trim(),
             AllowSelfSignedCert = request.AllowSelfSignedCert,
+            ConnectionMode = connectionMode,
+            HostId = request.HostId,
             UpdatedAt = now
         };
 
@@ -1082,8 +1134,20 @@ public class AdapterConfigService : IAdapterConfigService
         }
 
         await PersistIdracInstancesAsync(stored, ct);
-        _logger.LogInformation("Saved iDRAC instance '{InstanceId}' ({Name})", entry.Id, entry.Name);
-        return MapToIdracDto(entry);
+        _logger.LogInformation("Saved iDRAC instance '{InstanceId}' ({Name}) mode '{ConnectionMode}'", entry.Id, entry.Name, entry.ConnectionMode);
+
+        string? hostName = null;
+        if (entry.HostId.HasValue)
+        {
+            try
+            {
+                var host = await _dbContext.Hosts.AsNoTracking().FirstOrDefaultAsync(h => h.Id == entry.HostId.Value, ct);
+                hostName = host?.FriendlyName ?? host?.Hostname;
+            }
+            catch { }
+        }
+
+        return MapToIdracDto(entry, hostName);
     }
 
     public async Task<bool> DeleteIdracInstanceAsync(string id, CancellationToken ct = default)
@@ -1146,7 +1210,7 @@ public class AdapterConfigService : IAdapterConfigService
         await _dbContext.SaveChangesAsync(ct);
     }
 
-    private static IdracInstanceDto MapToIdracDto(IdracStoredInstance inst)
+    private static IdracInstanceDto MapToIdracDto(IdracStoredInstance inst, string? hostName = null)
     {
         return new IdracInstanceDto(
             Id: inst.Id,
@@ -1157,7 +1221,10 @@ public class AdapterConfigService : IAdapterConfigService
             HasPassword: !string.IsNullOrWhiteSpace(inst.EncryptedPassword),
             HostnameOrIp: inst.HostnameOrIp,
             AllowSelfSignedCert: inst.AllowSelfSignedCert,
-            UpdatedAt: inst.UpdatedAt
+            UpdatedAt: inst.UpdatedAt,
+            ConnectionMode: inst.ConnectionMode ?? "network",
+            HostId: inst.HostId,
+            HostName: hostName
         );
     }
 

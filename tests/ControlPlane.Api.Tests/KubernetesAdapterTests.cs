@@ -450,6 +450,85 @@ public class KubernetesAdapterTests
         Assert.False(isCordoned);
     }
 
+    [Fact]
+    public async Task ApplyManifestYamlAsync_AppliesSecretAndConfigMap()
+    {
+        var (client, requests) = CreateMockK8s(req =>
+        {
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var yaml = @"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: test-ns
+stringData:
+  PASSWORD: password123
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-config
+  namespace: test-ns
+data:
+  APP_ENV: dev
+";
+
+        var result = await adapter.ApplyManifestYamlAsync(yaml, false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains(result.AffectedResources, r => r.Contains("Secret/my-secret"));
+        Assert.Contains(result.AffectedResources, r => r.Contains("ConfigMap/my-config"));
+        Assert.Contains(requests, r => r.RequestUri?.AbsolutePath.Contains("/api/v1/namespaces/test-ns/secrets") == true);
+        Assert.Contains(requests, r => r.RequestUri?.AbsolutePath.Contains("/api/v1/namespaces/test-ns/configmaps") == true);
+    }
+
+    [Fact]
+    public async Task CreateSecretAsync_WithInvalidName_FailsValidation()
+    {
+        var (client, _) = CreateMockK8s(req => new HttpResponseMessage(HttpStatusCode.OK));
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+
+        var req = new K8sCreateSecretRequestDto("INVALID_UPPERCASE", "default", "Opaque");
+        var result = await adapter.CreateSecretAsync("default", req, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("invalid", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("lowercase", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CreateSecretAsync_ValidRequest_CreatesSecretSuccessfully()
+    {
+        var (client, requests) = CreateMockK8s(req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.Contains("/secrets"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("{\"metadata\":{\"name\":\"valid-secret\"}}", Encoding.UTF8, "application/json")
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var req = new K8sCreateSecretRequestDto("valid-secret", "default", "Opaque", new Dictionary<string, string> { ["password"] = "secret123" });
+        var result = await adapter.CreateSecretAsync("default", req, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains(requests, r => r.Method == HttpMethod.Post && r.RequestUri!.AbsolutePath.Contains("/namespaces/default/secrets"));
+    }
+
     private class MockHubContext : IHubContext<JobLogHub, IJobClient>
     {
         public IHubClients<IJobClient> Clients { get; } = new MockHubClients();

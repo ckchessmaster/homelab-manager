@@ -97,12 +97,16 @@ The workspace is pre-configured via `.agents/mcp_config.json`:
 | `list_workloads` | Workloads | Queries aggregated Kubernetes workloads (Deployments, StatefulSets, DaemonSets) across clusters with replica counts. |
 | `restart_workload` | Workloads | Triggers a rolling rollout restart of a Kubernetes deployment. |
 | `scale_workload` | Workloads | Adjusts the desired replica count for a Kubernetes deployment. |
+| `list_helm_releases` | Helm | Queries deployed Helm releases in a Kubernetes cluster with revision, chart version, and health status. |
+| `get_helm_catalog` | Helm | Returns the curated catalog of pre-configured homelab charts (Ingress, cert-manager, Longhorn, Pi-hole, etc.). |
+| `install_helm_chart` | Helm | Deploys or upgrades a Helm chart onto a target cluster with optional repository URL and values YAML. |
+| `uninstall_helm_release` | Helm | Uninstalls and removes a deployed Helm release from a target cluster namespace. |
 
-### Out-of-Band Hardware & BMC (Phase 5)
+### Hardware & BMC Management (Out-of-Band Redfish & In-Band Host IPMI)
 | Tool Name | Category | Description |
 | :--- | :--- | :--- |
-| `get_hardware_sensors` | BMC / Hardware | Queries Dell iDRAC / DMTF Redfish power state, temperature sensors, and fan telemetry. |
-| `execute_hardware_power_action` | BMC / Hardware | Dispatches hardware power actions (`On`, `GracefulShutdown`, `ForceRestart`, `PowerCycle`) via BMC. |
+| `get_hardware_sensors` | BMC / Hardware | Queries Dell iDRAC / DMTF Redfish power state, temperature sensors, and fan telemetry via direct BMC IP or in-band host agent IPMI (`hostId`). |
+| `execute_hardware_power_action` | BMC / Hardware | Dispatches hardware power actions (`On`, `GracefulShutdown`, `ForceRestart`, `PowerCycle`, `ForceOff`) via out-of-band BMC or in-band baremetal host agent (`hostId`). |
 
 ---
 

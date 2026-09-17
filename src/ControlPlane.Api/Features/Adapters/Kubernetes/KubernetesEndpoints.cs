@@ -180,6 +180,34 @@ public static class KubernetesEndpoints
             return Results.Ok(namespaces);
         });
 
+        group.MapPost("/clusters/{id}/namespaces", async (
+            string id,
+            [FromBody] K8sCreateNamespaceRequestDto req,
+            IKubernetesClientFactory clientFactory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var adapter = await clientFactory.CreateAdapterAsync(id, ct);
+                var success = await adapter.CreateNamespaceAsync(req.Name, req.Labels, req.Annotations, ct);
+                return success
+                    ? Results.Ok(new { success = true, message = $"Namespace '{req.Name}' created successfully." })
+                    : Results.BadRequest(new { success = false, message = $"Failed to create namespace '{req.Name}'." });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: 500);
+            }
+        });
+
         group.MapGet("/clusters/{id}/workloads/deployments", async (
             string id,
             [FromQuery] string? namespaceName,

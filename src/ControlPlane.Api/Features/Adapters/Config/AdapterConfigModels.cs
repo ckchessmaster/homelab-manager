@@ -208,17 +208,22 @@ public record IdracInstanceDto(
     bool HasPassword,
     string? HostnameOrIp,
     bool AllowSelfSignedCert,
-    DateTimeOffset? UpdatedAt
+    DateTimeOffset? UpdatedAt,
+    string ConnectionMode = "network",
+    Guid? HostId = null,
+    string? HostName = null
 );
 
 public record SaveIdracInstanceRequest(
     string? Id,
     string Name,
-    string BmcUrl,
-    string Username,
-    string? Password,
+    string? BmcUrl = null,
+    string? Username = null,
+    string? Password = null,
     string? HostnameOrIp = null,
-    bool AllowSelfSignedCert = true
+    bool AllowSelfSignedCert = true,
+    string ConnectionMode = "network",
+    Guid? HostId = null
 );
 
 public class IdracStoredInstance
@@ -230,6 +235,8 @@ public class IdracStoredInstance
     public string EncryptedPassword { get; set; } = string.Empty;
     public string? HostnameOrIp { get; set; }
     public bool AllowSelfSignedCert { get; set; } = true;
+    public string ConnectionMode { get; set; } = "network";
+    public Guid? HostId { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
 }
 

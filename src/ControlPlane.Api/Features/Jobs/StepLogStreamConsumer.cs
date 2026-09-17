@@ -41,6 +41,7 @@ public class StepLogStreamConsumer : IStepLogConsumer
                 job = new UpdateJob
                 {
                     Id = frame.JobId,
+                    PipelineId = "adhoc-command",
                     TargetHostId = hostId,
                     InitiatedBy = "Operator",
                     Status = "Running",
@@ -63,21 +64,31 @@ public class StepLogStreamConsumer : IStepLogConsumer
             db.StepLogs.Add(stepLog);
 
             // Only update job status if standalone ad-hoc command execution (not managed by DAG or Temporal orchestrator)
-            var isAdhocCommand = job.PipelineId is "adhoc-command" or "command" || job.ActiveStep == "Command Execution";
+            var isAdhocCommand = job.PipelineId is "adhoc-command" or "command"
+                || job.ActiveStep == "Command Execution"
+                || job.InitiatedBy == "AI Agent via MCP";
+
             if (isAdhocCommand)
             {
-                if (frame.StreamType == "system" && frame.LogLine.Contains("completed successfully", StringComparison.OrdinalIgnoreCase))
+                if (frame.StreamType == "system")
                 {
-                    job.Status = "Completed";
-                    job.CompletedAt = DateTimeOffset.UtcNow;
-                    _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Completed", null);
-                }
-                else if (frame.StreamType == "system" && frame.LogLine.Contains("exited with code", StringComparison.OrdinalIgnoreCase) && !frame.LogLine.Contains("code 0", StringComparison.OrdinalIgnoreCase))
-                {
-                    job.Status = "Failed";
-                    job.FailureReason = frame.LogLine;
-                    job.CompletedAt = DateTimeOffset.UtcNow;
-                    _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Failed", null);
+                    if (frame.LogLine.Contains("completed successfully", StringComparison.OrdinalIgnoreCase)
+                        || frame.LogLine.Contains("exited with code 0", StringComparison.OrdinalIgnoreCase))
+                    {
+                        job.Status = "Completed";
+                        job.CompletedAt = DateTimeOffset.UtcNow;
+                        _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Completed", null);
+                    }
+                    else if ((frame.LogLine.Contains("exited with code", StringComparison.OrdinalIgnoreCase) && !frame.LogLine.Contains("code 0", StringComparison.OrdinalIgnoreCase))
+                        || frame.LogLine.Contains("Process error:", StringComparison.OrdinalIgnoreCase)
+                        || frame.LogLine.Contains("Failed to start process:", StringComparison.OrdinalIgnoreCase)
+                        || frame.LogLine.Contains("Failed to acquire", StringComparison.OrdinalIgnoreCase))
+                    {
+                        job.Status = "Failed";
+                        job.FailureReason = frame.LogLine;
+                        job.CompletedAt = DateTimeOffset.UtcNow;
+                        _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Failed", frame.LogLine);
+                    }
                 }
             }
 

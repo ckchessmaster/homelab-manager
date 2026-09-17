@@ -160,11 +160,15 @@ export function WorkflowsView() {
     })
   }, [jobs, hostMap, searchTerm, statusFilter, pipelineFilter])
 
-  // Aggregate metrics
-  const totalJobs = jobs?.length || 0
-  const runningJobs = jobs?.filter((j) => j.status === 'Running' || j.status === 'Verifying').length || 0
-  const completedJobs = jobs?.filter((j) => j.status === 'Completed').length || 0
-  const failedJobs = jobs?.filter((j) => j.status === 'Failed' || j.status === 'RolledBack').length || 0
+  // Aggregate metrics (excluding standalone ad-hoc shell commands)
+  const workflowJobs = useMemo(
+    () => jobs?.filter((j) => j.pipelineId !== 'adhoc-command' && j.pipelineId !== 'command') || [],
+    [jobs]
+  )
+  const totalJobs = workflowJobs.length
+  const runningJobs = workflowJobs.filter((j) => j.status === 'Running' || j.status === 'Verifying').length
+  const completedJobs = workflowJobs.filter((j) => j.status === 'Completed').length
+  const failedJobs = workflowJobs.filter((j) => j.status === 'Failed' || j.status === 'RolledBack').length
 
   const handleOpenTerminalForJob = (job: JobSummary) => {
     const host = hostMap.get(job.targetHostId)
@@ -507,6 +511,7 @@ export function WorkflowsView() {
                 {p.name}
               </option>
             ))}
+            <option value="adhoc-command">Ad-hoc Shell Commands</option>
           </select>
 
           <Filter className="w-3.5 h-3.5 text-zinc-500 hidden sm:inline" />
@@ -658,10 +663,10 @@ export function WorkflowsView() {
           ) : (
             filteredJobs.map((job) => {
               const host = hostMap.get(job.targetHostId)
-              const pipelineName =
-                pipelineMap.get(job.pipelineId || 'standard-os-upgrade') ||
-                job.pipelineId ||
-                'Standard Upgrade'
+              const isAdhoc = job.pipelineId === 'adhoc-command' || job.pipelineId === 'command'
+              const pipelineName = isAdhoc
+                ? 'Ad-hoc Shell Command'
+                : (pipelineMap.get(job.pipelineId || 'standard-os-upgrade') || job.pipelineId || 'Standard Upgrade')
 
               return (
                 <TableRow
@@ -684,9 +689,17 @@ export function WorkflowsView() {
 
                   {/* Pipeline Profile */}
                   <TableCell>
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
-                      <GitFork className="w-3 h-3 text-emerald-400" />
-                      <span className="truncate max-w-[120px]">{pipelineName}</span>
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium ${
+                      isAdhoc
+                        ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                        : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60'
+                    }`}>
+                      {isAdhoc ? (
+                        <Terminal className="w-3 h-3 text-sky-400" />
+                      ) : (
+                        <GitFork className="w-3 h-3 text-emerald-400" />
+                      )}
+                      <span className="truncate max-w-[140px]">{pipelineName}</span>
                     </span>
                   </TableCell>
 
@@ -730,19 +743,21 @@ export function WorkflowsView() {
                   {/* Actions */}
                   <TableCell className="text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setCanvasJob(job)
-                          setIsCanvasModalOpen(true)
-                        }}
-                        className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 inline-flex items-center shrink-0"
-                        title="Open interactive DAG canvas"
-                      >
-                        <GitFork className="w-3.5 h-3.5 shrink-0" />
-                        Visual DAG
-                      </Button>
+                      {!isAdhoc && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setCanvasJob(job)
+                            setIsCanvasModalOpen(true)
+                          }}
+                          className="text-xs h-7 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 inline-flex items-center shrink-0"
+                          title="Open interactive DAG canvas"
+                        >
+                          <GitFork className="w-3.5 h-3.5 shrink-0" />
+                          Visual DAG
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -751,7 +766,7 @@ export function WorkflowsView() {
                         title="Open streaming terminal console"
                       >
                         <Terminal className="w-3.5 h-3.5 shrink-0" />
-                        Console
+                        {isAdhoc ? 'Terminal Log' : 'Console'}
                       </Button>
                       {(job.status === 'Completed' || job.status === 'Failed' || job.status === 'RolledBack' || job.status === 'Cancelled') && (
                         <RoleGate requiredRole="Operator" mode="disable">
@@ -811,7 +826,12 @@ export function WorkflowsView() {
           isOpen={Boolean(terminalHost)}
           initialJobId={terminalJobId}
           autoTriggerDag={autoTriggerDag}
-          isWorkflow={true}
+          isWorkflow={Boolean(
+            (terminalJobId &&
+              jobs?.find((j) => j.id === terminalJobId)?.pipelineId !== 'adhoc-command' &&
+              jobs?.find((j) => j.id === terminalJobId)?.pipelineId !== 'command') ||
+            autoTriggerDag
+          )}
           onClose={() => {
             setTerminalHost(null)
             setTerminalJobId(null)

@@ -27,9 +27,10 @@ RUN dotnet publish src/ControlPlane.Api/ControlPlane.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Install minimal curl for health check probe and purge apt cache
+# Install minimal curl, ca-certificates, helm CLI, and ipmitool, then purge apt cache
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl ca-certificates ipmitool && \
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy published binaries from build stage

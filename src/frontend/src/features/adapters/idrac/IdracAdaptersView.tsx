@@ -14,6 +14,9 @@ import {
   ExternalLink,
   PowerOff,
   AlertTriangle,
+  Radio,
+  Sliders,
+  Compass,
 } from 'lucide-react'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
@@ -22,8 +25,12 @@ import {
   useDeleteIdracInstance,
   useIdracVitals,
   useIdracPowerAction,
+  useIdracIdentify,
+  useIdracBootOverride,
 } from './useIdrac'
 import { AddIdracModal } from './AddIdracModal'
+import { ConfirmBmcPowerModal } from './ConfirmBmcPowerModal'
+import { BmcFanControlModal } from './BmcFanControlModal'
 import type { IdracInstanceDto } from '../../../api/idrac'
 
 export function IdracAdaptersView() {
@@ -57,7 +64,7 @@ export function IdracAdaptersView() {
         <div>
           <h3 className="text-base font-semibold text-zinc-100">No BMC / iDRAC Endpoints Connected</h3>
           <p className="text-xs text-zinc-400 mt-1.5 max-w-md mx-auto leading-relaxed">
-            Register out-of-band management controllers (Dell iDRAC, HP iLO, Supermicro BMC) for remote hardware power control, power draw monitoring, and thermal telemetry.
+            Register out-of-band management controllers (Dell iDRAC, HP iLO, Supermicro BMC) for remote hardware power control, fan curves, locator beacons, and thermal telemetry.
           </p>
         </div>
         <Button
@@ -94,7 +101,7 @@ export function IdracAdaptersView() {
           <div>
             <h3 className="text-sm font-semibold text-zinc-100">Out-of-Band Hardware BMCs</h3>
             <p className="text-xs text-zinc-400">
-              {instances.length} physical server{instances.length === 1 ? '' : 's'} managed via Redfish REST
+              {instances.length} physical server{instances.length === 1 ? '' : 's'} managed via Redfish REST & IPMI
             </p>
           </div>
         </div>
@@ -162,12 +169,35 @@ function BmcServerCard({
 }) {
   const { data: vitals, isLoading, refetch } = useIdracVitals(instance.id)
   const powerMutation = useIdracPowerAction(instance.id)
+  const identifyMutation = useIdracIdentify(instance.id)
+  const bootOverrideMutation = useIdracBootOverride(instance.id)
+
+  const [powerModalConfig, setPowerModalConfig] = useState<{ open: boolean; action: string; label: string } | null>(null)
+  const [fanModalOpen, setFanModalOpen] = useState(false)
+  const [isBlinking, setIsBlinking] = useState(false)
+  const [bootMsg, setBootMsg] = useState<string | null>(null)
+  const [bootSelectOpen, setBootSelectOpen] = useState(false)
 
   const isPowerOn = vitals?.powerState?.toLowerCase() === 'on'
 
-  const handlePowerAction = async (action: string, label: string) => {
-    if (confirm(`Send hardware command '${label}' to ${instance.name}?`)) {
-      await powerMutation.mutateAsync(action)
+  const handleBlinkLed = async () => {
+    setIsBlinking(true)
+    try {
+      await identifyMutation.mutateAsync({ state: 'Blink', durationSeconds: 15 })
+      setTimeout(() => setIsBlinking(false), 15000)
+    } catch {
+      setIsBlinking(false)
+    }
+  }
+
+  const handleBootOverride = async (target: string, label: string) => {
+    setBootSelectOpen(false)
+    try {
+      await bootOverrideMutation.mutateAsync({ target })
+      setBootMsg(`Next boot: ${label}`)
+      setTimeout(() => setBootMsg(null), 4000)
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to set boot override.')
     }
   }
 
@@ -186,9 +216,32 @@ function BmcServerCard({
             >
               {vitals?.powerState || (isLoading ? 'Querying...' : 'Unknown')}
             </Badge>
+            {instance.connectionMode === 'agent' ? (
+              <Badge variant="outline" className="text-[10px] py-0 border-purple-500/40 text-purple-300 gap-1 bg-purple-950/20">
+                In-Band IPMI
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] py-0 border-blue-500/40 text-blue-300 gap-1 bg-blue-950/20">
+                Redfish
+              </Badge>
+            )}
+            {isBlinking && (
+              <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-300 gap-1 animate-pulse bg-amber-950/30">
+                <Radio className="h-2.5 w-2.5" />
+                UID Blinking
+              </Badge>
+            )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono">
-            <span>{vitals?.model || 'Dell PowerEdge'}</span>
+          <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono flex-wrap">
+            {instance.connectionMode === 'agent' && instance.hostName && (
+              <>
+                <span className="text-purple-300 font-medium font-sans">Host: {instance.hostName}</span>
+                <span className="text-zinc-600">•</span>
+              </>
+            )}
+            <span className="font-semibold text-zinc-200">
+              {vitals?.model || (instance.connectionMode === 'agent' ? 'Baremetal IPMI' : 'Dell PowerEdge')}
+            </span>
             {vitals?.serialNumber && (
               <>
                 <span className="text-zinc-600">•</span>
@@ -198,22 +251,53 @@ function BmcServerCard({
             {vitals?.biosVersion && (
               <>
                 <span className="text-zinc-600">•</span>
-                <span className="text-zinc-500">BIOS {vitals.biosVersion}</span>
+                <span className="text-zinc-300 font-sans">BIOS {vitals.biosVersion}</span>
+              </>
+            )}
+            {vitals?.bmcFirmwareVersion && (
+              <>
+                <span className="text-zinc-600">•</span>
+                <span className="text-purple-300/80 font-sans">BMC {vitals.bmcFirmwareVersion}</span>
               </>
             )}
           </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          <a
-            href={instance.bmcUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60"
-            title="Open BMC Web Interface"
+          {/* Fan Control Button */}
+          <button
+            onClick={() => setFanModalOpen(true)}
+            className="p-1.5 rounded-lg text-sky-400 hover:text-sky-200 hover:bg-sky-950/40 border border-sky-500/20"
+            title="Configure Fan Speeds & Curve"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+            <Sliders className="h-3.5 w-3.5" />
+          </button>
+
+          {/* Locator LED (UID) */}
+          <button
+            onClick={handleBlinkLed}
+            disabled={identifyMutation.isPending}
+            className={`p-1.5 rounded-lg border transition-all ${
+              isBlinking
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 animate-pulse'
+                : 'text-zinc-400 hover:text-amber-300 hover:bg-zinc-800/60 border-zinc-800'
+            }`}
+            title="Blink Chassis Locator LED (UID) for 15s"
+          >
+            <Radio className="h-3.5 w-3.5" />
+          </button>
+
+          {instance.connectionMode !== 'agent' && instance.bmcUrl.startsWith('http') && (
+            <a
+              href={instance.bmcUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60"
+              title="Open BMC Web Interface"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
           <button
             onClick={() => refetch()}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60"
@@ -264,18 +348,26 @@ function BmcServerCard({
           </p>
         </div>
 
-        {/* Fan Status */}
-        <div className="space-y-0.5">
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-            <Fan className="h-3 w-3 text-sky-400" />
-            Fans
+        {/* Fan Status (Interactive) */}
+        <button
+          type="button"
+          onClick={() => setFanModalOpen(true)}
+          className="space-y-0.5 text-left p-1 -m-1 rounded hover:bg-zinc-800/40 transition-colors group cursor-pointer"
+          title="Click to adjust fan speed"
+        >
+          <span className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center justify-between gap-1 group-hover:text-sky-300">
+            <span className="flex items-center gap-1">
+              <Fan className="h-3 w-3 text-sky-400 group-hover:animate-spin" />
+              Fans
+            </span>
+            <span className="text-[9px] text-sky-400 opacity-80 group-hover:opacity-100">Tune</span>
           </span>
-          <p className="font-mono text-sm font-semibold text-zinc-100">
+          <p className="font-mono text-sm font-semibold text-zinc-100 group-hover:text-sky-200">
             {vitals?.fans && vitals.fans.length > 0
               ? `${vitals.fans[0].readingRpm} RPM`
               : 'N/A'}
           </p>
-        </div>
+        </button>
       </div>
 
       {/* Sensor Vitals Lists (if available) */}
@@ -307,19 +399,68 @@ function BmcServerCard({
         </div>
       )}
 
-      {/* Remote Power Actions Footer */}
+      {/* Remote Actions Footer */}
       <div className="pt-3 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-mono">
-          <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
-          <span>{instance.hostnameOrIp || instance.bmcUrl}</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-mono">
+            <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
+            <span>
+              {instance.connectionMode === 'agent'
+                ? (instance.hostName ? `In-Band IPMI (${instance.hostName})` : 'In-Band Host IPMI')
+                : (instance.hostnameOrIp || instance.bmcUrl)}
+            </span>
+          </div>
+
+          {/* One-Time Boot Device Trigger */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setBootSelectOpen(!bootSelectOpen)}
+              className="text-[10px] font-medium text-zinc-400 hover:text-zinc-200 px-2 py-0.5 rounded border border-zinc-800 hover:border-zinc-700 bg-zinc-900/40 flex items-center gap-1"
+              title="Set one-time boot override target"
+            >
+              <Compass className="h-2.5 w-2.5 text-purple-400" />
+              {bootMsg || 'Next Boot...'}
+            </button>
+
+            {bootSelectOpen && (
+              <div className="absolute left-0 bottom-7 z-20 w-44 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-1 space-y-0.5 text-xs animate-in fade-in zoom-in-95">
+                <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800">
+                  One-Time Boot Device
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleBootOverride('BiosSetup', 'BIOS Setup')}
+                  className="w-full text-left px-2 py-1.5 rounded hover:bg-purple-950/40 hover:text-purple-300 text-zinc-300 text-[11px] flex items-center justify-between"
+                >
+                  <span>BIOS / System Setup</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBootOverride('Pxe', 'PXE Network')}
+                  className="w-full text-left px-2 py-1.5 rounded hover:bg-purple-950/40 hover:text-purple-300 text-zinc-300 text-[11px] flex items-center justify-between"
+                >
+                  <span>PXE Network Boot</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBootOverride('Disk', 'Primary Disk')}
+                  className="w-full text-left px-2 py-1.5 rounded hover:bg-purple-950/40 hover:text-purple-300 text-zinc-300 text-[11px] flex items-center justify-between"
+                >
+                  <span>Hard Disk</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* Hardware Power Control Buttons */}
         <div className="flex items-center gap-1.5">
           {!isPowerOn ? (
             <Button
               variant="primary"
               size="sm"
-              onClick={() => handlePowerAction('On', 'Power On')}
+              onClick={() => setPowerModalConfig({ open: true, action: 'On', label: 'Power On' })}
               disabled={powerMutation.isPending}
               className="h-7 px-2.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold gap-1"
             >
@@ -331,7 +472,7 @@ function BmcServerCard({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handlePowerAction('GracefulShutdown', 'Graceful ACPI Shutdown')}
+                onClick={() => setPowerModalConfig({ open: true, action: 'GracefulShutdown', label: 'Graceful Shutdown' })}
                 disabled={powerMutation.isPending}
                 className="h-7 px-2 text-xs border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-800 gap-1"
                 title="Send ACPI OS shutdown command"
@@ -342,7 +483,7 @@ function BmcServerCard({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handlePowerAction('PowerCycle', 'Cold Power Cycle')}
+                onClick={() => setPowerModalConfig({ open: true, action: 'PowerCycle', label: 'Cold Power Cycle' })}
                 disabled={powerMutation.isPending}
                 className="h-7 px-2 text-xs border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-800 gap-1"
                 title="Cold chassis power cycle"
@@ -353,7 +494,7 @@ function BmcServerCard({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handlePowerAction('ForceOff', 'Immediate Force Off')}
+                onClick={() => setPowerModalConfig({ open: true, action: 'ForceOff', label: 'Immediate Force Off' })}
                 disabled={powerMutation.isPending}
                 className="h-7 px-2 text-xs border-red-900/60 text-red-400 hover:bg-red-950/40 hover:text-red-300 gap-1"
                 title="Immediate hardware power cutoff"
@@ -365,6 +506,32 @@ function BmcServerCard({
           )}
         </div>
       </div>
+
+      {/* Power Confirmation Dialog Modal */}
+      {powerModalConfig && (
+        <ConfirmBmcPowerModal
+          open={powerModalConfig.open}
+          onClose={() => setPowerModalConfig(null)}
+          targetName={instance.name}
+          targetIp={instance.connectionMode === 'agent' ? (instance.hostName || undefined) : (instance.hostnameOrIp || instance.bmcUrl)}
+          action={powerModalConfig.action}
+          actionLabel={powerModalConfig.label}
+          onConfirm={async () => {
+            await powerMutation.mutateAsync(powerModalConfig.action)
+          }}
+        />
+      )}
+
+      {/* Fan Control Modal */}
+      {fanModalOpen && (
+        <BmcFanControlModal
+          open={fanModalOpen}
+          onClose={() => setFanModalOpen(false)}
+          instanceId={instance.id}
+          serverName={instance.name}
+          currentFans={vitals?.fans || []}
+        />
+      )}
     </div>
   )
 }

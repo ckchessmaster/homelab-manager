@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Idrac;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
+using ControlPlane.Api.Features.Adapters.Kubernetes.Helm;
 using ControlPlane.Api.Features.Adapters.OPNsense;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Adapters.UniFi;
@@ -458,6 +459,7 @@ public class ControlPlaneMcpTools
         {
             Id = jobId,
             TargetHostId = host.Id,
+            PipelineId = "adhoc-command",
             InitiatedBy = "AI Agent via MCP",
             Status = "Running",
             ActiveStep = $"{command} {string.Join(' ', args ?? Array.Empty<string>())}",
@@ -574,7 +576,7 @@ public class ControlPlaneMcpTools
                 case "redfish":
                     if (_idracClientFactory == null) return new { success = false, error = "iDRAC factory not available." };
                     var (iClient, iConfig, iPass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
-                    var iRes = await iClient.TestConnectionAsync(iConfig.BmcUrl, iConfig.Username, iPass, iConfig.AllowSelfSignedCert, ct);
+                    var iRes = await iClient.TestInstanceAsync(iConfig, iPass, ct);
                     return new { success = iRes.Success, adapterType = "idrac", instanceId = iConfig.Id, latencyMs = iRes.LatencyMs, message = iRes.Message, model = iRes.Model };
 
                 default:
@@ -677,70 +679,264 @@ public class ControlPlaneMcpTools
     }
 
     [McpServerTool]
-    [Description("Query out-of-band BMC (Redfish / Dell iDRAC) system health, power state, and thermal/fan vitals.")]
+    [Description("Query out-of-band BMC (Redfish / Dell iDRAC / in-band host IPMI) system health, power state, and thermal/fan vitals.")]
     public async Task<object> GetHardwareSensors(
         [Description("Optional iDRAC instance ID.")] string? instanceId = null,
         [Description("Optional host BMC IP address to look up instance.")] string? hostBmcIp = null,
+        [Description("Optional baremetal host GUID.")] Guid? hostId = null,
         CancellationToken ct = default)
     {
         if (_idracClientFactory == null) return new { error = "iDRAC factory not available." };
 
         IIdracClient client;
-        string bmcUrl, username, password;
-        bool allowSelfSigned;
+        IdracStoredInstance config;
+        string password;
 
-        if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        if (hostId.HasValue)
         {
+            var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(hostId.Value, ct);
+            if (resolvedHost == null) return new { error = $"No BMC instance configured for host ID '{hostId.Value}'." };
+            (client, config, password) = resolvedHost.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        {
+            if (Guid.TryParse(hostBmcIp, out var parsedHostGuid))
+            {
+                var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(parsedHostGuid, ct);
+                if (resolvedHost != null)
+                {
+                    (client, config, password) = resolvedHost.Value;
+                    var vit = await client.GetInstanceVitalsAsync(config, password, ct);
+                    return new { bmcUrl = config.BmcUrl, vitals = vit };
+                }
+            }
+
             var resolved = await _idracClientFactory.ResolveByHostBmcIpAsync(hostBmcIp, ct);
             if (resolved == null) return new { error = $"No iDRAC instance configured for BMC IP '{hostBmcIp}'." };
-            (client, bmcUrl, username, password, allowSelfSigned) = resolved.Value;
+            var (c, bmcUrl, username, pass, allowSelfSigned) = resolved.Value;
+            var vitals = await c.GetVitalsAsync(bmcUrl, username, pass, allowSelfSigned, ct);
+            return new { bmcUrl, vitals };
         }
         else
         {
-            var (c, config, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+            var (c, conf, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
             client = c;
-            bmcUrl = config.BmcUrl;
-            username = config.Username;
+            config = conf;
             password = pass;
-            allowSelfSigned = config.AllowSelfSignedCert;
         }
 
-        var vitals = await client.GetVitalsAsync(bmcUrl, username, password, allowSelfSigned, ct);
-        return new { bmcUrl, vitals };
+        var vitalsResult = await client.GetInstanceVitalsAsync(config, password, ct);
+        return new { bmcUrl = config.BmcUrl, vitals = vitalsResult };
     }
 
     [McpServerTool]
-    [Description("Dispatch an out-of-band power action to server hardware via BMC/Redfish/iDRAC.")]
+    [Description("Dispatch an out-of-band power action to server hardware via BMC/Redfish/iDRAC or in-band host IPMI.")]
     public async Task<object> ExecuteHardwarePowerAction(
         [Description("Power action: 'On', 'ForceOff', 'GracefulShutdown', 'GracefulRestart', or 'ForceRestart'.")] string resetType,
         [Description("Optional iDRAC instance ID.")] string? instanceId = null,
         [Description("Optional host BMC IP address.")] string? hostBmcIp = null,
+        [Description("Optional baremetal host GUID.")] Guid? hostId = null,
         CancellationToken ct = default)
     {
         if (_idracClientFactory == null) return new { success = false, error = "iDRAC factory not available." };
 
         IIdracClient client;
-        string bmcUrl, username, password;
-        bool allowSelfSigned;
+        IdracStoredInstance config;
+        string password;
 
-        if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        if (hostId.HasValue)
         {
+            var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(hostId.Value, ct);
+            if (resolvedHost == null) return new { success = false, error = $"No BMC instance configured for host ID '{hostId.Value}'." };
+            (client, config, password) = resolvedHost.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        {
+            if (Guid.TryParse(hostBmcIp, out var parsedHostGuid))
+            {
+                var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(parsedHostGuid, ct);
+                if (resolvedHost != null)
+                {
+                    (client, config, password) = resolvedHost.Value;
+                    var res = await client.ResetInstanceSystemAsync(config, password, resetType, ct);
+                    return new { success = res.Success, bmcUrl = config.BmcUrl, resetType, message = res.Message };
+                }
+            }
+
             var resolved = await _idracClientFactory.ResolveByHostBmcIpAsync(hostBmcIp, ct);
             if (resolved == null) return new { success = false, error = $"No iDRAC instance configured for BMC IP '{hostBmcIp}'." };
-            (client, bmcUrl, username, password, allowSelfSigned) = resolved.Value;
+            var (c, bmcUrl, username, pass, allowSelfSigned) = resolved.Value;
+            var resLegacy = await c.ResetSystemAsync(bmcUrl, username, pass, resetType, allowSelfSigned, ct);
+            return new { success = resLegacy.Success, bmcUrl, resetType, message = resLegacy.Message };
         }
         else
         {
-            var (c, config, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+            var (c, conf, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
             client = c;
-            bmcUrl = config.BmcUrl;
-            username = config.Username;
+            config = conf;
             password = pass;
-            allowSelfSigned = config.AllowSelfSignedCert;
         }
 
-        var result = await client.ResetSystemAsync(bmcUrl, username, password, resetType, allowSelfSigned, ct);
-        return new { success = result.Success, bmcUrl, resetType, message = result.Message };
+        var result = await client.ResetInstanceSystemAsync(config, password, resetType, ct);
+        return new { success = result.Success, bmcUrl = config.BmcUrl, resetType, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Control server chassis fan speeds (e.g. set manual speed duty cycle percentage or restore automatic BMC thermal control).")]
+    public async Task<object> SetHardwareFanControl(
+        [Description("Mode: 'Auto' to restore automatic dynamic BMC cooling curve, or 'Manual' to set static speed percentage.")] string mode = "Manual",
+        [Description("Fan speed duty cycle percentage (10 to 100). Default is 37.")] int? percentage = 37,
+        [Description("Optional iDRAC instance ID.")] string? instanceId = null,
+        [Description("Optional host BMC IP address.")] string? hostBmcIp = null,
+        [Description("Optional baremetal host GUID.")] Guid? hostId = null,
+        CancellationToken ct = default)
+    {
+        if (_idracClientFactory == null) return new { success = false, error = "iDRAC factory not available." };
+
+        IIdracClient client;
+        IdracStoredInstance config;
+        string password;
+
+        if (hostId.HasValue)
+        {
+            var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(hostId.Value, ct);
+            if (resolvedHost == null) return new { success = false, error = $"No BMC instance configured for host ID '{hostId.Value}'." };
+            (client, config, password) = resolvedHost.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        {
+            if (Guid.TryParse(hostBmcIp, out var parsedHostGuid))
+            {
+                var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(parsedHostGuid, ct);
+                if (resolvedHost != null)
+                {
+                    (client, config, password) = resolvedHost.Value;
+                    var res = await client.SetInstanceFanControlAsync(config, password, mode, percentage, ct);
+                    return new { success = res.Success, bmcUrl = config.BmcUrl, mode = res.Mode, percentage = res.Percentage, message = res.Message };
+                }
+            }
+
+            var resolved = await _idracClientFactory.ResolveByHostBmcIpAsync(hostBmcIp, ct);
+            if (resolved == null) return new { success = false, error = $"No iDRAC instance configured for BMC IP '{hostBmcIp}'." };
+            var (c, bmcUrl, username, pass, allowSelfSigned) = resolved.Value;
+            var resLegacy = await c.SetFanControlAsync(bmcUrl, username, pass, mode, percentage, allowSelfSigned, ct);
+            return new { success = resLegacy.Success, bmcUrl, mode = resLegacy.Mode, percentage = resLegacy.Percentage, message = resLegacy.Message };
+        }
+        else
+        {
+            var (c, conf, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+            client = c;
+            config = conf;
+            password = pass;
+        }
+
+        var result = await client.SetInstanceFanControlAsync(config, password, mode, percentage, ct);
+        return new { success = result.Success, bmcUrl = config.BmcUrl, mode = result.Mode, percentage = result.Percentage, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Control physical chassis locator / UID beacon LED (blink, turn on, or turn off) to locate a server in a rack.")]
+    public async Task<object> SetChassisIndicatorLed(
+        [Description("State: 'Blink', 'On', or 'Off'.")] string state = "Blink",
+        [Description("Duration in seconds if blinking/temporary (default 15).")] int durationSeconds = 15,
+        [Description("Optional iDRAC instance ID.")] string? instanceId = null,
+        [Description("Optional host BMC IP address.")] string? hostBmcIp = null,
+        [Description("Optional baremetal host GUID.")] Guid? hostId = null,
+        CancellationToken ct = default)
+    {
+        if (_idracClientFactory == null) return new { success = false, error = "iDRAC factory not available." };
+
+        IIdracClient client;
+        IdracStoredInstance config;
+        string password;
+
+        if (hostId.HasValue)
+        {
+            var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(hostId.Value, ct);
+            if (resolvedHost == null) return new { success = false, error = $"No BMC instance configured for host ID '{hostId.Value}'." };
+            (client, config, password) = resolvedHost.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        {
+            if (Guid.TryParse(hostBmcIp, out var parsedHostGuid))
+            {
+                var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(parsedHostGuid, ct);
+                if (resolvedHost != null)
+                {
+                    (client, config, password) = resolvedHost.Value;
+                    var res = await client.SetInstanceChassisIdentifyAsync(config, password, state, durationSeconds, ct);
+                    return new { success = res.Success, bmcUrl = config.BmcUrl, state = res.State, message = res.Message };
+                }
+            }
+
+            var resolved = await _idracClientFactory.ResolveByHostBmcIpAsync(hostBmcIp, ct);
+            if (resolved == null) return new { success = false, error = $"No iDRAC instance configured for BMC IP '{hostBmcIp}'." };
+            var (c, bmcUrl, username, pass, allowSelfSigned) = resolved.Value;
+            var resLegacy = await c.SetChassisIdentifyAsync(bmcUrl, username, pass, state, durationSeconds, allowSelfSigned, ct);
+            return new { success = resLegacy.Success, bmcUrl, state = resLegacy.State, message = resLegacy.Message };
+        }
+        else
+        {
+            var (c, conf, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+            client = c;
+            config = conf;
+            password = pass;
+        }
+
+        var result = await client.SetInstanceChassisIdentifyAsync(config, password, state, durationSeconds, ct);
+        return new { success = result.Success, bmcUrl = config.BmcUrl, state = result.State, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Set one-time next boot device override for baremetal server (e.g. reboot into BIOS setup, PXE network boot, or disk).")]
+    public async Task<object> SetNextBootDevice(
+        [Description("Target: 'BiosSetup' (or 'bios'), 'Pxe', 'Disk', 'Cdrom'.")] string target = "BiosSetup",
+        [Description("Optional iDRAC instance ID.")] string? instanceId = null,
+        [Description("Optional host BMC IP address.")] string? hostBmcIp = null,
+        [Description("Optional baremetal host GUID.")] Guid? hostId = null,
+        CancellationToken ct = default)
+    {
+        if (_idracClientFactory == null) return new { success = false, error = "iDRAC factory not available." };
+
+        IIdracClient client;
+        IdracStoredInstance config;
+        string password;
+
+        if (hostId.HasValue)
+        {
+            var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(hostId.Value, ct);
+            if (resolvedHost == null) return new { success = false, error = $"No BMC instance configured for host ID '{hostId.Value}'." };
+            (client, config, password) = resolvedHost.Value;
+        }
+        else if (!string.IsNullOrWhiteSpace(hostBmcIp))
+        {
+            if (Guid.TryParse(hostBmcIp, out var parsedHostGuid))
+            {
+                var resolvedHost = await _idracClientFactory.ResolveByHostIdAsync(parsedHostGuid, ct);
+                if (resolvedHost != null)
+                {
+                    (client, config, password) = resolvedHost.Value;
+                    var res = await client.SetInstanceBootOverrideAsync(config, password, target, ct);
+                    return new { success = res.Success, bmcUrl = config.BmcUrl, target = res.Target, message = res.Message };
+                }
+            }
+
+            var resolved = await _idracClientFactory.ResolveByHostBmcIpAsync(hostBmcIp, ct);
+            if (resolved == null) return new { success = false, error = $"No iDRAC instance configured for BMC IP '{hostBmcIp}'." };
+            var (c, bmcUrl, username, pass, allowSelfSigned) = resolved.Value;
+            var resLegacy = await c.SetBootOverrideAsync(bmcUrl, username, pass, target, allowSelfSigned, ct);
+            return new { success = resLegacy.Success, bmcUrl, target = resLegacy.Target, message = resLegacy.Message };
+        }
+        else
+        {
+            var (c, conf, pass) = await _idracClientFactory.ResolveAsync(instanceId ?? "default", ct);
+            client = c;
+            config = conf;
+            password = pass;
+        }
+
+        var result = await client.SetInstanceBootOverrideAsync(config, password, target, ct);
+        return new { success = result.Success, bmcUrl = config.BmcUrl, target = result.Target, message = result.Message };
     }
 
     [McpServerTool]
@@ -805,6 +1001,190 @@ public class ControlPlaneMcpTools
         }
 
         return await _hostCorrelationService.SyncHostCorrelationsAsync(ct);
+    }
+
+    [McpServerTool]
+    [Description("List Helm releases deployed in a Kubernetes cluster or specific namespace.")]
+    public async Task<object> list_helm_releases(
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        [Description("Optional namespace filter")] string? namespaceName = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { error = "Workload service is not available." };
+        }
+
+        return await _workloadService.ListHelmReleasesAsync(clusterId ?? "", namespaceName, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Get the curated homelab Helm charts catalog containing popular pre-configured infrastructure charts.")]
+    public object get_helm_catalog()
+    {
+        if (_workloadService == null)
+        {
+            return new { error = "Workload service is not available." };
+        }
+
+        return _workloadService.GetHelmCatalog();
+    }
+
+    [McpServerTool]
+    [Description("Install or upgrade a Helm chart on a Kubernetes cluster with optional values YAML.")]
+    public async Task<object> install_helm_chart(
+        [Description("Release name (e.g. ingress-nginx)")] string releaseName,
+        [Description("Chart name or reference (e.g. ingress-nginx, cert-manager, or repo/chart)")] string chartName,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        [Description("Namespace to install into")] string? namespaceName = "default",
+        [Description("Repository URL if not a standard chart (e.g. https://kubernetes.github.io/ingress-nginx)")] string? repoUrl = null,
+        [Description("Specific chart version (or null for latest)")] string? version = null,
+        [Description("User-supplied values YAML configuration")] string? valuesYaml = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { error = "Workload service is not available." };
+        }
+
+        var req = new InstallHelmReleaseRequestDto(
+            ReleaseName: releaseName,
+            Namespace: string.IsNullOrWhiteSpace(namespaceName) ? "default" : namespaceName,
+            ChartName: chartName,
+            RepoUrl: repoUrl,
+            Version: version,
+            ValuesYaml: valuesYaml,
+            CreateNamespace: true
+        );
+
+        return await _workloadService.InstallOrUpgradeHelmReleaseAsync(clusterId ?? "", req, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Uninstall a Helm release from a Kubernetes cluster.")]
+    public async Task<object> uninstall_helm_release(
+        [Description("Namespace where release is installed")] string namespaceName,
+        [Description("Release name to uninstall")] string releaseName,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { error = "Workload service is not available." };
+        }
+
+        return await _workloadService.UninstallHelmReleaseAsync(clusterId ?? "", namespaceName, releaseName, cancellationToken);
+    }
+
+    [McpServerTool]
+    [Description("Apply raw or multi-document YAML manifests (Secrets, ConfigMaps, PVCs, Deployments, Services) to a Kubernetes cluster.")]
+    public async Task<object> apply_kubernetes_manifest(
+        [Description("Raw Kubernetes YAML manifest to apply")] string yamlContent,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        [Description("Whether to perform a dry-run validation without persisting changes")] bool dryRun = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var result = await _workloadService.ApplyManifestYamlAsync(clusterId ?? "", yamlContent, dryRun, cancellationToken);
+        return result;
+    }
+
+    [McpServerTool]
+    [Description("Create or update a Kubernetes Secret (e.g. for database passwords, API tokens, TLS certificates before Helm install).")]
+    public async Task<object> create_kubernetes_secret(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the secret")] string name,
+        [Description("Dictionary of string key-value pairs for stringData")] Dictionary<string, string> stringData,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        [Description("Secret type (e.g. Opaque, kubernetes.io/tls, kubernetes.io/dockerconfigjson)")] string type = "Opaque",
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var req = new K8sCreateSecretRequestDto(name, namespaceName, type, stringData);
+        var result = await _workloadService.CreateSecretAsync(clusterId ?? "", namespaceName, req, cancellationToken);
+        return new { success = result.Success, name, namespaceName, clusterId, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("List Kubernetes Secrets in a namespace (metadata, keys, and age with sensitive values masked).")]
+    public async Task<object> list_kubernetes_secrets(
+        [Description("Target namespace (or null for all namespaces)")] string? namespaceName = null,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { error = "Workload service is not available." };
+        }
+
+        var secrets = await _workloadService.ListSecretsAsync(clusterId ?? "", namespaceName, cancellationToken);
+        return new { count = secrets.Count, secrets };
+    }
+
+    [McpServerTool]
+    [Description("Create or update a Kubernetes ConfigMap.")]
+    public async Task<object> create_kubernetes_configmap(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the config map")] string name,
+        [Description("Dictionary of key-value configuration data")] Dictionary<string, string> data,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var req = new K8sCreateConfigMapRequestDto(name, namespaceName, data);
+        var result = await _workloadService.CreateConfigMapAsync(clusterId ?? "", namespaceName, req, cancellationToken);
+        return new { success = result.Success, name, namespaceName, clusterId, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Update an existing Kubernetes Secret.")]
+    public async Task<object> update_kubernetes_secret(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the secret to update")] string name,
+        [Description("Dictionary of string key-value pairs for secret data")] Dictionary<string, string> stringData,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        [Description("Secret type (e.g. Opaque, kubernetes.io/tls)")] string type = "Opaque",
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var req = new K8sCreateSecretRequestDto(name, namespaceName, type, stringData);
+        var result = await _workloadService.UpdateSecretAsync(clusterId ?? "", namespaceName, name, req, cancellationToken);
+        return new { success = result.Success, name, namespaceName, clusterId, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Update an existing Kubernetes ConfigMap.")]
+    public async Task<object> update_kubernetes_configmap(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the config map to update")] string name,
+        [Description("Dictionary of key-value configuration data")] Dictionary<string, string> data,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var req = new K8sCreateConfigMapRequestDto(name, namespaceName, data);
+        var result = await _workloadService.UpdateConfigMapAsync(clusterId ?? "", namespaceName, name, req, cancellationToken);
+        return new { success = result.Success, name, namespaceName, clusterId, message = result.Message };
     }
 }
 

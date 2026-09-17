@@ -18,6 +18,10 @@ export function useActiveJobsByHost() {
     const map = new Map<string, JobSummary>()
     if (!jobs) return map
     for (const job of jobs) {
+      // Exclude ad-hoc shell commands from active host maintenance workflows
+      if (job.pipelineId === 'adhoc-command' || job.pipelineId === 'command') {
+        continue
+      }
       const s = job.status?.toLowerCase()
       if (
         s === 'running' ||

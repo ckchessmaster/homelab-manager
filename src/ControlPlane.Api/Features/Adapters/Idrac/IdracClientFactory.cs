@@ -59,6 +59,19 @@ public class IdracClientFactory : IIdracClientFactory
         return result;
     }
 
+    public async Task<(IIdracClient Client, IdracStoredInstance Config, string Password)?> ResolveByHostIdAsync(Guid hostId, CancellationToken ct = default)
+    {
+        var all = await ResolveAllAsync(ct);
+        foreach (var (config, password) in all)
+        {
+            if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId == hostId)
+            {
+                return (_client, config, password);
+            }
+        }
+        return null;
+    }
+
     public async Task<(IIdracClient Client, string BmcUrl, string Username, string Password, bool AllowSelfSigned)?> ResolveByHostBmcIpAsync(string bmcIp, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(bmcIp)) return null;
@@ -66,7 +79,17 @@ public class IdracClientFactory : IIdracClientFactory
         var cleanTarget = bmcIp.Trim();
         var all = await ResolveAllAsync(ct);
 
-        // 1. Try to find instance matching HostnameOrIp or BmcUrl host
+        // 1. Check if cleanTarget matches a host Guid for agent-mode BMC
+        if (Guid.TryParse(cleanTarget, out var parsedGuid))
+        {
+            var byHost = await ResolveByHostIdAsync(parsedGuid, ct);
+            if (byHost != null)
+            {
+                return (_client, byHost.Value.Config.BmcUrl, byHost.Value.Config.Username, byHost.Value.Password, byHost.Value.Config.AllowSelfSignedCert);
+            }
+        }
+
+        // 2. Try to find instance matching HostnameOrIp or BmcUrl host
         foreach (var (config, password) in all)
         {
             if (!string.IsNullOrWhiteSpace(config.HostnameOrIp) &&
@@ -82,12 +105,13 @@ public class IdracClientFactory : IIdracClientFactory
             }
         }
 
-        // 2. If single iDRAC instance configured with same subnet or default credentials, allow using its credentials for direct BMC IP
+        // 3. If single iDRAC instance configured with same subnet or default credentials, allow using its credentials for direct BMC IP
         var first = all.FirstOrDefault();
         if (first.Config != null)
         {
             var bmcUrl = cleanTarget.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                         cleanTarget.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                         cleanTarget.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                         cleanTarget.StartsWith("agent://", StringComparison.OrdinalIgnoreCase)
                          ? cleanTarget
                          : $"https://{cleanTarget}";
 

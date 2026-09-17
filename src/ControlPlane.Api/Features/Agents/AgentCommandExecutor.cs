@@ -1,11 +1,19 @@
 using System.Collections.Concurrent;
+using System.Text;
 using ControlPlane.Api.Features.Agents.Models;
 
 namespace ControlPlane.Api.Features.Agents;
 
 public class AgentCommandExecutor : IAgentCommandExecutor
 {
-    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentCommandResult>> _activeCommands = new();
+    private class CommandExecutionState
+    {
+        public TaskCompletionSource<AgentCommandResult> Tcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public StringBuilder StandardOutput { get; } = new();
+        public StringBuilder StandardError { get; } = new();
+    }
+
+    private readonly ConcurrentDictionary<Guid, CommandExecutionState> _activeCommands = new();
     private readonly AgentConnectionManager _connectionManager;
     private readonly ILogger<AgentCommandExecutor> _logger;
 
@@ -29,14 +37,14 @@ public class AgentCommandExecutor : IAgentCommandExecutor
             return new AgentCommandResult(false, -1, "Target host agent is offline.");
         }
 
-        var tcs = new TaskCompletionSource<AgentCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _activeCommands[jobId] = tcs;
+        var state = new CommandExecutionState();
+        _activeCommands[jobId] = state;
 
         using var ctr = cancellationToken.Register(() =>
         {
-            if (_activeCommands.TryRemove(jobId, out var removedTcs))
+            if (_activeCommands.TryRemove(jobId, out var removedState))
             {
-                removedTcs.TrySetCanceled(cancellationToken);
+                removedState.Tcs.TrySetCanceled(cancellationToken);
             }
         });
 
@@ -57,16 +65,22 @@ public class AgentCommandExecutor : IAgentCommandExecutor
 
         try
         {
-            return await tcs.Task;
+            return await state.Tcs.Task;
         }
         catch (OperationCanceledException)
         {
-            return new AgentCommandResult(false, -1, "Command execution was canceled or timed out.");
+            string stdoutStr, stderrStr;
+            lock (state.StandardOutput) { stdoutStr = state.StandardOutput.ToString(); }
+            lock (state.StandardError) { stderrStr = state.StandardError.ToString(); }
+            return new AgentCommandResult(false, -1, "Command execution was canceled or timed out.", stdoutStr, stderrStr);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error executing command {Command} for job {JobId}", command, jobId);
-            return new AgentCommandResult(false, -1, ex.Message);
+            string stdoutStr, stderrStr;
+            lock (state.StandardOutput) { stdoutStr = state.StandardOutput.ToString(); }
+            lock (state.StandardError) { stderrStr = state.StandardError.ToString(); }
+            return new AgentCommandResult(false, -1, ex.Message, stdoutStr, stderrStr);
         }
         finally
         {
@@ -76,16 +90,34 @@ public class AgentCommandExecutor : IAgentCommandExecutor
 
     public void NotifyFrame(Guid hostId, AgentFrameData frame)
     {
-        if (!_activeCommands.TryGetValue(frame.JobId, out var tcs))
+        if (!_activeCommands.TryGetValue(frame.JobId, out var state))
         {
             return;
         }
 
-        if (frame.StreamType == "system")
+        if (frame.StreamType == "stdout")
         {
+            lock (state.StandardOutput)
+            {
+                state.StandardOutput.AppendLine(frame.LogLine);
+            }
+        }
+        else if (frame.StreamType == "stderr")
+        {
+            lock (state.StandardError)
+            {
+                state.StandardError.AppendLine(frame.LogLine);
+            }
+        }
+        else if (frame.StreamType == "system")
+        {
+            string stdoutStr, stderrStr;
+            lock (state.StandardOutput) { stdoutStr = state.StandardOutput.ToString(); }
+            lock (state.StandardError) { stderrStr = state.StandardError.ToString(); }
+
             if (frame.LogLine.Contains("completed successfully", StringComparison.OrdinalIgnoreCase))
             {
-                tcs.TrySetResult(new AgentCommandResult(true, 0, null));
+                state.Tcs.TrySetResult(new AgentCommandResult(true, 0, null, stdoutStr, stderrStr));
                 _activeCommands.TryRemove(frame.JobId, out _);
             }
             else if (frame.LogLine.Contains("exited with code", StringComparison.OrdinalIgnoreCase))
@@ -97,14 +129,14 @@ public class AgentCommandExecutor : IAgentCommandExecutor
                     exitCode = parsed;
                 }
 
-                tcs.TrySetResult(new AgentCommandResult(false, exitCode, frame.LogLine));
+                state.Tcs.TrySetResult(new AgentCommandResult(false, exitCode, frame.LogLine, stdoutStr, stderrStr));
                 _activeCommands.TryRemove(frame.JobId, out _);
             }
             else if (frame.LogLine.Contains("Process error", StringComparison.OrdinalIgnoreCase) ||
                      frame.LogLine.Contains("Failed to start process", StringComparison.OrdinalIgnoreCase) ||
                      frame.LogLine.Contains("Failed to acquire", StringComparison.OrdinalIgnoreCase))
             {
-                tcs.TrySetResult(new AgentCommandResult(false, -1, frame.LogLine));
+                state.Tcs.TrySetResult(new AgentCommandResult(false, -1, frame.LogLine, stdoutStr, stderrStr));
                 _activeCommands.TryRemove(frame.JobId, out _);
             }
         }

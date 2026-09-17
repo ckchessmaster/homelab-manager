@@ -2,12 +2,21 @@ import { useState } from 'react'
 import { Badge } from '../../../components/ui/badge'
 import { Button } from '../../../components/ui/button'
 import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from '../../../components/ui/dialog'
+import {
   Zap,
   RotateCcw,
   Radio,
   CheckCircle2,
   AlertCircle,
   Activity,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 import { usePowerCycleUniFiPort } from './useUniFi'
 import type { UniFiPortDto } from '../../../api/unifi'
@@ -27,6 +36,7 @@ export function SwitchPortVisualizer({
 }: SwitchPortVisualizerProps) {
   const powerCycleMutation = usePowerCycleUniFiPort(instanceId)
   const [bouncingPort, setBouncingPort] = useState<number | null>(null)
+  const [confirmPort, setConfirmPort] = useState<{ portIdx: number; portName?: string | null } | null>(null)
   const [actionMessage, setActionMessage] = useState<{ port: number; success: boolean; text: string } | null>(null)
 
   const handlePowerCycle = async (portIdx: number) => {
@@ -176,7 +186,7 @@ export function SwitchPortVisualizer({
                   size="sm"
                   variant="outline"
                   disabled={isBouncing || powerCycleMutation.isPending}
-                  onClick={() => handlePowerCycle(port.portIdx)}
+                  onClick={() => setConfirmPort({ portIdx: port.portIdx, portName: port.name })}
                   className="w-full h-6 text-[10px] px-1.5 gap-1 border-slate-700 bg-slate-800/40 hover:bg-slate-800 text-slate-300 hover:text-white"
                   title="Power cycle PoE to reboot attached hardware"
                 >
@@ -196,6 +206,61 @@ export function SwitchPortVisualizer({
           )
         })}
       </div>
+
+      {/* PoE Cycle Confirmation Dialog */}
+      {confirmPort && (
+        <Dialog open={true} onClose={() => setConfirmPort(null)} maxWidth="md">
+          <DialogHeader onClose={() => setConfirmPort(null)}>
+            <div className="flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              <DialogTitle className="text-zinc-100">
+                Confirm PoE Power Cycle
+              </DialogTitle>
+            </div>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
+            <p className="text-sm text-zinc-300">
+              Are you sure you want to cycle PoE power on{' '}
+              <strong className="text-white font-semibold">
+                Port {confirmPort.portIdx}
+                {confirmPort.portName ? ` (${confirmPort.portName})` : ''}
+              </strong>{' '}
+              on switch <span className="font-mono text-zinc-200">{deviceName}</span>?
+            </p>
+            <div className="p-3 bg-amber-950/30 border border-amber-800/40 rounded-lg text-xs text-amber-200/90 leading-relaxed">
+              This will drop power for 5 seconds, forcing any connected Access Point, camera, or server to hard-reboot.
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmPort(null)}
+              disabled={powerCycleMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={async () => {
+                const portIdx = confirmPort.portIdx
+                setConfirmPort(null)
+                await handlePowerCycle(portIdx)
+              }}
+              disabled={powerCycleMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-500 text-white font-semibold gap-1.5"
+            >
+              {powerCycleMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RotateCcw className="h-4 w-4" />
+              )}
+              Cycle Power
+            </Button>
+          </DialogFooter>
+        </Dialog>
+      )}
     </div>
   )
 }

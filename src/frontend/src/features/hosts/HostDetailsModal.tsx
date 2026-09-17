@@ -26,10 +26,18 @@ import {
   ExternalLink,
   Cpu,
   Layers,
+  Fan,
+  Radio,
 } from 'lucide-react'
 import { useState } from 'react'
 import type { Host } from '../../api/hosts'
-import { useIdracPowerActionByIp } from '../adapters/idrac/useIdrac'
+import {
+  useIdracPowerActionByIp,
+  useIdracInstances,
+  useIdracIdentifyByIp,
+} from '../adapters/idrac/useIdrac'
+import { ConfirmBmcPowerModal } from '../adapters/idrac/ConfirmBmcPowerModal'
+import { BmcFanControlModal } from '../adapters/idrac/BmcFanControlModal'
 
 interface HostDetailsModalProps {
   host: Host | null
@@ -51,9 +59,23 @@ export function HostDetailsModal({
   onReboot,
 }: HostDetailsModalProps) {
   const [copied, setCopied] = useState(false)
+  const [powerModalConfig, setPowerModalConfig] = useState<{
+    open: boolean
+    action: string
+    label: string
+  } | null>(null)
+  const [fanModalOpen, setFanModalOpen] = useState(false)
+  const [isBlinking, setIsBlinking] = useState(false)
+
   const bmcPowerMutation = useIdracPowerActionByIp()
+  const bmcIdentifyMutation = useIdracIdentifyByIp()
+  const { data: idracInstances } = useIdracInstances()
 
   if (!host) return null
+
+  const linkedBmcInstance = idracInstances?.find(
+    (inst) => inst.hostId === host.id || (inst.hostnameOrIp && (inst.hostnameOrIp === host.ipAddress || inst.hostnameOrIp === host.hostname))
+  )
 
   const handleCopyIp = () => {
     navigator.clipboard.writeText(host.ipAddress)
@@ -61,23 +83,24 @@ export function HostDetailsModal({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleBmcPower = async (resetType: string, label: string) => {
-    if (!host.idrac?.ipAddress) return
-    if (confirm(`Send hardware power action '${label}' to BMC at ${host.idrac.ipAddress}?`)) {
-      try {
-        await bmcPowerMutation.mutateAsync({
-          idracIp: host.idrac.ipAddress,
-          resetType,
-        })
-        alert(`Hardware power command '${label}' dispatched successfully.`)
-      } catch (err: unknown) {
-        alert(err instanceof Error ? err.message : 'Power command failed.')
-      }
+  const handleBlinkLed = async () => {
+    setIsBlinking(true)
+    try {
+      await bmcIdentifyMutation.mutateAsync({
+        hostId: host.id,
+        idracIp: host.idrac?.ipAddress || linkedBmcInstance?.hostnameOrIp || linkedBmcInstance?.bmcUrl || undefined,
+        state: 'Blink',
+        durationSeconds: 15,
+      })
+      setTimeout(() => setIsBlinking(false), 15000)
+    } catch {
+      setIsBlinking(false)
     }
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg">
+    <>
+      <Dialog open={open} onClose={onClose} maxWidth="lg">
       <DialogHeader onClose={onClose}>
         <div className="flex items-center gap-3">
           <DialogTitle>{host.hostname}</DialogTitle>
@@ -174,56 +197,105 @@ export function HostDetailsModal({
               )}
             </div>
 
-            {/* iDRAC */}
-            <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-lg space-y-1.5">
-              <div className="flex items-center justify-between text-xs font-medium text-amber-300">
-                <div className="flex items-center gap-1.5">
+            {/* iDRAC / Out-of-band Management */}
+            <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-purple-300">
                   <Shield className="h-3.5 w-3.5" />
-                  Dell iDRAC / BMC
+                  BMC / iDRAC
                 </div>
-                {host.idrac?.ipAddress && (
-                  <a
-                    href={`https://${host.idrac.ipAddress}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-zinc-500 hover:text-zinc-300 text-[10px] flex items-center gap-0.5"
-                    title="Open iDRAC Web Interface"
-                  >
-                    <span>WebGUI</span>
-                    <ExternalLink className="h-2.5 w-2.5" />
-                  </a>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {isBlinking && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/40 border border-amber-500/40 text-amber-300 animate-pulse flex items-center gap-1">
+                      <Radio className="h-2.5 w-2.5" />
+                      LED
+                    </span>
+                  )}
+                  {linkedBmcInstance ? (
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                      {linkedBmcInstance.connectionMode === 'agent' ? 'In-Band Agent' : 'Out-of-Band'}
+                    </span>
+                  ) : (
+                    host.idrac?.ipAddress && (
+                      <a
+                        href={`https://${host.idrac.ipAddress}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-zinc-500 hover:text-zinc-300 text-[10px] flex items-center gap-0.5"
+                        title="Open iDRAC Web Interface"
+                      >
+                        <span>WebGUI</span>
+                        <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    )
+                  )}
+                </div>
               </div>
-              {host.idrac?.ipAddress ? (
-                <div className="space-y-1.5">
+              {linkedBmcInstance || host.idrac?.ipAddress ? (
+                <div className="space-y-2">
                   <div className="text-xs text-zinc-300">
-                    IP: <span className="font-mono text-zinc-100">{host.idrac.ipAddress}</span>
+                    {linkedBmcInstance?.connectionMode === 'agent' ? (
+                      <div>
+                        Mode: <span className="font-semibold text-purple-300">Host Agent IPMI</span>
+                        {linkedBmcInstance.name && (
+                          <span className="text-zinc-500 text-[11px] ml-1.5">({linkedBmcInstance.name})</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        IP: <span className="font-mono text-zinc-100">{host.idrac?.ipAddress || linkedBmcInstance?.hostnameOrIp || linkedBmcInstance?.bmcUrl}</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1 pt-1 border-t border-zinc-800/60">
-                    <button
-                      onClick={() => handleBmcPower('On', 'Power On')}
-                      disabled={bmcPowerMutation.isPending}
-                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/40 text-emerald-400 border border-emerald-800/50 hover:bg-emerald-900/60 transition-colors"
-                      title="Power On Hardware"
-                    >
-                      On
-                    </button>
-                    <button
-                      onClick={() => handleBmcPower('PowerCycle', 'Cold Power Cycle')}
-                      disabled={bmcPowerMutation.isPending}
-                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-950/40 text-sky-400 border border-sky-800/50 hover:bg-sky-900/60 transition-colors"
-                      title="Cold Hardware Power Cycle"
-                    >
-                      Cycle
-                    </button>
-                    <button
-                      onClick={() => handleBmcPower('ForceOff', 'Immediate Force Off')}
-                      disabled={bmcPowerMutation.isPending}
-                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-950/40 text-red-400 border border-red-800/50 hover:bg-red-900/60 transition-colors"
-                      title="Force Off (Hard Power Cut)"
-                    >
-                      Off
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1.5 border-t border-zinc-800/60">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setPowerModalConfig({ open: true, action: 'On', label: 'Power On' })}
+                        disabled={bmcPowerMutation.isPending}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/40 text-emerald-400 border border-emerald-800/50 hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                        title="Power On Hardware"
+                      >
+                        On
+                      </button>
+                      <button
+                        onClick={() => setPowerModalConfig({ open: true, action: 'PowerCycle', label: 'Cold Power Cycle' })}
+                        disabled={bmcPowerMutation.isPending}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-950/40 text-sky-400 border border-sky-800/50 hover:bg-sky-900/60 transition-colors cursor-pointer"
+                        title="Cold Hardware Power Cycle"
+                      >
+                        Cycle
+                      </button>
+                      <button
+                        onClick={() => setPowerModalConfig({ open: true, action: 'ForceOff', label: 'Immediate Force Off' })}
+                        disabled={bmcPowerMutation.isPending}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-950/40 text-red-400 border border-red-800/50 hover:bg-red-900/60 transition-colors cursor-pointer"
+                        title="Force Off (Hard Power Cut)"
+                      >
+                        Off
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setFanModalOpen(true)}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-950/30 text-sky-300 border border-sky-800/40 hover:bg-sky-900/50 transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Adjust server fan curve / manual duty cycle"
+                      >
+                        <Fan className="h-2.5 w-2.5 text-sky-400" />
+                        Fans
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleBlinkLed}
+                        disabled={isBlinking || bmcIdentifyMutation.isPending}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-950/30 text-amber-300 border border-amber-800/40 hover:bg-amber-900/50 transition-colors flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                        title="Blink Chassis Locator LED for 15s"
+                      >
+                        <Radio className="h-2.5 w-2.5 text-amber-400" />
+                        LED
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -356,5 +428,37 @@ export function HostDetailsModal({
         </Button>
       </DialogFooter>
     </Dialog>
+
+    {/* Power Confirmation Dialog Modal */}
+    {powerModalConfig && (
+      <ConfirmBmcPowerModal
+        open={powerModalConfig.open}
+        onClose={() => setPowerModalConfig(null)}
+        targetName={linkedBmcInstance?.name || host.hostname}
+        targetIp={host.idrac?.ipAddress || linkedBmcInstance?.hostnameOrIp || linkedBmcInstance?.bmcUrl || undefined}
+        action={powerModalConfig.action}
+        actionLabel={powerModalConfig.label}
+        onConfirm={async () => {
+          await bmcPowerMutation.mutateAsync({
+            hostId: host.id,
+            idracIp: host.idrac?.ipAddress || linkedBmcInstance?.hostnameOrIp || linkedBmcInstance?.bmcUrl || undefined,
+            resetType: powerModalConfig.action,
+          })
+        }}
+      />
+    )}
+
+    {/* Fan Control Modal */}
+    {fanModalOpen && (
+      <BmcFanControlModal
+        open={fanModalOpen}
+        onClose={() => setFanModalOpen(false)}
+        instanceId={linkedBmcInstance?.id}
+        hostId={host.id}
+        idracIp={host.idrac?.ipAddress}
+        serverName={linkedBmcInstance?.name || host.hostname}
+      />
+    )}
+  </>
   )
 }

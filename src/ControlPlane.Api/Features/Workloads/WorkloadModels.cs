@@ -12,7 +12,11 @@ public record WorkloadSummaryDto(
     int AvailableReplicas,
     List<string> Images,
     DateTime? CreationTimestamp,
-    string Status
+    string Status,
+    string Kind = "Deployment",
+    bool IsProtected = false,
+    string? Schedule = null,
+    DateTime? LastScheduleTime = null
 );
 
 public record WorkloadAggregationResultDto(

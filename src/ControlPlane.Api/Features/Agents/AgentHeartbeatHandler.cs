@@ -44,6 +44,14 @@ public class AgentHeartbeatHandler
             host.Agent.UpgradablePackagesCount = message.PackageSummary.UpgradableCount;
         }
 
+        if (!string.IsNullOrWhiteSpace(message.Hostname)
+            && !string.Equals(host.Hostname, message.Hostname, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Agent hostname mismatch for host {HostId}: DB expects '{DbHostname}' but agent reported '{AgentHostname}'",
+                host.Id, host.Hostname, message.Hostname);
+        }
+
         // Auto-refine OsFamily if host was set to generic debian but agent reports Ubuntu kernel
         if (string.Equals(host.OsFamily, "linux_debian", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(message.KernelVersion)

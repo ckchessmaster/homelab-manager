@@ -35,7 +35,9 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
 }) => {
   const terminalRef = useRef<TerminalRef>(null)
   const [activeJobId, setActiveJobId] = useState<string | null>(initialJobId)
-  const [activeCommand, setActiveCommand] = useState<string>(initialJobId ? 'DAG Execution Log' : '')
+  const [activeCommand, setActiveCommand] = useState<string>(
+    initialJobId ? (isWorkflow ? 'DAG Execution Log' : 'Command Execution Log') : ''
+  )
   const [customCommand, setCustomCommand] = useState('')
   const [customArgs, setCustomArgs] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
@@ -44,8 +46,9 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const autoTriggeredRef = useRef(false)
+  const [isDagExecution, setIsDagExecution] = useState(Boolean(isWorkflow || autoTriggerDag))
 
-  const isWorkflowMode = Boolean(isWorkflow || initialJobId || activeJobId)
+  const isWorkflowMode = Boolean(isWorkflow || isDagExecution)
 
   const handleScrollPositionChange = useCallback((isAtBottom: boolean) => {
     setAutoScroll((prev) => {
@@ -77,9 +80,10 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   const runCommand = async (command: string, args: string[] = []) => {
     setErrorMsg(null)
     setIsExecuting(true)
-    setActiveCommand(`${command} ${args.join(' ')}`)
+    setIsDagExecution(false)
+    setActiveCommand(`${command} ${args.join(' ')}`.trim())
     terminalRef.current?.clear()
-    terminalRef.current?.writeln(`\x1b[36m$ ${command} ${args.join(' ')}\x1b[0m`)
+    terminalRef.current?.writeln(`\x1b[36m$ ${command} ${args.join(' ')}\x1b[0m`.trim())
 
     try {
       const res = await apiClient<ExecuteCommandResponse>('/api/v1/debug/execute-command', {
@@ -105,6 +109,7 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   const runDagUpdate = useCallback(async () => {
     setErrorMsg(null)
     setIsExecuting(true)
+    setIsDagExecution(true)
     setActiveCommand('DAG Upgrade Pipeline')
     terminalRef.current?.clear()
     terminalRef.current?.writeln(`\x1b[35m=== Triggering DAG Update Pipeline for ${host.hostname} ===\x1b[0m`)
@@ -323,7 +328,7 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
         )}
 
         {/* Active DAG Job & Step Status Banner */}
-        {activeJobId && jobState && (
+        {isWorkflowMode && activeJobId && jobState && (
           <div className="px-5 py-2.5 bg-zinc-900/90 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="text-xs font-medium text-zinc-400">DAG Status:</span>
@@ -381,6 +386,43 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
 
             {failureReason && (jobState === 'Failed' || jobState === 'RolledBack' || jobState === 'Cancelled') && (
               <span className="text-xs text-amber-400 font-mono truncate max-w-sm" title={failureReason}>
+                {failureReason}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Ad-Hoc Command Execution Status Banner */}
+        {!isWorkflowMode && activeJobId && (
+          <div className="px-5 py-2 bg-zinc-900/60 border-b border-zinc-800/80 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-medium text-zinc-400">Command:</span>
+              <span className="text-xs font-mono text-zinc-200 truncate max-w-md bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800">
+                {activeCommand || 'Custom Command'}
+              </span>
+              <span className="text-xs text-zinc-600">|</span>
+              <span className="text-xs font-medium text-zinc-400">Status:</span>
+              {jobState === 'Running' || jobState === 'Pending' ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                  Running
+                </span>
+              ) : jobState === 'Completed' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  Completed
+                </span>
+              ) : jobState === 'Failed' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                  <AlertCircle className="w-3 h-3 text-rose-400" />
+                  Failed
+                </span>
+              ) : (
+                <span className="text-xs text-zinc-400 font-mono">{jobState || 'Idle'}</span>
+              )}
+            </div>
+            {failureReason && (
+              <span className="text-xs text-rose-400 font-mono truncate max-w-sm" title={failureReason}>
                 {failureReason}
               </span>
             )}
