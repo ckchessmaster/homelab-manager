@@ -2,7 +2,7 @@ import { apiClient } from './client'
 
 export interface DiscoveredCandidate {
   id: string
-  source: 'Proxmox' | 'Kubernetes'
+  source: 'Proxmox' | 'Kubernetes' | 'UniFi' | 'OPNsense' | string
   name: string
   ipAddress: string | null
   targetType: string
@@ -68,11 +68,15 @@ export interface BatchImportCandidatesResponse {
 export async function scanDiscovery(options?: {
   includeProxmox?: boolean
   includeKubernetes?: boolean
+  includeUniFi?: boolean
+  includeOPNsense?: boolean
 }): Promise<DiscoveryScanResult> {
   const includePve = options?.includeProxmox ?? true
   const includeK8s = options?.includeKubernetes ?? true
+  const includeUniFi = options?.includeUniFi ?? true
+  const includeOPNsense = options?.includeOPNsense ?? true
   return apiClient<DiscoveryScanResult>(
-    `/api/v1/discovery/scan?includeProxmox=${includePve}&includeKubernetes=${includeK8s}`
+    `/api/v1/discovery/scan?includeProxmox=${includePve}&includeKubernetes=${includeK8s}&includeUniFi=${includeUniFi}&includeOPNsense=${includeOPNsense}`
   )
 }
 

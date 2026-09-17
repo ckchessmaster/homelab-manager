@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Dialog, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../components/ui/dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { Users, AlertCircle, CheckCircle2, Server, Cpu } from 'lucide-react'
+import { Users, AlertCircle, CheckCircle2, Server, Cpu, Wifi, Shield } from 'lucide-react'
 import { useBatchImportCandidates } from './useDiscovery'
 import type { DiscoveredCandidate, BatchImportCandidatesPayload } from '../../api/discovery'
 
@@ -170,7 +170,11 @@ export const MassAdoptModal: React.FC<MassAdoptModalProps> = ({
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       {c.source === 'Proxmox' ? (
-                        <Server className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                        <Server className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+                      ) : c.source === 'UniFi' ? (
+                        <Wifi className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+                      ) : c.source === 'OPNsense' ? (
+                        <Shield className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                       ) : (
                         <Cpu className="h-3.5 w-3.5 text-sky-400 shrink-0" />
                       )}

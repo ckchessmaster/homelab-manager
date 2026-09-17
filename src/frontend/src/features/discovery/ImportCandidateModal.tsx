@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Dialog, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../components/ui/dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { PlusCircle, AlertCircle, Check } from 'lucide-react'
+import { PlusCircle, AlertCircle, Check, Info } from 'lucide-react'
 import { useImportCandidate } from './useDiscovery'
 import type { DiscoveredCandidate } from '../../api/discovery'
 
@@ -33,7 +33,14 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
       setName(candidate.name)
       setIpAddress(candidate.ipAddress || '')
       setFriendlyName(candidate.name)
-      setTargetType(candidate.targetType || 'proxmox_vm')
+      setTargetType(
+        candidate.targetType ||
+          (candidate.source === 'Kubernetes'
+            ? 'kubernetes_node'
+            : candidate.source === 'Proxmox'
+            ? 'proxmox_vm'
+            : 'baremetal')
+      )
       setOsFamily(candidate.osFamily || 'linux_debian')
       setErrorMsg(null)
     }
@@ -159,6 +166,7 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
               >
                 <option value="proxmox_vm">Proxmox VM (QEMU)</option>
                 <option value="proxmox_lxc">Proxmox LXC Container</option>
+                <option value="kubernetes_node">Kubernetes Node</option>
                 <option value="baremetal">Bare-Metal Server</option>
               </select>
             </div>
@@ -179,6 +187,16 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
               </select>
             </div>
           </div>
+
+          {osFamily === 'windows' && (
+            <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-lg flex items-start gap-2.5 text-xs text-blue-300">
+              <Info className="h-4 w-4 shrink-0 text-blue-400 mt-0.5" />
+              <div>
+                <span className="font-semibold block text-blue-200">Windows Server Host</span>
+                After importing, you can adopt this host using the 1-click PowerShell bootstrap command in the Host Adoption modal, or via Windows OpenSSH.
+              </div>
+            </div>
+          )}
         </DialogBody>
 
         <DialogFooter>

@@ -8,6 +8,58 @@ public class PreflightPackageLockCheckStep : IJobStep
     {
         var osFamily = context.TargetHost.OsFamily?.ToLowerInvariant() ?? "";
 
+        if (osFamily.Contains("windows"))
+        {
+            var winScript =
+                "$timeout = 60; " +
+                "while ($timeout -gt 0) { " +
+                "  $procs = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "  if (-not $procs) { Write-Output 'No locks'; exit 0 }; " +
+                "  $c1 = ($procs | Measure-Object -Property CPU -Sum).Sum; " +
+                "  Start-Sleep -Seconds 1; " +
+                "  $procs2 = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "  if (-not $procs2) { Write-Output 'No locks'; exit 0 }; " +
+                "  $c2 = ($procs2 | Measure-Object -Property CPU -Sum).Sum; " +
+                "  $delta = $c2 - $c1; " +
+                "  if ($delta -le 0.1) { Write-Output 'No locks'; exit 0 }; " +
+                "  $activeNames = ($procs2 | Select-Object -ExpandProperty Name -Unique) -join ', '; " +
+                "  Write-Output ('[PREFLIGHT] Waiting for active Windows update/installer process (' + $activeNames + ') to complete...'); " +
+                "  Start-Sleep -Seconds 5; " +
+                "  $timeout -= 6; " +
+                "}; " +
+                "$procs = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "if ($procs) { " +
+                "  $c1 = ($procs | Measure-Object -Property CPU -Sum).Sum; " +
+                "  Start-Sleep -Seconds 1; " +
+                "  $procs2 = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "  if ($procs2) { " +
+                "    $c2 = ($procs2 | Measure-Object -Property CPU -Sum).Sum; " +
+                "    if (($c2 - $c1) -gt 0.1) { " +
+                "      $activeNames = ($procs2 | Select-Object -ExpandProperty Name -Unique) -join ', '; " +
+                "      Write-Output ('Locked: ' + $activeNames + ' active'); " +
+                "      exit 1; " +
+                "    } " +
+                "  } " +
+                "}; " +
+                "Write-Output 'No locks'; exit 0";
+            var winResult = await context.CommandExecutor.ExecuteCommandAsync(
+                context.HostId,
+                context.JobId,
+                "powershell.exe",
+                new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", winScript },
+                ct
+            );
+
+            if (!winResult.Success)
+            {
+                return JobStepResult.Failed(
+                    $"Windows installer lock detected on host '{context.TargetHost.Hostname}': active Windows Update or MSI installer process is currently running."
+                );
+            }
+
+            return JobStepResult.Succeeded("No active Windows installer locks detected.");
+        }
+
         string checkScript;
         if (osFamily.Contains("rhel") || osFamily.Contains("centos") || osFamily.Contains("fedora"))
         {

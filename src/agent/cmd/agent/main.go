@@ -19,6 +19,7 @@ import (
 	"controlplane-agent/internal/metrics"
 	"controlplane-agent/internal/packages"
 	"controlplane-agent/internal/runner"
+	"controlplane-agent/internal/service"
 
 	"github.com/gorilla/websocket"
 )
@@ -100,8 +101,16 @@ func main() {
 		return
 	}
 
-	hostname, _ := os.Hostname()
-	log.Printf("[Agent %s] Starting ControlPlane agent for node '%s' (ID: %s)", Version, hostname, cfg.NodeID)
+	if service.IsWindowsService() {
+		log.Printf("[Agent %s] Running as Windows Service", Version)
+		err := service.RunAsService("ControlPlaneAgent", func(ctx context.Context) error {
+			return runAgentLoop(ctx, cfg, collector, pkgInspector, procRunner)
+		})
+		if err != nil {
+			log.Fatalf("Windows service error: %v", err)
+		}
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -114,6 +123,21 @@ func main() {
 		log.Printf("[Agent] Received shutdown signal %s, initiating graceful shutdown...", sig)
 		cancel()
 	}()
+
+	if err := runAgentLoop(ctx, cfg, collector, pkgInspector, procRunner); err != nil {
+		log.Printf("[Agent] Agent loop terminated: %v", err)
+	}
+}
+
+func runAgentLoop(
+	ctx context.Context,
+	cfg *config.Config,
+	collector metrics.Collector,
+	pkgInspector packages.Inspector,
+	procRunner *runner.ProcessRunner,
+) error {
+	hostname, _ := os.Hostname()
+	log.Printf("[Agent %s] Starting ControlPlane agent for node '%s' (ID: %s)", Version, hostname, cfg.NodeID)
 
 	pkgCache := &PackageCache{}
 
@@ -152,7 +176,7 @@ func main() {
 		select {
 		case <-ctx.Done():
 			log.Println("[Agent] Exiting cleanly.")
-			return
+			return nil
 		default:
 		}
 
@@ -164,7 +188,7 @@ func main() {
 
 		if ctx.Err() != nil {
 			log.Println("[Agent] Exiting cleanly.")
-			return
+			return nil
 		}
 
 		// If session was connected for more than 10 seconds, reset backoff for fast recovery
@@ -181,7 +205,7 @@ func main() {
 			select {
 			case <-time.After(sleepDuration):
 			case <-ctx.Done():
-				return
+				return nil
 			}
 
 			backoff *= 2

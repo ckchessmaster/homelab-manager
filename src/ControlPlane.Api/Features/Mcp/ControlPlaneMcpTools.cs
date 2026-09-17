@@ -462,7 +462,9 @@ public class ControlPlaneMcpTools
             PipelineId = "adhoc-command",
             InitiatedBy = "AI Agent via MCP",
             Status = "Running",
-            ActiveStep = $"{command} {string.Join(' ', args ?? Array.Empty<string>())}",
+            ActiveStep = ($"{command} {string.Join(' ', args ?? Array.Empty<string>())}").Length > 100
+                ? ($"{command} {string.Join(' ', args ?? Array.Empty<string>())}")[..97] + "..."
+                : $"{command} {string.Join(' ', args ?? Array.Empty<string>())}",
             StartedAt = DateTimeOffset.UtcNow
         };
 

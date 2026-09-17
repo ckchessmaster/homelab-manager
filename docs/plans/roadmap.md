@@ -56,13 +56,16 @@ Phase 5: Unified Infrastructure Adapters & Multi-Platform Management Plane
 ├── [archive/phase5/phase5-04-grouped-inventory-and-apps.md]
 │   └── Modern segmented filter chips/grouping (no clumsy trees) & dedicated K8s Applications / Workloads view
 │
-└── [archive/phase5/phase5-05-opnsense-and-oob-adapters.md]
-    └── OPNsense gateway/DHCP/service control & BMC iDRAC/Redfish out-of-band power and sensor telemetry
+├── [archive/phase5/phase5-05-opnsense-and-oob-adapters.md]
+│   └── OPNsense gateway/DHCP/service control & BMC iDRAC/Redfish out-of-band power and sensor telemetry
+│
+└── [phase5-06-home-assistant-adapter.md]
+    └── Agentless Home Assistant OS & Appliance Adapter with Supervisor API, Backups, and OTA Updates
 ```
 
 ---
 
-## 📊 Phase 5 Plan Execution Status (Archived)
+## 📊 Phase 5 Plan Execution Status
 
 | Phase / Plan | Description | Status |
 | :--- | :--- | :--- |
@@ -71,6 +74,7 @@ Phase 5: Unified Infrastructure Adapters & Multi-Platform Management Plane
 | **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-03-ubiquiti-unifi-adapter.md)** | Ubiquiti UniFi Network Container Adapter | ✅ Completed |
 | **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-04-grouped-inventory-and-apps.md)** | Modern Grouped Inventory & Application Workloads Hub | ✅ Completed |
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-05-opnsense-and-oob-adapters.md)** | OPNsense & Out-of-Band (iDRAC/Redfish) Adapters | ✅ Completed |
+| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-06-home-assistant-adapter.md)** | Home Assistant OS & Appliance Adapter | 🔄 In Progress |
 
 ---
 
@@ -81,3 +85,4 @@ When executing:
 2. Follow the target file edits, execution steps, and verification instructions.
 3. Verify all acceptance criteria and automated tests.
 4. Update the plan file status and the table above to `✅ Completed`.
+

@@ -72,36 +72,60 @@ public class PreflightActivities : IPreflightActivities
     [Activity]
     public async Task<PreflightCheckResult> CheckDiskHeadroomAsync(PreflightDiskHeadroomInput input)
     {
+        var isWindows = input.OsFamily?.ToLowerInvariant().Contains("windows") == true;
+
         // 1. Check actual storage requirements directly on the node if online
         if (_connectionManager.IsOnline(input.HostId))
         {
-            var probeScript =
-                "avail_mb=$(df -B1M --output=avail / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
-                "total_mb=$(df -B1M --output=size / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
-                "used_pct=$(df --output=pcent / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
-                "free_pct=$((100 - used_pct)); " +
-                "req_mb=1024; " +
-                "if command -v apt-get >/dev/null 2>&1; then " +
-                "  sim=$(apt-get -s dist-upgrade 2>/dev/null); " +
-                "  dl_kb=$(echo \"$sim\" | awk '/Need to get/ { val = $4; gsub(/,/, \"\", val); unit = tolower($5); if (unit ~ /^g/) val = val * 1048576; else if (unit ~ /^m/) val = val * 1024; else if (unit ~ /^b/) val = val / 1024; print int(val); }'); " +
-                "  inst_kb=$(echo \"$sim\" | awk '/additional disk space will be used/ { val = $4; gsub(/,/, \"\", val); unit = tolower($5); if (unit ~ /^g/) val = val * 1048576; else if (unit ~ /^m/) val = val * 1024; else if (unit ~ /^b/) val = val / 1024; print int(val); }'); " +
-                "  dl_kb=${dl_kb:-0}; " +
-                "  inst_kb=${inst_kb:-0}; " +
-                "  tot_kb=$((dl_kb + inst_kb)); " +
-                "  if [ \"$tot_kb\" -gt 0 ]; then " +
-                "    req_kb=$(( (tot_kb * 15 / 10) + 524288 )); " +
-                "    req_mb=$((req_kb / 1024)); " +
-                "  fi; " +
-                "fi; " +
-                "if [ \"$req_mb\" -lt 1024 ]; then req_mb=1024; fi; " +
-                "echo \"STORAGE_CHECK|avail_mb=$avail_mb|req_mb=$req_mb|total_mb=$total_mb|free_pct=$free_pct\"; " +
-                "if [ \"$avail_mb\" -ge \"$req_mb\" ]; then exit 0; else exit 1; fi";
+            string command;
+            string[] args;
+
+            if (isWindows)
+            {
+                command = "powershell.exe";
+                var winScript =
+                    "$drive = Get-PSDrive -Name ($env:SystemDrive.TrimEnd(':')) -PSProvider FileSystem; " +
+                    "$availMb = [math]::Round($drive.Free / 1MB); " +
+                    "$totalMb = [math]::Round(($drive.Used + $drive.Free) / 1MB); " +
+                    "$usedPct = [math]::Round(($drive.Used / ($drive.Used + $drive.Free)) * 100); " +
+                    "$freePct = 100 - $usedPct; " +
+                    "$reqMb = 2048; " +
+                    "Write-Output \"STORAGE_CHECK|avail_mb=$availMb|req_mb=$reqMb|total_mb=$totalMb|free_pct=$freePct\"; " +
+                    "if ($availMb -ge $reqMb) { exit 0 } else { exit 1 }";
+                args = new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", winScript };
+            }
+            else
+            {
+                command = "sh";
+                var probeScript =
+                    "avail_mb=$(df -B1M --output=avail / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
+                    "total_mb=$(df -B1M --output=size / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
+                    "used_pct=$(df --output=pcent / 2>/dev/null | tail -n 1 | tr -dc '0-9'); " +
+                    "free_pct=$((100 - used_pct)); " +
+                    "req_mb=1024; " +
+                    "if command -v apt-get >/dev/null 2>&1; then " +
+                    "  sim=$(apt-get -s dist-upgrade 2>/dev/null); " +
+                    "  dl_kb=$(echo \"$sim\" | awk '/Need to get/ { val = $4; gsub(/,/, \"\", val); unit = tolower($5); if (unit ~ /^g/) val = val * 1048576; else if (unit ~ /^m/) val = val * 1024; else if (unit ~ /^b/) val = val / 1024; print int(val); }'); " +
+                    "  inst_kb=$(echo \"$sim\" | awk '/additional disk space will be used/ { val = $4; gsub(/,/, \"\", val); unit = tolower($5); if (unit ~ /^g/) val = val * 1048576; else if (unit ~ /^m/) val = val * 1024; else if (unit ~ /^b/) val = val / 1024; print int(val); }'); " +
+                    "  dl_kb=${dl_kb:-0}; " +
+                    "  inst_kb=${inst_kb:-0}; " +
+                    "  tot_kb=$((dl_kb + inst_kb)); " +
+                    "  if [ \"$tot_kb\" -gt 0 ]; then " +
+                    "    req_kb=$(( (tot_kb * 15 / 10) + 524288 )); " +
+                    "    req_mb=$((req_kb / 1024)); " +
+                    "  fi; " +
+                    "fi; " +
+                    "if [ \"$req_mb\" -lt 1024 ]; then req_mb=1024; fi; " +
+                    "echo \"STORAGE_CHECK|avail_mb=$avail_mb|req_mb=$req_mb|total_mb=$total_mb|free_pct=$free_pct\"; " +
+                    "if [ \"$avail_mb\" -ge \"$req_mb\" ]; then exit 0; else exit 1; fi";
+                args = new[] { "-c", probeScript };
+            }
 
             var cmdResult = await _commandExecutor.ExecuteCommandAsync(
                 input.HostId,
                 input.JobId,
-                "sh",
-                new[] { "-c", probeScript }
+                command,
+                args
             );
 
             using var scope = _scopeFactory.CreateScope();
@@ -165,6 +189,59 @@ public class PreflightActivities : IPreflightActivities
     public async Task<PreflightCheckResult> CheckPackageLockAsync(PreflightPackageLockInput input)
     {
         var osFamily = input.OsFamily?.ToLowerInvariant() ?? "";
+
+        if (osFamily.Contains("windows"))
+        {
+            var winScript =
+                "$timeout = 60; " +
+                "while ($timeout -gt 0) { " +
+                "  $procs = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "  if (-not $procs) { Write-Output 'No locks'; exit 0 }; " +
+                "  $c1 = ($procs | Measure-Object -Property CPU -Sum).Sum; " +
+                "  Start-Sleep -Seconds 1; " +
+                "  $procs2 = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "  if (-not $procs2) { Write-Output 'No locks'; exit 0 }; " +
+                "  $c2 = ($procs2 | Measure-Object -Property CPU -Sum).Sum; " +
+                "  $delta = $c2 - $c1; " +
+                "  if ($delta -le 0.1) { Write-Output 'No locks'; exit 0 }; " +
+                "  $activeNames = ($procs2 | Select-Object -ExpandProperty Name -Unique) -join ', '; " +
+                "  Write-Output ('[PREFLIGHT] Waiting for active Windows update/installer process (' + $activeNames + ') to complete...'); " +
+                "  Start-Sleep -Seconds 5; " +
+                "  $timeout -= 6; " +
+                "}; " +
+                "$procs = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "if ($procs) { " +
+                "  $c1 = ($procs | Measure-Object -Property CPU -Sum).Sum; " +
+                "  Start-Sleep -Seconds 1; " +
+                "  $procs2 = Get-Process -Name 'msiexec', 'TiWorker' -ErrorAction SilentlyContinue; " +
+                "  if ($procs2) { " +
+                "    $c2 = ($procs2 | Measure-Object -Property CPU -Sum).Sum; " +
+                "    if (($c2 - $c1) -gt 0.1) { " +
+                "      $activeNames = ($procs2 | Select-Object -ExpandProperty Name -Unique) -join ', '; " +
+                "      Write-Output ('Locked: ' + $activeNames + ' active'); " +
+                "      exit 1; " +
+                "    } " +
+                "  } " +
+                "}; " +
+                "Write-Output 'No locks'; exit 0";
+            var winResult = await _commandExecutor.ExecuteCommandAsync(
+                input.HostId,
+                input.JobId,
+                "powershell.exe",
+                new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", winScript }
+            );
+
+            if (!winResult.Success)
+            {
+                var msg = $"Windows installer lock detected on host '{input.Hostname}': active Windows Update or MSI installer process is currently running.";
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] Error: {msg}");
+                return new PreflightCheckResult(false, msg);
+            }
+
+            var winSuccess = "No active Windows installer locks detected.";
+            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PREFLIGHT] {winSuccess}");
+            return new PreflightCheckResult(true, winSuccess);
+        }
 
         string checkScript;
         if (osFamily.Contains("rhel") || osFamily.Contains("centos") || osFamily.Contains("fedora"))

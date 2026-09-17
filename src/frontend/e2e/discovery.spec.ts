@@ -27,6 +27,22 @@ test.describe('Service Discovery & Adoption', () => {
     // Reset to All Sources
     await sourceSelect.selectOption('all')
     await expect(page.getByText('k8s-worker-02').first()).toBeVisible()
+
+    // Filter by UniFi source
+    await sourceSelect.selectOption('UniFi')
+    await expect(page.getByText('roborock-vacuum-a27')).toBeVisible()
+    await expect(page.getByText('gitlab-runner-vm')).not.toBeVisible()
+    await expect(page.getByText('k8s-worker-02').first()).not.toBeVisible()
+
+    // Verify UniFi row renders UniFi badge and Client type, not Kubernetes Node
+    const unifiRow = page.locator('tr', { hasText: 'roborock-vacuum-a27' })
+    await expect(unifiRow.getByText('UniFi', { exact: true })).toBeVisible()
+    await expect(unifiRow.getByText('Client', { exact: true })).toBeVisible()
+    await expect(unifiRow.getByText('UniFi Client')).toBeVisible()
+    await expect(unifiRow.getByText('Kubernetes')).not.toBeVisible()
+
+    // Reset to All Sources
+    await sourceSelect.selectOption('all')
   })
 
   test('opens import modal and imports a candidate node while remaining on discovery page', async ({ page }) => {

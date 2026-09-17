@@ -3,6 +3,7 @@ package packages
 import (
 	"context"
 	"os/exec"
+	"runtime"
 )
 
 type PackageSummary struct {
@@ -17,6 +18,9 @@ type Inspector interface {
 }
 
 func DetectInspector() Inspector {
+	if runtime.GOOS == "windows" {
+		return NewWindowsUpdateInspector()
+	}
 	if _, err := exec.LookPath("apt-get"); err == nil {
 		return NewAptInspector()
 	}

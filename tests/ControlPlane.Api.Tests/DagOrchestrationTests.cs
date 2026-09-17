@@ -390,6 +390,112 @@ public class DagOrchestrationTests
     }
 
     [Fact]
+    public async Task PreflightPackageLock_Windows_Succeeds_When_NoLockDetected()
+    {
+        using var factory = new DagTestAppFactory();
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+        var connMgr = scope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+        var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "windows-node",
+            IpAddress = "192.168.1.15",
+            OsFamily = "windows",
+            TargetType = "proxmox_vm"
+        };
+        var job = new UpdateJob
+        {
+            Id = jobId,
+            TargetHostId = hostId,
+            Status = UpdateJobState.Pending
+        };
+        db.Hosts.Add(host);
+        db.UpdateJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        var mockExecutor = new MockCommandExecutor
+        {
+            OnExecute = (hId, jId, cmd, args) => new AgentCommandResult(true, 0, "No locks")
+        };
+
+        var context = new JobExecutionContext(
+            job,
+            host,
+            scopeFactory,
+            hubContext,
+            mockExecutor,
+            connMgr,
+            NullLogger.Instance
+        );
+
+        var step = new PreflightPackageLockCheckStep();
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains("No active Windows installer locks detected", result.Message);
+    }
+
+    [Fact]
+    public async Task PreflightPackageLock_Windows_Fails_When_ActiveLockDetected()
+    {
+        using var factory = new DagTestAppFactory();
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+        var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+        var connMgr = scope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+        var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "windows-locked-node",
+            IpAddress = "192.168.1.16",
+            OsFamily = "windows",
+            TargetType = "proxmox_vm"
+        };
+        var job = new UpdateJob
+        {
+            Id = jobId,
+            TargetHostId = hostId,
+            Status = UpdateJobState.Pending
+        };
+        db.Hosts.Add(host);
+        db.UpdateJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        var mockExecutor = new MockCommandExecutor
+        {
+            OnExecute = (hId, jId, cmd, args) => new AgentCommandResult(false, 1, "Locked: TiWorker active")
+        };
+
+        var context = new JobExecutionContext(
+            job,
+            host,
+            scopeFactory,
+            hubContext,
+            mockExecutor,
+            connMgr,
+            NullLogger.Instance
+        );
+
+        var step = new PreflightPackageLockCheckStep();
+        var result = await step.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("Windows installer lock detected", result.Message);
+    }
+
+    [Fact]
     public async Task DagExecutionPipeline_Executes_AllSteps_And_MarksJobCompleted()
     {
         using var factory = new DagTestAppFactory();

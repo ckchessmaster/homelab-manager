@@ -113,7 +113,9 @@ public class MassAgentUpdateService
             // Determine architecture
             var arch = (host.OsFamily?.Contains("arm", StringComparison.OrdinalIgnoreCase) ?? false)
                 ? "linux-arm64"
-                : "linux-amd64";
+                : (host.OsFamily?.Contains("windows", StringComparison.OrdinalIgnoreCase) ?? false)
+                    ? "windows-amd64"
+                    : "linux-amd64";
 
             var session = _connectionManager.GetSession(host.Id);
             string effectiveBaseUrl;

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,19 @@ func (r *ProcessRunner) ExecuteCommand(
 			LogLine:    line,
 			Timestamp:  time.Now().UTC(),
 		})
+	}
+
+	if runtime.GOOS == "windows" && (command == "sh" || command == "bash") {
+		if _, err := exec.LookPath(command); err != nil {
+			command = "powershell.exe"
+			script := ""
+			if len(args) >= 2 && args[0] == "-c" {
+				script = args[1]
+			} else if len(args) > 0 {
+				script = args[0]
+			}
+			args = []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script}
+		}
 	}
 
 	emitFrame("system", fmt.Sprintf("Starting execution: %s %v", command, args))

@@ -101,6 +101,28 @@ export const INITIAL_MOCK_CANDIDATES: DiscoveredCandidate[] = [
     roles: ['worker'],
     isManaged: false,
   },
+  {
+    id: 'unifi:default:aabbcc112233',
+    source: 'UniFi',
+    name: 'roborock-vacuum-a27',
+    ipAddress: '192.168.80.235',
+    targetType: 'baremetal',
+    osFamily: 'linux_debian',
+    status: 'online',
+    roles: ['network-client'],
+    isManaged: false,
+  },
+  {
+    id: 'opnsense:default:ddeeff445566',
+    source: 'OPNsense',
+    name: 'smart-plug-01',
+    ipAddress: '192.168.80.120',
+    targetType: 'baremetal',
+    osFamily: 'linux_debian',
+    status: 'active',
+    roles: ['dhcp-lease'],
+    isManaged: false,
+  },
 ]
 
 export async function setupMockApi(page: Page, options?: {

@@ -12,7 +12,7 @@ public class AwaitReconnectionStep : IJobStep
 
     public AwaitReconnectionStep(TimeSpan? timeout = null)
     {
-        _timeout = timeout ?? TimeSpan.FromSeconds(300);
+        _timeout = timeout ?? TimeSpan.FromSeconds(600);
     }
 
     public async Task<JobStepResult> ExecuteAsync(JobExecutionContext context, CancellationToken ct)

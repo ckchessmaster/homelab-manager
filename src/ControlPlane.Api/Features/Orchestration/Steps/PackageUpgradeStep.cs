@@ -20,6 +20,40 @@ public class PackageUpgradeStep : IJobStep
                 "dnf upgrade -y --refresh || { STATUS=$?; echo \"[UPGRADE] dnf upgrade returned status $STATUS. Checking system consistency...\"; if dnf check >/dev/null 2>&1; then echo \"[UPGRADE] dnf check passed: package database consistent.\"; exit 0; fi; exit $STATUS; }"
             };
         }
+        else if (osFamily.Contains("windows"))
+        {
+            command = "powershell.exe";
+            args = new[]
+            {
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "$ErrorActionPreference = 'Stop'; " +
+                "try { " +
+                "  Write-Output '[UPGRADE] Initializing Windows Update session...'; " +
+                "  $session = New-Object -ComObject Microsoft.Update.Session; " +
+                "  $searcher = $session.CreateUpdateSearcher(); " +
+                "  $results = $searcher.Search(\"IsInstalled=0 and Type='Software' and IsHidden=0\"); " +
+                "  if ($results.Updates.Count -eq 0) { Write-Output '[UPGRADE] No pending Windows updates found.'; exit 0 }; " +
+                "  Write-Output ('[UPGRADE] Found ' + $results.Updates.Count + ' pending update(s). Downloading...'); " +
+                "  $downloader = $session.CreateUpdateDownloader(); " +
+                "  $downloader.Updates = $results.Updates; " +
+                "  $downloader.Download(); " +
+                "  Write-Output '[UPGRADE] Download complete. Installing updates...'; " +
+                "  $installer = $session.CreateUpdateInstaller(); " +
+                "  $installer.Updates = $results.Updates; " +
+                "  $installResult = $installer.Install(); " +
+                "  Write-Output ('[UPGRADE] Installation finished with resultCode: ' + $installResult.ResultCode); " +
+                "  if ($installResult.RebootRequired) { Write-Output '[UPGRADE] Reboot is required by one or more updates.' }; " +
+                "  exit 0 " +
+                "} catch { " +
+                "  Write-Error $_.Exception.Message; " +
+                "  exit 1 " +
+                "}"
+            };
+        }
         else
         {
             // Resilient Debian / Ubuntu noninteractive dist-upgrade with automated remediation

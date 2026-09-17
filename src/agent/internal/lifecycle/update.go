@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -53,7 +54,7 @@ func PerformSelfUpdate(
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 	})
 
-	tempBinaryPath := fmt.Sprintf("/tmp/controlplane-agent-%d.tmp", time.Now().UnixNano())
+	tempBinaryPath := filepath.Join(os.TempDir(), fmt.Sprintf("controlplane-agent-%d.tmp", time.Now().UnixNano()))
 	defer os.Remove(tempBinaryPath)
 
 	// 1. Download updated binary
@@ -135,9 +136,14 @@ func PerformSelfUpdate(
 	// 6. Trigger service restart
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		restartCmd := exec.Command("systemctl", "restart", "controlplane-agent")
+		var restartCmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			restartCmd = exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "Restart-Service ControlPlaneAgent")
+		} else {
+			restartCmd = exec.Command("systemctl", "restart", "controlplane-agent")
+		}
 		if err := restartCmd.Start(); err != nil {
-			log.Printf("[Agent] systemctl restart failed (%v), terminating process for supervisor restart...", err)
+			log.Printf("[Agent] Service restart failed (%v), terminating process for supervisor restart...", err)
 			os.Exit(0)
 		}
 	}()
@@ -146,6 +152,18 @@ func PerformSelfUpdate(
 }
 
 func replaceExecutable(src, dst string) error {
+	if runtime.GOOS == "windows" {
+		oldPath := dst + ".old"
+		_ = os.Remove(oldPath) // remove previous old if exists
+		if err := os.Rename(dst, oldPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("[Agent] Warning: could not rename running exe: %v", err)
+		}
+		if err := os.Rename(src, dst); err == nil {
+			return nil
+		}
+		return copyFile(src, dst)
+	}
+
 	// First attempt atomic rename
 	err := os.Rename(src, dst)
 	if err == nil {
@@ -159,6 +177,23 @@ func replaceExecutable(src, dst string) error {
 	}
 
 	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }
 
 func failUpdate(writeJSON func(interface{}) error, nodeID, jobID, targetVersion string, err error) error {

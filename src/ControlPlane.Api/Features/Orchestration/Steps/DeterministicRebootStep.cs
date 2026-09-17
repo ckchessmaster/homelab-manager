@@ -26,13 +26,32 @@ public class DeterministicRebootStep : IJobStep
 
         if (!needsReboot && context.ConnectionManager.IsOnline(context.HostId))
         {
-            // Execute live reboot probe on the agent node to avoid relying on stale DB cache
-            var checkScript = "if [ -f /var/run/reboot-required ] || [ -f /run/reboot-required ]; then exit 0; fi; if command -v needrestart >/dev/null 2>&1 && needrestart -b 2>/dev/null | grep -Eq 'NEEDRESTART-KSTA: [23]'; then exit 0; fi; if command -v needs-restarting >/dev/null 2>&1 && ! needs-restarting -r >/dev/null 2>&1; then exit 0; fi; exit 1";
+            var osFamily = context.TargetHost.OsFamily?.ToLowerInvariant() ?? "";
+            string command;
+            string[] args;
+
+            if (osFamily.Contains("windows"))
+            {
+                command = "powershell.exe";
+                var winScript =
+                    "$k1 = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired'; " +
+                    "$k2 = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending'; " +
+                    "$k3 = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager'; " +
+                    "if ((Test-Path $k1) -or (Test-Path $k2) -or ((Get-ItemProperty $k3 -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations)) { exit 0 } else { exit 1 }";
+                args = new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", winScript };
+            }
+            else
+            {
+                command = "sh";
+                var checkScript = "if [ -f /var/run/reboot-required ] || [ -f /run/reboot-required ]; then exit 0; fi; if command -v needrestart >/dev/null 2>&1 && needrestart -b 2>/dev/null | grep -Eq 'NEEDRESTART-KSTA: [23]'; then exit 0; fi; if command -v needs-restarting >/dev/null 2>&1 && ! needs-restarting -r >/dev/null 2>&1; then exit 0; fi; exit 1";
+                args = new[] { "-c", checkScript };
+            }
+
             var probeResult = await context.CommandExecutor.ExecuteCommandAsync(
                 context.HostId,
                 context.JobId,
-                "sh",
-                new[] { "-c", checkScript },
+                command,
+                args,
                 ct
             );
             if (probeResult.Success)

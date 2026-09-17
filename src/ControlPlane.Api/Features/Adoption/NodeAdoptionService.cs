@@ -104,9 +104,13 @@ public class NodeAdoptionService
 
         // Step 2: Binary selection
         Emit("ARCH_DETECTED", "Selecting matching agent binary", AdoptionStepStatus.Running);
-        var binaryName = (arch.Contains("aarch64") || arch.Contains("arm64"))
-            ? "controlplane-agent-linux-arm64"
-            : "controlplane-agent-linux-amd64";
+        var isWindows = (host.OsFamily?.Contains("windows", StringComparison.OrdinalIgnoreCase) ?? false) || arch.Contains("windows", StringComparison.OrdinalIgnoreCase);
+
+        var binaryName = isWindows
+            ? "controlplane-agent-windows-amd64.exe"
+            : (arch.Contains("aarch64") || arch.Contains("arm64"))
+                ? "controlplane-agent-linux-arm64"
+                : "controlplane-agent-linux-amd64";
 
         var binaryPath = FindAgentBinary(binaryName);
         if (string.IsNullOrEmpty(binaryPath) || !File.Exists(binaryPath))
@@ -118,72 +122,126 @@ public class NodeAdoptionService
         }
         Emit("ARCH_DETECTED", "Agent binary selected", AdoptionStepStatus.Completed, $"Using {binaryName}");
 
-        // Step 3: Upload binary
-        Emit("BINARY_STREAMING", "Streaming agent binary to /usr/local/bin/controlplane-agent", AdoptionStepStatus.Running);
-        try
+        if (isWindows)
         {
-            // Stop any currently running instance so binary and service can be cleanly replaced
+            // Step 3 (Windows): Upload binary
+            Emit("BINARY_STREAMING", "Streaming agent binary to C:\\Program Files\\ControlPlaneAgent", AdoptionStepStatus.Running);
             try
             {
-                await _bootstrapper.ExecutePrivilegedCommandAsync(request, "systemctl stop controlplane-agent 2>/dev/null || true", cancellationToken);
+                try
+                {
+                    await _bootstrapper.ExecuteRemoteCommandAsync(request, "sc.exe stop ControlPlaneAgent", cancellationToken);
+                }
+                catch
+                {
+                    // ignore if service doesn't exist
+                }
+
+                await _bootstrapper.ExecuteRemoteCommandAsync(request, "powershell.exe -NoProfile -Command \"New-Item -ItemType Directory -Path 'C:\\Program Files\\ControlPlaneAgent' -Force | Out-Null\"", cancellationToken);
+                await _bootstrapper.UploadBinaryAsync(request, binaryPath, "C:/Program Files/ControlPlaneAgent/controlplane-agent.exe", cancellationToken);
+                Emit("BINARY_STREAMING", "Windows agent binary deployed", AdoptionStepStatus.Completed);
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore if service doesn't exist yet
+                _logger.LogError(ex, "Failed to upload Windows agent binary to {Host}", request.TargetHost);
+                Emit("BINARY_STREAMING", "Binary streaming failed", AdoptionStepStatus.Failed, ex.Message);
+                return new NodeAdoptionResponse(hostId, false, ex.Message, steps);
             }
 
-            await _bootstrapper.UploadBinaryAsync(request, binaryPath, "/tmp/controlplane-agent", cancellationToken);
-            await _bootstrapper.ExecutePrivilegedCommandAsync(request, "mv -f /tmp/controlplane-agent /usr/local/bin/controlplane-agent && chmod +x /usr/local/bin/controlplane-agent", cancellationToken);
-            Emit("BINARY_STREAMING", "Agent binary deployed", AdoptionStepStatus.Completed);
+            // Step 4 (Windows): Configure & start Windows Service
+            Emit("SERVICE_STARTING", "Configuring and starting Windows Service", AdoptionStepStatus.Running);
+            try
+            {
+                var hubUrl = !string.IsNullOrWhiteSpace(request.HubUrl)
+                    ? request.HubUrl
+                    : _configuration["ControlPlane:HubUrl"] ?? "ws://192.168.1.159:5029/agent-hub";
+
+                var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
+                var binPath = $"\"\\\"C:\\Program Files\\ControlPlaneAgent\\controlplane-agent.exe\\\" --hub-url \\\"{hubUrl}\\\" --token \\\"{token}\\\" --node-id \\\"{hostId}\\\"\"";
+
+                await _bootstrapper.ExecuteRemoteCommandAsync(
+                    request,
+                    $"powershell.exe -NoProfile -Command \"$svc = Get-Service -Name ControlPlaneAgent -ErrorAction SilentlyContinue; if ($svc) {{ & sc.exe config ControlPlaneAgent binPath= '{binPath}' start= auto }} else {{ & sc.exe create ControlPlaneAgent binPath= '{binPath}' start= auto DisplayName= 'ControlPlane Compute Node Agent' }}; & sc.exe failure ControlPlaneAgent reset= 86400 actions= restart/5000/restart/10000/restart/60000; Start-Service ControlPlaneAgent\"",
+                    cancellationToken
+                );
+                Emit("SERVICE_STARTING", "ControlPlaneAgent Windows Service started", AdoptionStepStatus.Completed);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to configure/start Windows Service on {Host}", request.TargetHost);
+                Emit("SERVICE_STARTING", "Failed to start Windows Service", AdoptionStepStatus.Failed, ex.Message);
+                return new NodeAdoptionResponse(hostId, false, ex.Message, steps);
+            }
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Failed to upload agent binary to {Host}", request.TargetHost);
-            Emit("BINARY_STREAMING", "Binary streaming failed", AdoptionStepStatus.Failed, ex.Message);
-            return new NodeAdoptionResponse(hostId, false, ex.Message, steps);
-        }
+            // Step 3 (Linux): Upload binary
+            Emit("BINARY_STREAMING", "Streaming agent binary to /usr/local/bin/controlplane-agent", AdoptionStepStatus.Running);
+            try
+            {
+                // Stop any currently running instance so binary and service can be cleanly replaced
+                try
+                {
+                    await _bootstrapper.ExecutePrivilegedCommandAsync(request, "systemctl stop controlplane-agent 2>/dev/null || true", cancellationToken);
+                }
+                catch
+                {
+                    // ignore if service doesn't exist yet
+                }
 
-        // Step 4: Write systemd unit & start service
-        Emit("SERVICE_STARTING", "Configuring and starting systemd service", AdoptionStepStatus.Running);
-        try
-        {
-            var hubUrl = !string.IsNullOrWhiteSpace(request.HubUrl)
-                ? request.HubUrl
-                : _configuration["ControlPlane:HubUrl"] ?? "ws://192.168.1.159:5029/agent-hub";
+                await _bootstrapper.UploadBinaryAsync(request, binaryPath, "/tmp/controlplane-agent", cancellationToken);
+                await _bootstrapper.ExecutePrivilegedCommandAsync(request, "mv -f /tmp/controlplane-agent /usr/local/bin/controlplane-agent && chmod +x /usr/local/bin/controlplane-agent", cancellationToken);
+                Emit("BINARY_STREAMING", "Agent binary deployed", AdoptionStepStatus.Completed);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload agent binary to {Host}", request.TargetHost);
+                Emit("BINARY_STREAMING", "Binary streaming failed", AdoptionStepStatus.Failed, ex.Message);
+                return new NodeAdoptionResponse(hostId, false, ex.Message, steps);
+            }
 
-            var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
+            // Step 4 (Linux): Write systemd unit & start service
+            Emit("SERVICE_STARTING", "Configuring and starting systemd service", AdoptionStepStatus.Running);
+            try
+            {
+                var hubUrl = !string.IsNullOrWhiteSpace(request.HubUrl)
+                    ? request.HubUrl
+                    : _configuration["ControlPlane:HubUrl"] ?? "ws://192.168.1.159:5029/agent-hub";
 
-            var serviceUnitContent = $"""
-            [Unit]
-            Description=ControlPlane Compute Node Agent
-            After=network-online.target
-            Wants=network-online.target
+                var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
 
-            [Service]
-            Type=simple
-            ExecStart=/usr/local/bin/controlplane-agent --hub-url {hubUrl} --token {token} --node-id {hostId}
-            Restart=always
-            RestartSec=5
-            KillMode=process
-            LimitNOFILE=65536
+                var serviceUnitContent = $"""
+                [Unit]
+                Description=ControlPlane Compute Node Agent
+                After=network-online.target
+                Wants=network-online.target
 
-            [Install]
-            WantedBy=multi-user.target
-            """;
+                [Service]
+                Type=simple
+                ExecStart=/usr/local/bin/controlplane-agent --hub-url {hubUrl} --token {token} --node-id {hostId}
+                Restart=always
+                RestartSec=5
+                KillMode=process
+                LimitNOFILE=65536
 
-            await _bootstrapper.UploadTextAsync(request, serviceUnitContent, "/tmp/controlplane-agent.service", cancellationToken);
-            await _bootstrapper.ExecutePrivilegedCommandAsync(
-                request,
-                "mv -f /tmp/controlplane-agent.service /etc/systemd/system/controlplane-agent.service && systemctl daemon-reload && systemctl enable controlplane-agent && systemctl restart controlplane-agent",
-                cancellationToken
-            );
-            Emit("SERVICE_STARTING", "Systemd service started", AdoptionStepStatus.Completed);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to configure/start service on {Host}", request.TargetHost);
-            Emit("SERVICE_STARTING", "Failed to start service", AdoptionStepStatus.Failed, ex.Message);
-            return new NodeAdoptionResponse(hostId, false, ex.Message, steps);
+                [Install]
+                WantedBy=multi-user.target
+                """;
+
+                await _bootstrapper.UploadTextAsync(request, serviceUnitContent, "/tmp/controlplane-agent.service", cancellationToken);
+                await _bootstrapper.ExecutePrivilegedCommandAsync(
+                    request,
+                    "mv -f /tmp/controlplane-agent.service /etc/systemd/system/controlplane-agent.service && systemctl daemon-reload && systemctl enable controlplane-agent && systemctl restart controlplane-agent",
+                    cancellationToken
+                );
+                Emit("SERVICE_STARTING", "Systemd service started", AdoptionStepStatus.Completed);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to configure/start service on {Host}", request.TargetHost);
+                Emit("SERVICE_STARTING", "Failed to start service", AdoptionStepStatus.Failed, ex.Message);
+                return new NodeAdoptionResponse(hostId, false, ex.Message, steps);
+            }
         }
 
         // Step 5: Await WebSocket handshake

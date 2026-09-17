@@ -27,11 +27,12 @@ export function useHosts(filters?: HostFilterParams) {
   })
 }
 
-export function useHost(id?: string) {
+export function useHost(id?: string, options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: [...HOSTS_QUERY_KEY, id],
     queryFn: () => (id ? fetchHostById(id) : Promise.reject('No ID provided')),
     enabled: Boolean(id),
+    refetchInterval: options?.refetchInterval,
   })
 }
 

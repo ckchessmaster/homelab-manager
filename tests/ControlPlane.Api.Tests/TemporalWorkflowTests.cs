@@ -327,6 +327,18 @@ public class TemporalWorkflowTests : IDisposable
         var lockFailResult = await activities.CheckPackageLockAsync(new PreflightPackageLockInput(jobId, hostId, "node-01", "debian"));
         Assert.False(lockFailResult.Success);
         Assert.Contains("Package manager lock detected", lockFailResult.Message);
+
+        // Windows: success
+        cmdExec.Handler = (cmd, args) => new AgentCommandResult(true, 0, "No locks");
+        var winResult = await activities.CheckPackageLockAsync(new PreflightPackageLockInput(jobId, hostId, "win-01", "windows"));
+        Assert.True(winResult.Success);
+        Assert.Contains("No active Windows installer locks detected", winResult.Message);
+
+        // Windows: failure
+        cmdExec.Handler = (cmd, args) => new AgentCommandResult(false, 1, "Locked: TiWorker active");
+        var winLockResult = await activities.CheckPackageLockAsync(new PreflightPackageLockInput(jobId, hostId, "win-01", "windows"));
+        Assert.False(winLockResult.Success);
+        Assert.Contains("Windows installer lock detected", winLockResult.Message);
     }
 
     [Fact]

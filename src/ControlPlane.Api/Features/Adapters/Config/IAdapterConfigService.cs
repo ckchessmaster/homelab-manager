@@ -37,5 +37,11 @@ public interface IAdapterConfigService
     Task<IdracStoredInstance?> GetRawIdracInstanceAsync(string id, CancellationToken ct = default);
     Task<IdracInstanceDto> SaveIdracInstanceAsync(SaveIdracInstanceRequest request, CancellationToken ct = default);
     Task<bool> DeleteIdracInstanceAsync(string id, CancellationToken ct = default);
+
+    Task<List<HomeAssistantInstanceDto>> GetHomeAssistantInstancesAsync(CancellationToken ct = default);
+    Task<HomeAssistantInstanceDto?> GetHomeAssistantInstanceAsync(string id, CancellationToken ct = default);
+    Task<HomeAssistantStoredInstance?> GetRawHomeAssistantInstanceAsync(string id, CancellationToken ct = default);
+    Task<HomeAssistantInstanceDto> SaveHomeAssistantInstanceAsync(SaveHomeAssistantInstanceRequest request, CancellationToken ct = default);
+    Task<bool> DeleteHomeAssistantInstanceAsync(string id, CancellationToken ct = default);
 }
 

@@ -10,6 +10,7 @@ public class AgentBinaryService
         var filename = normalizedArch switch
         {
             "linux-arm64" or "aarch64" or "arm64" => "controlplane-agent-linux-arm64",
+            "windows-amd64" or "windows-x64" or "win-x64" or "windows" => "controlplane-agent-windows-amd64.exe",
             _ => "controlplane-agent-linux-amd64"
         };
 
@@ -42,6 +43,7 @@ public class AgentBinaryService
         var archs = new List<string>();
         if (GetBinaryPath("linux-amd64") != null) archs.Add("linux-amd64");
         if (GetBinaryPath("linux-arm64") != null) archs.Add("linux-arm64");
+        if (GetBinaryPath("windows-amd64") != null) archs.Add("windows-amd64");
         return archs;
     }
 }

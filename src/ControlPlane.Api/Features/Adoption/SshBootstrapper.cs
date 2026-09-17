@@ -58,11 +58,20 @@ public class SshBootstrapper : ISshBootstrapper
         try
         {
             var cmd = client.RunCommand("uname -m");
-            if (cmd.ExitStatus != 0)
+            if (cmd.ExitStatus == 0 && !string.IsNullOrWhiteSpace(cmd.Result))
             {
-                throw new InvalidOperationException($"Architecture probe failed with exit status {cmd.ExitStatus}: {cmd.Error}");
+                return Task.FromResult(cmd.Result.Trim());
             }
-            return Task.FromResult(cmd.Result.Trim());
+
+            // Fallback for Windows SSH
+            var winCmd = client.RunCommand("powershell.exe -NoProfile -Command \"$env:PROCESSOR_ARCHITECTURE\"");
+            if (winCmd.ExitStatus == 0 && !string.IsNullOrWhiteSpace(winCmd.Result))
+            {
+                var winArch = winCmd.Result.Trim().ToLowerInvariant();
+                return Task.FromResult(winArch.Contains("arm") ? "windows-arm64" : "windows-amd64");
+            }
+
+            throw new InvalidOperationException($"Architecture probe failed with exit status {cmd.ExitStatus}: {cmd.Error}");
         }
         finally
         {

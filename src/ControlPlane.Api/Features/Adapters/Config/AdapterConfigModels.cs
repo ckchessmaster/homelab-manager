@@ -251,3 +251,42 @@ public record IdracTestResultDto(
     string? Message
 );
 
+public record HomeAssistantInstanceDto(
+    string Id,
+    string Name,
+    string BaseUrl,
+    string TokenMasked,
+    bool HasToken,
+    bool AllowSelfSignedCert,
+    DateTimeOffset? UpdatedAt
+);
+
+public record SaveHomeAssistantInstanceRequest(
+    string? Id,
+    string Name,
+    string BaseUrl,
+    string? Token,
+    bool AllowSelfSignedCert = true
+);
+
+public class HomeAssistantStoredInstance
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string BaseUrl { get; set; } = string.Empty;
+    public string EncryptedToken { get; set; } = string.Empty;
+    public bool AllowSelfSignedCert { get; set; } = true;
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public record HomeAssistantTestResultDto(
+    bool Success,
+    string? CoreVersion,
+    string? OsVersion,
+    string? SupervisorVersion,
+    string? Hostname,
+    bool? UpdateAvailable,
+    long LatencyMs,
+    string? Message
+);
+

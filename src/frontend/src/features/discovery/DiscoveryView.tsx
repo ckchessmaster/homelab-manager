@@ -13,6 +13,8 @@ import {
   Users,
   X,
   GitFork,
+  Wifi,
+  Shield,
 } from 'lucide-react'
 import { useDiscoveryScan } from './useDiscovery'
 import { useSyncHostCorrelations } from '../hosts/useHosts'
@@ -36,7 +38,7 @@ interface DiscoveryViewProps {
 
 export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) => {
   const [searchTerm, setSearchTerm] = useState('')
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'Proxmox' | 'Kubernetes'>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'Proxmox' | 'Kubernetes' | 'UniFi' | 'OPNsense'>('all')
   const [managementFilter, setManagementFilter] = useState<'all' | 'unmanaged' | 'managed'>('all')
   const [selectedCandidate, setSelectedCandidate] = useState<DiscoveredCandidate | null>(null)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -62,6 +64,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
   }
 
   const candidates = scanData?.candidates ?? []
+
+  const activeSources = useMemo(() => {
+    const set = new Set(candidates.map((c) => c.source))
+    return Array.from(set)
+  }, [candidates])
 
   const filteredCandidates = useMemo(() => {
     return candidates.filter((c) => {
@@ -130,7 +137,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
           <div>
             <h2 className="text-lg font-semibold text-zinc-100">Service Discovery & Adoption Hub</h2>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Automatically scan hypervisors (Proxmox VE) and cluster orchestrators (Kubernetes) to discover and adopt unmanaged hosts.
+              Automatically scan hypervisors (Proxmox VE), cluster orchestrators (Kubernetes), and network appliances (UniFi, OPNsense) to discover and adopt unmanaged hosts.
             </p>
           </div>
         </div>
@@ -195,8 +202,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
             <span className="text-xs text-zinc-400">Active Adapters</span>
             <Box className="h-4 w-4 text-purple-400" />
           </div>
-          <div className="text-2xl font-bold text-purple-400 mt-1">2</div>
-          <div className="text-[11px] text-purple-500/80 mt-1">Proxmox VE & Kubernetes</div>
+          <div className="text-2xl font-bold text-purple-400 mt-1">
+            {activeSources.length > 0 ? activeSources.length : 4}
+          </div>
+          <div className="text-[11px] text-purple-500/80 mt-1 truncate" title={activeSources.length > 0 ? activeSources.join(', ') : 'Proxmox, K8s, UniFi, OPNsense'}>
+            {activeSources.length > 0 ? activeSources.join(', ') : 'Proxmox, K8s, UniFi, OPNsense'}
+          </div>
         </div>
       </div>
 
@@ -283,6 +294,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
               <option value="all">All Sources</option>
               <option value="Proxmox">Proxmox VE</option>
               <option value="Kubernetes">Kubernetes</option>
+              <option value="UniFi">UniFi Network</option>
+              <option value="OPNsense">OPNsense Firewall</option>
             </select>
 
             <select
@@ -339,7 +352,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                     <Compass className="h-6 w-6 text-zinc-600" />
                     <span>No matching candidates discovered.</span>
                     <span className="text-[11px] text-zinc-500">
-                      Check your Proxmox and Kubernetes adapter credentials in Settings.
+                      Check your Proxmox, Kubernetes, UniFi, and OPNsense adapter credentials in Settings.
                     </span>
                   </div>
                 </TableCell>
@@ -369,14 +382,44 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                           <Server className="h-3 w-3" />
                           Proxmox
                         </span>
-                      ) : (
+                      ) : candidate.source === 'Kubernetes' ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-300 bg-sky-950/60 border border-sky-800/50 px-2 py-0.5 rounded-md">
                           <Cpu className="h-3 w-3" />
                           Kubernetes
                         </span>
+                      ) : candidate.source === 'UniFi' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-cyan-300 bg-cyan-950/60 border border-cyan-800/50 px-2 py-0.5 rounded-md">
+                          <Wifi className="h-3 w-3" />
+                          UniFi
+                        </span>
+                      ) : candidate.source === 'OPNsense' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-300 bg-amber-950/60 border border-amber-800/50 px-2 py-0.5 rounded-md">
+                          <Shield className="h-3 w-3" />
+                          OPNsense
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-300 bg-zinc-800 border border-zinc-700/60 px-2 py-0.5 rounded-md">
+                          {candidate.source}
+                        </span>
                       )}
                       <span className="text-[11px] text-zinc-400">
-                        {candidate.targetType === 'proxmox_lxc' ? 'LXC' : candidate.targetType === 'proxmox_vm' ? 'QEMU' : 'Node'}
+                        {candidate.targetType === 'proxmox_lxc'
+                          ? 'LXC'
+                          : candidate.targetType === 'proxmox_vm'
+                          ? 'QEMU'
+                          : candidate.source === 'Kubernetes'
+                          ? 'Node'
+                          : candidate.source === 'UniFi'
+                          ? candidate.roles?.includes('network-client')
+                            ? 'Client'
+                            : 'Device'
+                          : candidate.source === 'OPNsense'
+                          ? candidate.roles?.includes('dhcp-lease')
+                            ? 'DHCP'
+                            : 'Lease'
+                          : candidate.targetType === 'baremetal'
+                          ? 'Baremetal'
+                          : candidate.targetType || 'Host'}
                       </span>
                     </div>
                   </TableCell>
@@ -388,7 +431,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                     <div className="text-[11px] font-mono text-zinc-500">
                       {candidate.proxmoxNode && candidate.proxmoxVmid
                         ? `${candidate.proxmoxNode} : #${candidate.proxmoxVmid}`
-                        : candidate.k8sNodeName || '—'}
+                        : candidate.k8sNodeName
+                        ? candidate.k8sNodeName
+                        : candidate.source === 'UniFi'
+                        ? 'UniFi Client'
+                        : candidate.source === 'OPNsense'
+                        ? 'DHCP Lease'
+                        : '—'}
                     </div>
                   </TableCell>
 

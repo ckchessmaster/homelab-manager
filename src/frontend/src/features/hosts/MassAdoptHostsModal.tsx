@@ -29,10 +29,10 @@ export const MassAdoptHostsModal: React.FC<MassAdoptHostsModalProps> = ({
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname
       if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-        return `ws://${hostname}:5000/agent-hub`
+        return `ws://${hostname}:5029/agent-hub`
       }
     }
-    return 'ws://192.168.20.159:5000/agent-hub'
+    return 'ws://192.168.20.159:5029/agent-hub'
   }
 
   const [hubUrl, setHubUrl] = useState(getInitialHubUrl)
@@ -157,6 +157,18 @@ export const MassAdoptHostsModal: React.FC<MassAdoptHostsModalProps> = ({
               <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-lg flex items-center gap-2 text-xs text-red-300">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {hosts.some((h) => h.osFamily?.toLowerCase().includes('windows')) && (
+              <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-lg flex items-start gap-2.5 text-xs text-amber-300">
+                <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-amber-200">Windows Hosts Selected</p>
+                  <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                    Batch adoption connects over SSH. Ensure OpenSSH Server is running with Windows Administrator credentials, or adopt Windows servers individually using the 1-click PowerShell command.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -289,7 +301,7 @@ export const MassAdoptHostsModal: React.FC<MassAdoptHostsModalProps> = ({
                 <Input
                   value={hubUrl}
                   onChange={(e) => setHubUrl(e.target.value)}
-                  placeholder="ws://192.168.20.159:5000/agent-hub"
+                  placeholder="ws://192.168.20.159:5029/agent-hub"
                   className="font-mono text-xs"
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">

@@ -126,7 +126,7 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
             // Step 2: Preflight Disk Headroom
             _state.ActiveStep = "Preflight: Disk Headroom";
             var diskResult = await Workflow.ExecuteActivityAsync(
-                (IPreflightActivities a) => a.CheckDiskHeadroomAsync(new PreflightDiskHeadroomInput(input.JobId, input.HostId, input.Hostname)),
+                (IPreflightActivities a) => a.CheckDiskHeadroomAsync(new PreflightDiskHeadroomInput(input.JobId, input.HostId, input.Hostname, 20.0, input.OsFamily)),
                 preflightOptions
             );
             if (!diskResult.Success)
@@ -281,7 +281,7 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
                 defaultOptions
             );
             var rebootResult = await Workflow.ExecuteActivityAsync(
-                (IAgentActivities a) => a.InitiateRebootAsync(new AgentRebootInput(input.JobId, input.HostId, input.Hostname, input.AlwaysReboot)),
+                (IAgentActivities a) => a.InitiateRebootAsync(new AgentRebootInput(input.JobId, input.HostId, input.Hostname, input.AlwaysReboot, 5, input.OsFamily)),
                 rebootOptions
             );
             if (!rebootResult.Success)

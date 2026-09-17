@@ -5,7 +5,7 @@ namespace ControlPlane.Api.Features.Orchestration.Temporal.Activities.Models;
 
 // Preflight Models
 public record PreflightHeartbeatInput(Guid JobId, Guid HostId, string Hostname, double MaxHeartbeatAgeSeconds = 15.0);
-public record PreflightDiskHeadroomInput(Guid JobId, Guid HostId, string Hostname, double MinFreePct = 20.0);
+public record PreflightDiskHeadroomInput(Guid JobId, Guid HostId, string Hostname, double MinFreePct = 20.0, string? OsFamily = null);
 public record PreflightPackageLockInput(Guid JobId, Guid HostId, string Hostname, string? OsFamily = null);
 public record PreflightCheckResult(bool Success, string Message);
 
@@ -25,7 +25,7 @@ public record KubernetesUncordonResult(bool Success, string? NodeName, string Me
 // Agent Models
 public record AgentUpgradeInput(Guid JobId, Guid HostId, string Hostname, string? OsFamily = null);
 public record AgentUpgradeResult(bool Success, int ExitCode, string Message);
-public record AgentRebootInput(Guid JobId, Guid HostId, string Hostname, bool AlwaysReboot = false, int HandshakeTimeoutSeconds = 5);
+public record AgentRebootInput(Guid JobId, Guid HostId, string Hostname, bool AlwaysReboot = false, int HandshakeTimeoutSeconds = 5, string? OsFamily = null);
 public record AgentRebootResult(bool Success, bool Skipped, string? PreRebootKernel, string Message);
 public record AgentReconnectInput(Guid JobId, Guid HostId, string Hostname, bool RebootSkipped = false, string? PreRebootKernel = null, int TimeoutSeconds = 300);
 public record AgentReconnectResult(bool Success, string? KernelVersion, string Message);

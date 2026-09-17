@@ -46,6 +46,40 @@ public class AgentActivities : IAgentActivities
                 "dnf upgrade -y --refresh || { STATUS=$?; echo \"[UPGRADE] dnf upgrade returned status $STATUS. Checking system consistency...\"; if dnf check >/dev/null 2>&1; then echo \"[UPGRADE] dnf check passed: package database consistent.\"; exit 0; fi; exit $STATUS; }"
             };
         }
+        else if (osFamily.Contains("windows"))
+        {
+            command = "powershell.exe";
+            args = new[]
+            {
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "$ErrorActionPreference = 'Stop'; " +
+                "try { " +
+                "  Write-Output '[UPGRADE] Initializing Windows Update session...'; " +
+                "  $session = New-Object -ComObject Microsoft.Update.Session; " +
+                "  $searcher = $session.CreateUpdateSearcher(); " +
+                "  $results = $searcher.Search(\"IsInstalled=0 and Type='Software' and IsHidden=0\"); " +
+                "  if ($results.Updates.Count -eq 0) { Write-Output '[UPGRADE] No pending Windows updates found.'; exit 0 }; " +
+                "  Write-Output ('[UPGRADE] Found ' + $results.Updates.Count + ' pending update(s). Downloading...'); " +
+                "  $downloader = $session.CreateUpdateDownloader(); " +
+                "  $downloader.Updates = $results.Updates; " +
+                "  $downloader.Download(); " +
+                "  Write-Output '[UPGRADE] Download complete. Installing updates...'; " +
+                "  $installer = $session.CreateUpdateInstaller(); " +
+                "  $installer.Updates = $results.Updates; " +
+                "  $installResult = $installer.Install(); " +
+                "  Write-Output ('[UPGRADE] Installation finished with resultCode: ' + $installResult.ResultCode); " +
+                "  if ($installResult.RebootRequired) { Write-Output '[UPGRADE] Reboot is required by one or more updates.' }; " +
+                "  exit 0 " +
+                "} catch { " +
+                "  Write-Error $_.Exception.Message; " +
+                "  exit 1 " +
+                "}"
+            };
+        }
         else
         {
             // Resilient Debian / Ubuntu noninteractive dist-upgrade with automated remediation and lock timeout
@@ -147,12 +181,32 @@ public class AgentActivities : IAgentActivities
 
         if (!needsReboot && _connectionManager.IsOnline(input.HostId))
         {
-            var checkScript = "if [ -f /var/run/reboot-required ] || [ -f /run/reboot-required ]; then exit 0; fi; if command -v needrestart >/dev/null 2>&1 && needrestart -b 2>/dev/null | grep -Eq 'NEEDRESTART-KSTA: [23]'; then exit 0; fi; if command -v needs-restarting >/dev/null 2>&1 && ! needs-restarting -r >/dev/null 2>&1; then exit 0; fi; exit 1";
+            var isWindows = input.OsFamily?.ToLowerInvariant().Contains("windows") == true;
+            string command;
+            string[] args;
+
+            if (isWindows)
+            {
+                command = "powershell.exe";
+                var winScript =
+                    "$k1 = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired'; " +
+                    "$k2 = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending'; " +
+                    "$k3 = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager'; " +
+                    "if ((Test-Path $k1) -or (Test-Path $k2) -or ((Get-ItemProperty $k3 -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations)) { exit 0 } else { exit 1 }";
+                args = new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", winScript };
+            }
+            else
+            {
+                command = "sh";
+                var checkScript = "if [ -f /var/run/reboot-required ] || [ -f /run/reboot-required ]; then exit 0; fi; if command -v needrestart >/dev/null 2>&1 && needrestart -b 2>/dev/null | grep -Eq 'NEEDRESTART-KSTA: [23]'; then exit 0; fi; if command -v needs-restarting >/dev/null 2>&1 && ! needs-restarting -r >/dev/null 2>&1; then exit 0; fi; exit 1";
+                args = new[] { "-c", checkScript };
+            }
+
             var probeResult = await _commandExecutor.ExecuteCommandAsync(
                 input.HostId,
                 input.JobId,
-                "sh",
-                new[] { "-c", checkScript }
+                command,
+                args
             );
             if (probeResult.Success)
             {
