@@ -4,14 +4,18 @@ import {
   getHelmReleases,
   getHelmReleaseDetail,
   getHelmReleaseHistory,
+  getHelmUpdates,
+  checkHelmUpdates,
   installOrUpgradeHelmRelease,
   rollbackHelmRelease,
   uninstallHelmRelease,
+  getChartVersions,
   type InstallHelmReleasePayload,
   type HelmReleaseSummary,
   type HelmReleaseDetail,
   type HelmReleaseRevision,
   type HelmCatalogItem,
+  type HelmChartUpdateInfo,
 } from '../../../api/helm'
 
 export function useHelmCatalog() {
@@ -31,10 +35,15 @@ export function useHelmReleases(clusterId: string, namespaceName?: string) {
   })
 }
 
-export function useHelmReleaseDetail(clusterId: string, namespaceName: string, name: string) {
+export function useHelmReleaseDetail(
+  clusterId: string,
+  namespaceName: string,
+  name: string,
+  revision?: number
+) {
   return useQuery<HelmReleaseDetail>({
-    queryKey: ['helm-release-detail', clusterId, namespaceName, name],
-    queryFn: () => getHelmReleaseDetail(clusterId, namespaceName, name),
+    queryKey: ['helm-release-detail', clusterId, namespaceName, name, revision ?? 'latest'],
+    queryFn: () => getHelmReleaseDetail(clusterId, namespaceName, name, revision),
     enabled: Boolean(clusterId && namespaceName && name),
   })
 }
@@ -91,3 +100,34 @@ export function useUninstallHelmRelease(clusterId: string) {
     },
   })
 }
+
+export function useCheckHelmUpdates(clusterId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ force = true, releaseNames }: { force?: boolean; releaseNames?: string[] } = {}) =>
+      checkHelmUpdates(clusterId, force, releaseNames),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['helm-releases', clusterId] })
+      queryClient.invalidateQueries({ queryKey: ['helm-release-detail'] })
+    },
+  })
+}
+
+export function useCachedHelmUpdates(clusterId: string) {
+  return useQuery<Record<string, HelmChartUpdateInfo>>({
+    queryKey: ['helm-updates', clusterId],
+    queryFn: () => getHelmUpdates(clusterId),
+    enabled: Boolean(clusterId),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+export function useChartVersions(chartName?: string, repoUrl?: string, enabled = true) {
+  return useQuery<string[]>({
+    queryKey: ['helm-chart-versions', chartName, repoUrl],
+    queryFn: () => getChartVersions(chartName!, repoUrl),
+    enabled: Boolean(enabled && chartName && chartName.trim()),
+    staleTime: 1000 * 60 * 10,
+  })
+}
+

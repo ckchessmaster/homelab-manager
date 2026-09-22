@@ -86,6 +86,14 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
     }
   }, [platform])
 
+  const isCompleted = adoptionResponse?.success === true || (platform === 'windows' && winMethod === 'powershell' && isAgentOnlineViaPolling)
+
+  useEffect(() => {
+    if (isCompleted) {
+      queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    }
+  }, [isCompleted, queryClient])
+
   if (!isOpen) return null
 
   const handleStartSshAdoption = async (e: React.FormEvent) => {
@@ -150,15 +158,8 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
     setTimeout(() => setCopied(false), 2500)
   }
 
-  const isCompleted = adoptionResponse?.success === true || (platform === 'windows' && winMethod === 'powershell' && isAgentOnlineViaPolling)
   const isAdopting = adoptMutation.isPending || createHostMutation.isPending
   const showProgress = isAdopting || Boolean(adoptionResponse) || Boolean(errorMessage && winMethod === 'ssh')
-
-  useEffect(() => {
-    if (isCompleted) {
-      queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-    }
-  }, [isCompleted, queryClient])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">

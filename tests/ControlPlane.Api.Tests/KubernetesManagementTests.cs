@@ -248,6 +248,12 @@ public class KubernetesManagementTests
         public Task<IdracStoredInstance?> GetRawIdracInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<IdracStoredInstance?>(null);
         public Task<IdracInstanceDto> SaveIdracInstanceAsync(SaveIdracInstanceRequest request, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteIdracInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<List<HomeAssistantInstanceDto>> GetHomeAssistantInstancesAsync(CancellationToken ct = default) => Task.FromResult(new List<HomeAssistantInstanceDto>());
+        public Task<HomeAssistantInstanceDto?> GetHomeAssistantInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<HomeAssistantInstanceDto?>(null);
+        public Task<HomeAssistantStoredInstance?> GetRawHomeAssistantInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<HomeAssistantStoredInstance?>(null);
+        public Task<HomeAssistantInstanceDto> SaveHomeAssistantInstanceAsync(SaveHomeAssistantInstanceRequest request, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteHomeAssistantInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult(true);
     }
 
     [Fact]
@@ -392,6 +398,41 @@ public class KubernetesManagementTests
     }
 
     [Fact]
+    public async Task ListCertificates_ReturnsCertificatesWithCoveredHostnames()
+    {
+        var configService = new FakeConfigService();
+        var factory = new FakeFactory();
+        var adapter = new FakeFullKubernetesAdapter
+        {
+            Certificates = new List<K8sCertificateSummaryDto>
+            {
+                new(
+                    Name: "homelab-wildcard-tls",
+                    Namespace: "networking",
+                    Issuer: "letsencrypt-prod",
+                    SecretName: "homelab-wildcard-secret",
+                    IsReady: true,
+                    RenewalTime: DateTime.UtcNow.AddDays(30),
+                    NotAfter: DateTime.UtcNow.AddDays(60),
+                    Conditions: new List<string> { "Ready:True" },
+                    DnsNames: new List<string> { "homelab.lan", "*.homelab.lan", "auth.homelab.lan" }
+                )
+            }
+        };
+        factory.Adapters["cluster-1"] = adapter;
+
+        var service = new WorkloadService(configService, factory, NullLogger<WorkloadService>.Instance);
+        var certs = await service.ListCertificatesAsync("cluster-1");
+
+        Assert.Single(certs);
+        Assert.Equal("homelab-wildcard-tls", certs[0].Name);
+        Assert.NotNull(certs[0].DnsNames);
+        Assert.Equal(3, certs[0].DnsNames!.Count);
+        Assert.Contains("*.homelab.lan", certs[0].DnsNames!);
+        Assert.Contains("auth.homelab.lan", certs[0].DnsNames!);
+    }
+
+    [Fact]
     public async Task DeleteNamespace_SystemCritical_ThrowsInvalidOperationException()
     {
         var configService = new FakeConfigService();
@@ -494,6 +535,7 @@ public class KubernetesManagementTests
         public InstallHelmReleaseRequestDto? LastInstallRequest { get; private set; }
         public (string? Namespace, string? Name, int? Revision)? LastRollback { get; private set; }
         public (string? Namespace, string? Name)? LastUninstall { get; private set; }
+        public int? LastRequestedRevision { get; private set; }
 
         public Task<List<HelmReleaseSummaryDto>> ListReleasesAsync(
             string? kubeconfigYaml,
@@ -519,7 +561,21 @@ public class KubernetesManagementTests
             string namespaceName,
             string releaseName,
             CancellationToken ct = default)
-            => Task.FromResult(Detail);
+            => GetReleaseDetailAsync(kubeconfigYaml, apiServerUrl, token, skipTlsVerify, namespaceName, releaseName, null, ct);
+
+        public Task<HelmReleaseDetailDto?> GetReleaseDetailAsync(
+            string? kubeconfigYaml,
+            string? apiServerUrl,
+            string? token,
+            bool skipTlsVerify,
+            string namespaceName,
+            string releaseName,
+            int? revision,
+            CancellationToken ct = default)
+        {
+            LastRequestedRevision = revision;
+            return Task.FromResult(Detail);
+        }
 
         public Task<List<HelmReleaseRevisionDto>> GetReleaseHistoryAsync(
             string? kubeconfigYaml,
@@ -639,6 +695,71 @@ public class KubernetesManagementTests
         Assert.Equal("ingress-nginx", detail.Name);
         Assert.Contains("LoadBalancer", detail.ValuesYaml);
         Assert.Contains("Deployment", detail.Manifest);
+    }
+
+    [Fact]
+    public async Task GetHelmRelease_ForwardsRevision_WhenSpecified()
+    {
+        var configService = new FakeConfigService();
+        var factory = new FakeFactory();
+        var helmClient = new FakeHelmClient
+        {
+            Detail = new HelmReleaseDetailDto(
+                Name: "ingress-nginx",
+                Namespace: "ingress-nginx",
+                Revision: 3,
+                Updated: DateTimeOffset.UtcNow,
+                Status: "deployed",
+                Chart: "ingress-nginx-4.11.2",
+                ChartName: "ingress-nginx",
+                ChartVersion: "4.11.2",
+                AppVersion: "1.11.2",
+                ValuesYaml: "controller:\n  replicaCount: 5"
+            )
+        };
+
+        var service = new WorkloadService(
+            configService,
+            factory,
+            NullLogger<WorkloadService>.Instance,
+            helmClient,
+            new HelmCatalogService()
+        );
+
+        var detail = await service.GetHelmReleaseAsync("cluster-1", "ingress-nginx", "ingress-nginx", revision: 3);
+        Assert.NotNull(detail);
+        Assert.Equal(3, helmClient.LastRequestedRevision);
+        Assert.Contains("replicaCount: 5", detail.ValuesYaml);
+    }
+
+    [Fact]
+    public async Task InstallOrUpgradeHelmRelease_ForwardsReuseAndResetValues()
+    {
+        var configService = new FakeConfigService();
+        var factory = new FakeFactory();
+        var helmClient = new FakeHelmClient();
+
+        var service = new WorkloadService(
+            configService,
+            factory,
+            NullLogger<WorkloadService>.Instance,
+            helmClient,
+            new HelmCatalogService()
+        );
+
+        var request = new InstallHelmReleaseRequestDto(
+            ReleaseName: "longhorn",
+            Namespace: "longhorn-system",
+            ChartName: "longhorn",
+            ReuseValues: true,
+            ResetValues: false
+        );
+
+        var result = await service.InstallOrUpgradeHelmReleaseAsync("cluster-1", request);
+        Assert.True(result.Success);
+        Assert.NotNull(helmClient.LastInstallRequest);
+        Assert.True(helmClient.LastInstallRequest.ReuseValues);
+        Assert.False(helmClient.LastInstallRequest.ResetValues);
     }
 
     [Fact]

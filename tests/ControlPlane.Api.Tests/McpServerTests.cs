@@ -262,6 +262,37 @@ public class McpServerTests
         Assert.Contains("offline", root.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task GetHostVitals_ReturnsHostVitalsJson()
+    {
+        var (db, conn, sp) = CreateTestServiceProvider();
+        using var _ = conn;
+        using var __ = db;
+
+        var hostId = Guid.NewGuid();
+        db.Hosts.Add(new HostEntity
+        {
+            Id = hostId,
+            Hostname = "mcp-vitals-host",
+            IpAddress = "192.168.1.55",
+            OsFamily = "linux_debian",
+            TargetType = "baremetal"
+        });
+        await db.SaveChangesAsync();
+
+        using var scope = sp.CreateScope();
+        var tools = scope.ServiceProvider.GetRequiredService<ControlPlaneMcpTools>();
+        var result = await tools.GetHostVitals(hostId);
+        var json = JsonSerializer.Serialize(result);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.Equal(hostId.ToString(), root.GetProperty("hostId").GetString());
+        Assert.Equal("mcp-vitals-host", root.GetProperty("hostname").GetString());
+        Assert.True(root.TryGetProperty("vitals", out var vitalsProp));
+    }
+
+
 
     private class FakeProxmoxClient : Features.Adapters.Proxmox.IProxmoxClient
     {

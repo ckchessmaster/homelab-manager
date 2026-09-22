@@ -40,4 +40,51 @@ public class HelmClientTests
             Assert.True(File.Exists(path));
         }
     }
+
+    [Fact]
+    public void BuildInstallArguments_IncludesReuseValues_WhenRequested()
+    {
+        var request = new InstallHelmReleaseRequestDto(
+            ReleaseName: "my-app",
+            Namespace: "prod",
+            ChartName: "my-chart",
+            ReuseValues: true
+        );
+
+        var args = HelmClient.BuildInstallArguments(request);
+
+        Assert.Contains("--reuse-values", args);
+        Assert.DoesNotContain("--reset-values", args);
+        Assert.Contains("upgrade --install \"my-app\" \"my-chart\"", args);
+    }
+
+    [Fact]
+    public void BuildInstallArguments_IncludesResetValues_WhenRequested()
+    {
+        var request = new InstallHelmReleaseRequestDto(
+            ReleaseName: "my-app",
+            Namespace: "prod",
+            ChartName: "my-chart",
+            ResetValues: true
+        );
+
+        var args = HelmClient.BuildInstallArguments(request);
+
+        Assert.Contains("--reset-values", args);
+        Assert.DoesNotContain("--reuse-values", args);
+    }
+
+    [Fact]
+    public void BuildInstallArguments_IncludesValuesFile_WhenProvided()
+    {
+        var request = new InstallHelmReleaseRequestDto(
+            ReleaseName: "my-app",
+            Namespace: "prod",
+            ChartName: "my-chart"
+        );
+
+        var args = HelmClient.BuildInstallArguments(request, tempValuesFile: "/tmp/helm-vals-123.yaml");
+
+        Assert.Contains("--values \"/tmp/helm-vals-123.yaml\"", args);
+    }
 }

@@ -15,7 +15,20 @@ public record HostResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     HypervisorHostSummaryDto? Hypervisor = null,
-    List<HostedVmSummaryDto>? HostedVms = null
+    List<HostedVmSummaryDto>? HostedVms = null,
+    HostVitalsDto? Vitals = null
+);
+
+public record HostVitalsDto(
+    double? CpuUsagePct = null,
+    double? MemoryUsagePct = null,
+    double? DiskFreePct = null,
+    double? TemperatureCelsius = null,
+    double? PowerWatts = null,
+    long? UptimeSeconds = null,
+    string? PowerState = null,
+    string? HealthStatus = null,
+    string? Source = null
 );
 
 public record HypervisorHostSummaryDto(Guid HostId, string Hostname, string? FriendlyName, string? NodeName);

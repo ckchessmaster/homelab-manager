@@ -103,6 +103,12 @@ public class WorkloadServiceTests
         public Task<IdracStoredInstance?> GetRawIdracInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<IdracStoredInstance?>(null);
         public Task<IdracInstanceDto> SaveIdracInstanceAsync(SaveIdracInstanceRequest request, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<bool> DeleteIdracInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<List<HomeAssistantInstanceDto>> GetHomeAssistantInstancesAsync(CancellationToken ct = default) => Task.FromResult(new List<HomeAssistantInstanceDto>());
+        public Task<HomeAssistantInstanceDto?> GetHomeAssistantInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<HomeAssistantInstanceDto?>(null);
+        public Task<HomeAssistantStoredInstance?> GetRawHomeAssistantInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult<HomeAssistantStoredInstance?>(null);
+        public Task<HomeAssistantInstanceDto> SaveHomeAssistantInstanceAsync(SaveHomeAssistantInstanceRequest request, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteHomeAssistantInstanceAsync(string id, CancellationToken ct = default) => Task.FromResult(true);
     }
 
     [Fact]

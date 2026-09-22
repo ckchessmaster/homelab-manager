@@ -1,5 +1,24 @@
 namespace ControlPlane.Api.Features.Adapters.Kubernetes.Helm;
 
+public record HelmChartUpdateInfoDto(
+    string ChartName,
+    string CurrentVersion,
+    string? LatestVersion,
+    string? CurrentAppVersion = null,
+    string? LatestAppVersion = null,
+    bool IsOutdated = false,
+    string? UpdateType = null, // "major" | "minor" | "patch"
+    string? RepoUrl = null,
+    string? Message = null,
+    DateTimeOffset? CheckedAt = null,
+    List<string>? AvailableVersions = null
+);
+
+public record HelmCheckUpdatesRequestDto(
+    bool Force = false,
+    List<string>? ReleaseNames = null
+);
+
 public record HelmReleaseSummaryDto(
     string Name,
     string Namespace,
@@ -11,7 +30,8 @@ public record HelmReleaseSummaryDto(
     string ChartVersion,
     string AppVersion,
     string? Description = null,
-    string? Notes = null
+    string? Notes = null,
+    HelmChartUpdateInfoDto? UpdateInfo = null
 );
 
 public record HelmReleaseDetailDto(
@@ -28,7 +48,9 @@ public record HelmReleaseDetailDto(
     string? Notes = null,
     string? ValuesYaml = null,
     string? Manifest = null,
-    string? RepoUrl = null
+    string? RepoUrl = null,
+    HelmChartUpdateInfoDto? UpdateInfo = null,
+    string? ComputedValuesYaml = null
 );
 
 public record HelmReleaseRevisionDto(
@@ -49,7 +71,9 @@ public record InstallHelmReleaseRequestDto(
     string? ValuesYaml = null,
     bool CreateNamespace = true,
     bool Wait = false,
-    int TimeoutSeconds = 300
+    int TimeoutSeconds = 300,
+    bool ReuseValues = false,
+    bool ResetValues = false
 );
 
 public record UpgradeHelmReleaseRequestDto(

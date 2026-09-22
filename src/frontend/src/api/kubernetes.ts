@@ -148,3 +148,30 @@ export async function fetchClusterPods(id: string, namespace?: string, nodeName?
   const query = params.toString() ? `?${params.toString()}` : ''
   return apiClient<K8sPodSummary[]>(`/api/v1/adapters/k8s/clusters/${encodeURIComponent(id)}/workloads/pods${query}`)
 }
+
+export interface K8sNodeVitals {
+  name: string
+  isReady: boolean
+  unschedulable: boolean
+  roles: string[]
+  osImage?: string | null
+  kernelVersion?: string | null
+  podCount: number
+}
+
+export interface KubernetesClusterVitals {
+  clusterId: string
+  clusterName: string
+  totalNodes: number
+  readyNodes: number
+  totalPods: number
+  runningPods: number
+  totalNamespaces: number
+  latencyMs: number
+  nodes: K8sNodeVitals[]
+  fetchedAt: string
+}
+
+export async function fetchKubernetesClusterVitals(id: string): Promise<KubernetesClusterVitals> {
+  return apiClient<KubernetesClusterVitals>(`/api/v1/adapters/k8s/clusters/${encodeURIComponent(id)}/vitals`)
+}

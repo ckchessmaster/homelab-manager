@@ -80,8 +80,8 @@ export function AppSidebar({
       {/* Brand Header */}
       <div className="p-5 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-md shadow-emerald-950">
-            <Layers className="h-4 w-4 text-white" />
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-sky-500 to-sky-700 flex items-center justify-center shadow-md shadow-sky-950">
+            <Layers className="h-4.5 w-4.5 text-white" />
           </div>
           <div>
             <h1 className="text-sm font-bold text-zinc-100 tracking-tight flex items-center gap-1.5">
@@ -114,8 +114,8 @@ export function AppSidebar({
             >
               <div className="flex items-center gap-2.5">
                 <Icon
-                  className={`h-4 w-4 ${
-                    isActive ? 'text-emerald-400' : 'text-zinc-500 group-hover:text-zinc-400'
+                  className={`w-[18px] h-[18px] shrink-0 ${
+                    isActive ? 'text-sky-400' : 'text-zinc-500 group-hover:text-zinc-400'
                   }`}
                 />
                 <span>{item.label}</span>
@@ -140,7 +140,7 @@ export function AppSidebar({
         <div className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5">
-              <Database className="h-3 w-3 text-emerald-400" />
+              <Database className="h-3.5 w-3.5 text-sky-400" />
               Storage Engine
             </span>
             <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/50">

@@ -12,8 +12,10 @@ import {
   Server,
   Database,
   ShieldCheck,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react'
-import { Badge } from './components/ui/badge'
+import { MetricStrip } from './components/ui/metric-strip'
 import { getApiKey } from './api/client'
 import { CallbackPage } from './features/auth/CallbackPage'
 import { AuthGatePage } from './features/auth/AuthGatePage'
@@ -38,52 +40,50 @@ function AuthenticatedApp() {
     >
       {activeTab === 'hosts' && (
         <div className="space-y-6 w-full max-w-[1700px] mx-auto">
-          {/* Quick Metrics Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-zinc-400">Total Managed Nodes</span>
-                <Server className="h-4 w-4 text-emerald-400" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-zinc-100">{totalHosts}</div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">Physical & virtual instances</p>
-            </div>
-
-            <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-zinc-400">Agents Online</span>
-                <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-zinc-100">
-                {allHosts?.filter((h) => h.agent?.installed).length ?? 0}
-              </div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">Daemon heartbeats active</p>
-            </div>
-
-            <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-zinc-400">Reboot Required</span>
-                <Badge variant={rebootPendingCount > 0 ? 'warning' : 'default'}>
-                  {rebootPendingCount}
-                </Badge>
-              </div>
-              <div className="mt-2 text-2xl font-bold text-zinc-100">{rebootPendingCount}</div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">Kernel/package flags set</p>
-            </div>
-
-            <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-zinc-400">Updates Pending</span>
-                <Badge variant="info">
-                  {allHosts?.reduce((acc, h) => acc + (h.agent?.upgradablePackagesCount || 0), 0) ?? 0}
-                </Badge>
-              </div>
-              <div className="mt-2 text-2xl font-bold text-zinc-100">
-                {allHosts?.reduce((acc, h) => acc + (h.agent?.upgradablePackagesCount || 0), 0) ?? 0}
-              </div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">Packages across fleet</p>
-            </div>
-          </div>
+          {/* Sleek Top Metric Strip */}
+          <MetricStrip
+            items={[
+              {
+                id: 'total-nodes',
+                label: 'Total Managed Nodes',
+                value: totalHosts,
+                icon: Server,
+                iconColor: 'text-sky-400',
+                subtext: 'Physical & virtual compute nodes',
+              },
+              {
+                id: 'agents-online',
+                label: 'Agents Online',
+                value: allHosts?.filter((h) => h.agent?.installed).length ?? 0,
+                icon: ShieldCheck,
+                iconColor: 'text-emerald-400',
+                badge: (allHosts?.filter((h) => h.agent?.installed).length ?? 0) === totalHosts && totalHosts > 0 ? 'All Active' : undefined,
+                badgeVariant: 'success',
+                subtext: 'Daemon heartbeats active',
+              },
+              {
+                id: 'reboot-required',
+                label: 'Reboot Required',
+                value: rebootPendingCount,
+                icon: RotateCcw,
+                iconColor: rebootPendingCount > 0 ? 'text-amber-400' : 'text-zinc-500',
+                badge: rebootPendingCount > 0 ? `${rebootPendingCount} Pending` : 'Clean',
+                badgeVariant: rebootPendingCount > 0 ? 'warning' : 'default',
+                badgeDot: rebootPendingCount > 0,
+                subtext: 'Kernel or package flags set',
+              },
+              {
+                id: 'updates-pending',
+                label: 'Updates Pending',
+                value: allHosts?.reduce((acc, h) => acc + (h.agent?.upgradablePackagesCount || 0), 0) ?? 0,
+                icon: Sparkles,
+                iconColor: (allHosts?.reduce((acc, h) => acc + (h.agent?.upgradablePackagesCount || 0), 0) ?? 0) > 0 ? 'text-sky-400' : 'text-zinc-500',
+                badge: (allHosts?.reduce((acc, h) => acc + (h.agent?.upgradablePackagesCount || 0), 0) ?? 0) > 0 ? 'Upgrades' : 'Up-to-date',
+                badgeVariant: (allHosts?.reduce((acc, h) => acc + (h.agent?.upgradablePackagesCount || 0), 0) ?? 0) > 0 ? 'info' : 'default',
+                subtext: 'Packages across fleet',
+              },
+            ]}
+          />
 
           {/* Host Inventory Table */}
           <HostTable onOpenAddModal={() => setAddHostOpen(true)} />

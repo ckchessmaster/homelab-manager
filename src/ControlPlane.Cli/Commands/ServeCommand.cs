@@ -19,6 +19,8 @@ using ControlPlane.Api.Features.Orchestration.Pipelines;
 using ControlPlane.Api.Features.Orchestration.Temporal;
 using ControlPlane.Api.Features.Orchestration.Temporal.Endpoints;
 using ControlPlane.Api.Features.Security;
+using ControlPlane.Api.Features.Workloads;
+using ControlPlane.Api.Features.Workloads.ImageUpdates;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
@@ -225,6 +227,11 @@ public static class ServeCommand
         builder.Services.AddScoped<IOPNsenseClientFactory, OPNsenseClientFactory>();
         builder.Services.AddSingleton<IHelmClient, HelmClient>();
         builder.Services.AddSingleton<IHelmCatalogService, HelmCatalogService>();
+        builder.Services.AddMemoryCache();
+        builder.Services.AddSingleton<IImageUpdateService, ImageUpdateService>();
+        builder.Services.AddSingleton<IHelmUpdateService, HelmUpdateService>();
+        builder.Services.AddScoped<IKubernetesClientFactory, KubernetesClientFactory>();
+        builder.Services.AddScoped<IWorkloadService, WorkloadService>();
         builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 
         builder.Services.Configure<KubernetesConfigOptions>(builder.Configuration.GetSection(KubernetesConfigOptions.SectionName));
@@ -257,6 +264,8 @@ public static class ServeCommand
         });
         builder.Services.AddScoped<IKubernetesAdapter, KubernetesAdapter>();
         builder.Services.AddHttpClient(ProxmoxProbeService.StandardHttpClientName);
+        builder.Services.AddHttpClient(ImageUpdateService.HttpClientName);
+        builder.Services.AddHttpClient(HelmUpdateService.HttpClientName);
 
         // HTTP Client handler allowing self-signed certificates in homelab
         builder.Services.AddHttpClient("ClusterClient")
@@ -357,6 +366,7 @@ public static class ServeCommand
         app.MapUniFiEndpoints();
         app.MapOPNsenseEndpoints();
         app.MapKubernetesEndpoints();
+        app.MapWorkloadEndpoints();
         app.MapDiscoveryEndpoints();
         app.MapSecurityEndpoints();
         app.MapTemporalWorkflowEndpoints();

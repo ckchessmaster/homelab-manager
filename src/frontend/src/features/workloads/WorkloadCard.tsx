@@ -12,6 +12,13 @@ import {
   Pencil,
   Trash2,
   RefreshCw,
+  ArrowUpCircle,
+  Globe,
+  HardDrive,
+  KeyRound,
+  Layers,
+  Activity,
+  Sparkles,
 } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -22,10 +29,39 @@ import {
 } from './useWorkloads'
 import type { WorkloadSummary } from '../../api/workloads'
 
+function getResourceIcon(kind?: string) {
+  switch (kind) {
+    case 'Service':
+      return <Globe className="h-4 w-4 text-emerald-400 shrink-0" />
+    case 'Ingress':
+      return <Globe className="h-4 w-4 text-sky-400 shrink-0" />
+    case 'ConfigMap':
+      return <Sliders className="h-4 w-4 text-amber-400 shrink-0" />
+    case 'Secret':
+      return <KeyRound className="h-4 w-4 text-purple-400 shrink-0" />
+    case 'PersistentVolumeClaim':
+      return <HardDrive className="h-4 w-4 text-indigo-400 shrink-0" />
+    case 'Job':
+      return <Activity className="h-4 w-4 text-blue-400 shrink-0" />
+    case 'Pod':
+      return <Boxes className="h-4 w-4 text-teal-400 shrink-0" />
+    case 'DaemonSet':
+      return <Layers className="h-4 w-4 text-indigo-400 shrink-0" />
+    case 'StatefulSet':
+      return <HardDrive className="h-4 w-4 text-purple-400 shrink-0" />
+    case 'CronJob':
+      return <Sparkles className="h-4 w-4 text-amber-400 shrink-0" />
+    case 'Deployment':
+      return <Boxes className="h-4 w-4 text-sky-400 shrink-0" />
+    default:
+      return <Sparkles className="h-4 w-4 text-fuchsia-400 shrink-0" />
+  }
+}
+
 interface WorkloadCardProps {
   workload: WorkloadSummary
   onScale: (workload: WorkloadSummary) => void
-  onOpenPods: (workload: WorkloadSummary) => void
+  onOpenPods: (workload: WorkloadSummary, initialTab?: 'pods' | 'logs' | 'revisions' | 'env') => void
   onEdit?: (workload: WorkloadSummary) => void
   onDelete?: (workload: WorkloadSummary) => void
   isOperator: boolean
@@ -100,7 +136,11 @@ export function WorkloadCard({
     }
   }
 
-  const isCronJob = workload.kind === 'CronJob'
+  const kind = workload.kind || ''
+  const isCronJob = kind === 'CronJob'
+  const isPodWorkload = ['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Pod'].includes(kind)
+  const isDeploymentOrStateful = ['Deployment', 'StatefulSet'].includes(kind)
+  const isRestartable = ['Deployment', 'StatefulSet', 'DaemonSet'].includes(kind)
   const isHealthy = workload.status === 'Ready'
   const isScaledDown = workload.status === 'ScaledDown'
   const isDegraded = workload.status === 'Degraded'
@@ -119,8 +159,8 @@ export function WorkloadCard({
         {/* Header: Title & Badges */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="h-8 w-8 rounded-lg bg-sky-950/60 border border-sky-800/60 flex items-center justify-center shrink-0">
-              <Boxes className="h-4 w-4 text-sky-400" />
+            <div className="h-8 w-8 rounded-lg bg-zinc-950/80 border border-zinc-800 flex items-center justify-center shrink-0">
+              {getResourceIcon(workload.kind)}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -180,6 +220,13 @@ export function WorkloadCard({
               </div>
             )}
           </div>
+        ) : !isPodWorkload ? (
+          <div className="space-y-1.5 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-xs">
+            <div className="flex items-center justify-between text-zinc-400">
+              <span>Resource Kind:</span>
+              <span className="font-mono font-semibold text-zinc-200">{workload.kind}</span>
+            </div>
+          </div>
         ) : (
           <div className="space-y-1.5 p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
             <div className="flex items-center justify-between text-xs">
@@ -208,10 +255,18 @@ export function WorkloadCard({
 
         {/* Container Images */}
         {workload.images && workload.images.length > 0 && (
-          <div className="space-y-1">
-            <div className="flex items-center gap-1 text-[10px] text-zinc-500 font-medium">
-              <Tag className="h-3 w-3" />
-              <span>Images</span>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] text-zinc-500 font-medium">
+              <div className="flex items-center gap-1">
+                <Tag className="h-3 w-3" />
+                <span>Images</span>
+              </div>
+              {workload.imageUpdate && !workload.imageUpdate.isOutdated && workload.imageUpdate.latestTag && (
+                <span className="text-emerald-400 flex items-center gap-1 font-sans text-[10px]">
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  Up to date
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap gap-1">
               {workload.images.map((img) => (
@@ -224,6 +279,26 @@ export function WorkloadCard({
                 </span>
               ))}
             </div>
+
+            {/* Outdated Image Banner */}
+            {workload.imageUpdate?.isOutdated && (
+              <div className="flex items-center justify-between p-2 rounded-lg bg-amber-950/40 border border-amber-800/60 text-xs">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <ArrowUpCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <span
+                    className="text-amber-200 font-mono text-[11px] truncate"
+                    title={workload.imageUpdate.message || ''}
+                  >
+                    Update: {workload.imageUpdate.latestTag}
+                  </span>
+                </div>
+                {workload.imageUpdate.updateType && (
+                  <Badge variant="warning" className="text-[9px] uppercase px-1 py-0 font-mono shrink-0">
+                    {workload.imageUpdate.updateType}
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -240,15 +315,29 @@ export function WorkloadCard({
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOpenPods(workload)}
-            className="h-7 text-xs px-2 text-zinc-300 hover:text-zinc-100 gap-1"
-          >
-            <Boxes className="h-3 w-3" />
-            Pods
-          </Button>
+          {isPodWorkload && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenPods(workload, 'pods')}
+                className="h-7 text-xs px-2 text-zinc-300 hover:text-zinc-100 gap-1"
+              >
+                <Boxes className="h-3 w-3" />
+                Pods
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenPods(workload, 'env')}
+                className="h-7 text-xs px-2 text-zinc-400 hover:text-amber-300 hover:bg-zinc-800 gap-1"
+                title="Inspect Environment Variables"
+              >
+                <KeyRound className="h-3 w-3" />
+                Env
+              </Button>
+            </>
+          )}
 
           {isCronJob ? (
             isOperator && (
@@ -268,19 +357,21 @@ export function WorkloadCard({
                 Run Now
               </Button>
             )
-          ) : (
+          ) : isRestartable ? (
             isOperator && (
               <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onScale(workload)}
-                  className="h-7 text-xs px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 border-sky-800/40 gap-1"
-                  title="Scale replica count"
-                >
-                  <Sliders className="h-3 w-3" />
-                  Scale
-                </Button>
+                {isDeploymentOrStateful && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onScale(workload)}
+                    className="h-7 text-xs px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 border-sky-800/40 gap-1"
+                    title="Scale replica count"
+                  >
+                    <Sliders className="h-3 w-3" />
+                    Scale
+                  </Button>
+                )}
 
                 <Button
                   variant="outline"
@@ -316,7 +407,7 @@ export function WorkloadCard({
                 </Button>
               </>
             )
-          )}
+          ) : null}
 
           {isOperator && onEdit && (
             <Button
@@ -330,13 +421,13 @@ export function WorkloadCard({
             </Button>
           )}
 
-          {isOperator && onDelete && (
+          {isOperator && onDelete && !workload.isProtected && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => onDelete(workload)}
               className="h-7 text-xs px-2 text-zinc-500 hover:text-rose-400 hover:bg-rose-950/30"
-              title="Delete App Setup"
+              title="Delete Resource"
             >
               <Trash2 className="h-3 w-3" />
             </Button>

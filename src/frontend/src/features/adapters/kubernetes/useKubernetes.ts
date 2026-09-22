@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   fetchKubernetesClusters,
   fetchKubernetesCluster,
+  fetchKubernetesClusterVitals,
   saveKubernetesCluster,
   deleteKubernetesCluster,
   testKubernetesClusterConnection,
@@ -31,6 +32,15 @@ export function useKubernetesCluster(id: string | null) {
     queryKey: ['kubernetes', 'clusters', id],
     queryFn: () => fetchKubernetesCluster(id!),
     enabled: !!id,
+  })
+}
+
+export function useKubernetesClusterVitals(id: string | null, options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: ['kubernetes', 'clusters', id, 'vitals'],
+    queryFn: () => fetchKubernetesClusterVitals(id!),
+    enabled: !!id,
+    refetchInterval: options?.refetchInterval ?? 10000,
   })
 }
 

@@ -80,6 +80,58 @@ public class HelmClient : IHelmClient
         return null;
     }
 
+    public static string BuildInstallArguments(InstallHelmReleaseRequestDto request, string? tempKubeconfig = null, string? tempValuesFile = null)
+    {
+        var args = new StringBuilder();
+        args.Append($"upgrade --install \"{request.ReleaseName}\" \"{request.ChartName}\"");
+
+        if (!string.IsNullOrWhiteSpace(request.RepoUrl))
+        {
+            args.Append($" --repo \"{request.RepoUrl}\"");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Version))
+        {
+            args.Append($" --version \"{request.Version}\"");
+        }
+
+        args.Append($" --namespace \"{request.Namespace}\"");
+
+        if (request.CreateNamespace)
+        {
+            args.Append(" --create-namespace");
+        }
+
+        if (request.Wait)
+        {
+            args.Append(" --wait");
+        }
+
+        var timeoutSec = request.TimeoutSeconds > 0 ? request.TimeoutSeconds : 300;
+        args.Append($" --timeout {timeoutSec}s");
+
+        if (request.ResetValues)
+        {
+            args.Append(" --reset-values");
+        }
+        else if (request.ReuseValues)
+        {
+            args.Append(" --reuse-values");
+        }
+
+        if (!string.IsNullOrWhiteSpace(tempValuesFile))
+        {
+            args.Append($" --values \"{tempValuesFile}\"");
+        }
+
+        if (tempKubeconfig != null)
+        {
+            args.Append($" --kubeconfig \"{tempKubeconfig}\"");
+        }
+
+        return args.ToString();
+    }
+
     public async Task<List<HelmReleaseSummaryDto>> ListReleasesAsync(
         string? kubeconfigYaml,
         string? apiServerUrl,
@@ -167,6 +219,17 @@ public class HelmClient : IHelmClient
         string namespaceName,
         string releaseName,
         CancellationToken ct = default)
+        => await GetReleaseDetailAsync(kubeconfigYaml, apiServerUrl, token, skipTlsVerify, namespaceName, releaseName, null, ct);
+
+    public async Task<HelmReleaseDetailDto?> GetReleaseDetailAsync(
+        string? kubeconfigYaml,
+        string? apiServerUrl,
+        string? token,
+        bool skipTlsVerify,
+        string namespaceName,
+        string releaseName,
+        int? revision,
+        CancellationToken ct = default)
     {
         var helmPath = FindHelmPath();
         if (helmPath == null) return null;
@@ -175,6 +238,7 @@ public class HelmClient : IHelmClient
         try
         {
             var kcArg = tempKubeconfig != null ? $"--kubeconfig \"{tempKubeconfig}\"" : "";
+            var revArg = revision.HasValue && revision.Value > 0 ? $"--revision {revision.Value}" : "";
 
             // 1. Get Release metadata via list filter
             var listArgs = $"list -a -n \"{namespaceName}\" -f \"^{Regex.Escape(releaseName)}$\" -o json {kcArg}";
@@ -190,22 +254,27 @@ public class HelmClient : IHelmClient
             if (entry == null) return null;
 
             // 2. Get user values
-            var valArgs = $"get values \"{releaseName}\" -n \"{namespaceName}\" -o yaml {kcArg}";
+            var valArgs = $"get values \"{releaseName}\" -n \"{namespaceName}\" {revArg} -o yaml {kcArg}";
             var (valExit, valOut, _) = await RunCommandAsync(helmPath, valArgs, 30, ct);
-            var valuesYaml = valExit == 0 ? valOut : null;
+            var valuesYaml = valExit == 0 ? (valOut.Trim() == "{}" ? null : valOut) : null;
+
+            // 2b. Get computed (all) values
+            var allValArgs = $"get values \"{releaseName}\" -n \"{namespaceName}\" -a {revArg} -o yaml {kcArg}";
+            var (allExit, allOut, _) = await RunCommandAsync(helmPath, allValArgs, 30, ct);
+            var computedValuesYaml = allExit == 0 ? (allOut.Trim() == "{}" ? null : allOut) : null;
 
             // 3. Get manifest
-            var manArgs = $"get manifest \"{releaseName}\" -n \"{namespaceName}\" {kcArg}";
+            var manArgs = $"get manifest \"{releaseName}\" -n \"{namespaceName}\" {revArg} {kcArg}";
             var (manExit, manOut, _) = await RunCommandAsync(helmPath, manArgs, 30, ct);
             var manifest = manExit == 0 ? manOut : null;
 
             // 4. Get notes
-            var notesArgs = $"get notes \"{releaseName}\" -n \"{namespaceName}\" {kcArg}";
+            var notesArgs = $"get notes \"{releaseName}\" -n \"{namespaceName}\" {revArg} {kcArg}";
             var (notesExit, notesOut, _) = await RunCommandAsync(helmPath, notesArgs, 30, ct);
             var notes = notesExit == 0 ? notesOut : null;
 
             var (chartName, chartVer) = ParseChartField(entry.Chart);
-            var rev = ParseRevision(entry.Revision);
+            var rev = revision ?? ParseRevision(entry.Revision);
             var dt = ParseHelmDateTime(entry.Updated);
 
             var catalogItem = HelmCatalogService.CuratedCatalog.FirstOrDefault(c =>
@@ -227,7 +296,8 @@ public class HelmClient : IHelmClient
                 Notes: notes,
                 ValuesYaml: valuesYaml,
                 Manifest: manifest,
-                RepoUrl: repoUrl
+                RepoUrl: repoUrl,
+                ComputedValuesYaml: computedValuesYaml
             );
         }
         catch (Exception ex)
@@ -308,51 +378,20 @@ public class HelmClient : IHelmClient
 
         try
         {
-            var args = new StringBuilder();
-            args.Append($"upgrade --install \"{request.ReleaseName}\" \"{request.ChartName}\"");
-
-            if (!string.IsNullOrWhiteSpace(request.RepoUrl))
-            {
-                args.Append($" --repo \"{request.RepoUrl}\"");
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.Version))
-            {
-                args.Append($" --version \"{request.Version}\"");
-            }
-
-            args.Append($" --namespace \"{request.Namespace}\"");
-
-            if (request.CreateNamespace)
-            {
-                args.Append(" --create-namespace");
-            }
-
-            if (request.Wait)
-            {
-                args.Append(" --wait");
-            }
-
-            var timeoutSec = request.TimeoutSeconds > 0 ? request.TimeoutSeconds : 300;
-            args.Append($" --timeout {timeoutSec}s");
-
             if (!string.IsNullOrWhiteSpace(request.ValuesYaml))
             {
                 tempValuesFile = Path.Combine(Path.GetTempPath(), $"helm-val-{Guid.NewGuid():N}.yaml");
                 await File.WriteAllTextAsync(tempValuesFile, request.ValuesYaml, ct);
                 SetRestrictedPermissions(tempValuesFile);
-                args.Append($" --values \"{tempValuesFile}\"");
             }
 
-            if (tempKubeconfig != null)
-            {
-                args.Append($" --kubeconfig \"{tempKubeconfig}\"");
-            }
+            var argsStr = BuildInstallArguments(request, tempKubeconfig, tempValuesFile);
 
             _logger.LogInformation("Executing Helm upgrade --install for release '{Release}' in '{Namespace}'...",
                 request.ReleaseName, request.Namespace);
 
-            var (exitCode, stdout, stderr) = await RunCommandAsync(helmPath, args.ToString(), timeoutSec + 15, ct);
+            var timeoutSec = request.TimeoutSeconds > 0 ? request.TimeoutSeconds : 300;
+            var (exitCode, stdout, stderr) = await RunCommandAsync(helmPath, argsStr, timeoutSec + 15, ct);
 
             if (exitCode == 0)
             {

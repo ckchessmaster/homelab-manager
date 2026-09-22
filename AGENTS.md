@@ -109,6 +109,7 @@ homelab-manager/
 * **Signal Handling:** Cleanly intercept `SIGTERM` and `SIGINT` to gracefully notify the backend before shutting down or initiating a system reboot.
 
 ### React 19 & Frontend Standards
+* **Design System Governance:** Strictly follow `/DESIGN_SYSTEM.md`. Use `zinc-950` canvas base, `zinc-900` surfaces, `zinc-800` borders, `sky-500` brand accent, and semantic-only health colors. Never use pure black (`#000000`) or card grids for lists exceeding 6 items. Use `<MetricStrip />`, `<TableToolbar />`, and `<InspectorSheet />`.
 * **Visual Excellence:** The UI must look modern, sleek, and high-quality. Use Tailwind CSS with dark mode support, subtle glassmorphism, clean badge states, and responsive layouts.
 * **Authentication:** Use `react-oidc-context` with Zitadel PKCE. Gate privileged UI components behind `<RequireRole role="Operator">` or `<RequireRole role="Admin">`.
 * **Server State:** Use TanStack Query (`@tanstack/react-query`) for all remote data fetching, mutation, and cache invalidation.

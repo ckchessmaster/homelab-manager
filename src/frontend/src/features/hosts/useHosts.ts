@@ -6,6 +6,7 @@ import {
   fetchHosts,
   fetchHostCorrelation,
   fetchHostRebootImpact,
+  fetchHostVitals,
   probeProxmox,
   rebootHost,
   syncHostCorrelations,
@@ -33,6 +34,15 @@ export function useHost(id?: string, options?: { refetchInterval?: number | fals
     queryFn: () => (id ? fetchHostById(id) : Promise.reject('No ID provided')),
     enabled: Boolean(id),
     refetchInterval: options?.refetchInterval,
+  })
+}
+
+export function useHostVitals(id?: string | null, options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: [...HOSTS_QUERY_KEY, id, 'vitals'],
+    queryFn: () => (id ? fetchHostVitals(id) : Promise.reject('No ID provided')),
+    enabled: Boolean(id),
+    refetchInterval: options?.refetchInterval ?? 5000,
   })
 }
 

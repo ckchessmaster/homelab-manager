@@ -1,4 +1,5 @@
 using System.Net;
+using ControlPlane.Api.Features.Adapters.Idrac;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
@@ -12,12 +13,18 @@ public class HostService
     private readonly ControlPlaneDbContext _db;
     private readonly ILogger<HostService> _logger;
     private readonly AgentConnectionManager? _connectionManager;
+    private readonly IIdracClientFactory? _idracFactory;
 
-    public HostService(ControlPlaneDbContext db, ILogger<HostService> logger, AgentConnectionManager? connectionManager = null)
+    public HostService(
+        ControlPlaneDbContext db,
+        ILogger<HostService> logger,
+        AgentConnectionManager? connectionManager = null,
+        IIdracClientFactory? idracFactory = null)
     {
         _db = db;
         _logger = logger;
         _connectionManager = connectionManager;
+        _idracFactory = idracFactory;
     }
 
     public async Task<List<HostResponse>> ListHostsAsync(HostFilterQuery query, CancellationToken cancellationToken = default)
@@ -102,7 +109,19 @@ public class HostService
                 if (hostedList.Count > 0) hosted = hostedList;
             }
 
-            return MapToResponse(h, isOnline, hyp, hosted);
+            HostVitalsDto? vitals = null;
+            var agentMetrics = _connectionManager?.GetLatestMetrics(h.Id);
+            if (agentMetrics != null)
+            {
+                vitals = new HostVitalsDto(
+                    CpuUsagePct: Math.Round(agentMetrics.CpuUsagePct, 1),
+                    MemoryUsagePct: Math.Round(agentMetrics.MemoryUsagePct, 1),
+                    DiskFreePct: Math.Round(agentMetrics.DiskFreePct, 1),
+                    Source: "agent"
+                );
+            }
+
+            return MapToResponse(h, isOnline, hyp, hosted, vitals);
         }).ToList();
     }
 
@@ -147,7 +166,19 @@ public class HostService
             }
         }
 
-        return MapToResponse(host, isOnline, hyp, hosted);
+        HostVitalsDto? hostVitals = null;
+        var metrics = _connectionManager?.GetLatestMetrics(host.Id);
+        if (metrics != null)
+        {
+            hostVitals = new HostVitalsDto(
+                CpuUsagePct: Math.Round(metrics.CpuUsagePct, 1),
+                MemoryUsagePct: Math.Round(metrics.MemoryUsagePct, 1),
+                DiskFreePct: Math.Round(metrics.DiskFreePct, 1),
+                Source: "agent"
+            );
+        }
+
+        return MapToResponse(host, isOnline, hyp, hosted, hostVitals);
     }
 
     public async Task<(HostResponse? Host, IDictionary<string, string[]>? Errors, bool Conflict)> CreateHostAsync(
@@ -457,11 +488,68 @@ public class HostService
         return (true, false, null);
     }
 
+    public async Task<HostVitalsDto?> GetHostVitalsAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var host = await _db.Hosts.AsNoTracking()
+            .FirstOrDefaultAsync(h => h.Id == id, cancellationToken);
+        if (host == null) return null;
+
+        var isOnline = _connectionManager?.IsOnline(host.Id) ?? false;
+        var agentMetrics = _connectionManager?.GetLatestMetrics(host.Id);
+
+        double? cpuUsage = agentMetrics != null ? Math.Round(agentMetrics.CpuUsagePct, 1) : null;
+        double? memUsage = agentMetrics != null ? Math.Round(agentMetrics.MemoryUsagePct, 1) : null;
+        double? diskFree = agentMetrics != null ? Math.Round(agentMetrics.DiskFreePct, 1) : null;
+        double? temp = null;
+        double? power = null;
+        string? powerState = isOnline ? "On" : null;
+        string? health = "OK";
+        string source = agentMetrics != null ? "agent" : "system";
+
+        if (_idracFactory != null && host.Idrac != null)
+        {
+            try
+            {
+                var resolved = await _idracFactory.ResolveByHostIdAsync(host.Id, cancellationToken);
+                if (resolved != null)
+                {
+                    var bmcVitals = await resolved.Value.Client.GetInstanceVitalsAsync(resolved.Value.Config, resolved.Value.Password, cancellationToken);
+                    if (bmcVitals != null)
+                    {
+                        power = bmcVitals.PowerConsumptionWatts;
+                        powerState = bmcVitals.PowerState ?? powerState;
+                        health = bmcVitals.HealthStatus ?? health;
+                        if (bmcVitals.Temperatures != null && bmcVitals.Temperatures.Count > 0)
+                        {
+                            temp = bmcVitals.Temperatures.Max(t => t.CurrentReadingCelsius);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not fetch BMC vitals for host {HostId}", host.Id);
+            }
+        }
+
+        return new HostVitalsDto(
+            CpuUsagePct: cpuUsage,
+            MemoryUsagePct: memUsage,
+            DiskFreePct: diskFree,
+            TemperatureCelsius: temp,
+            PowerWatts: power,
+            PowerState: powerState,
+            HealthStatus: health,
+            Source: source
+        );
+    }
+
     public static HostResponse MapToResponse(
         HostEntity host,
         bool isOnline = false,
         HypervisorHostSummaryDto? hypervisor = null,
-        List<HostedVmSummaryDto>? hostedVms = null)
+        List<HostedVmSummaryDto>? hostedVms = null,
+        HostVitalsDto? vitals = null)
     {
         return new HostResponse(
             Id: host.Id,
@@ -485,7 +573,8 @@ public class HostService
             CreatedAt: host.CreatedAt,
             UpdatedAt: host.UpdatedAt,
             Hypervisor: hypervisor,
-            HostedVms: hostedVms
+            HostedVms: hostedVms,
+            Vitals: vitals
         );
     }
 }

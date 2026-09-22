@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
 using ControlPlane.Api.Features.Adapters.Kubernetes.Helm;
+using ControlPlane.Api.Features.Workloads.ImageUpdates;
 
 namespace ControlPlane.Api.Features.Workloads;
 
@@ -15,14 +16,88 @@ public static class WorkloadEndpoints
         workloadsGroup.MapGet("/", async (
             [FromQuery] string? clusterId,
             [FromQuery] string? namespaceName,
+            [FromQuery] bool? includeAll,
             IWorkloadService workloadService,
             CancellationToken ct) =>
         {
-            var result = await workloadService.GetAggregatedWorkloadsAsync(clusterId, namespaceName, ct);
+            var result = await workloadService.GetAggregatedWorkloadsAsync(clusterId, namespaceName, includeAll == true, ct);
             return Results.Ok(result);
         })
         .RequireAuthorization(AuthConstants.RequireViewer)
         .WithName("GetAggregatedWorkloads");
+
+        workloadsGroup.MapGet("/image-updates", (
+            IImageUpdateService imageUpdateService) =>
+        {
+            var cached = imageUpdateService.GetAllCached();
+            return Results.Ok(cached);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetCachedImageUpdates");
+
+        workloadsGroup.MapPost("/image-updates/check", async (
+            [FromBody] ImageCheckRequestDto? req,
+            IImageUpdateService imageUpdateService,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            IEnumerable<string> imagesToCheck;
+            if (req?.Images != null && req.Images.Count > 0)
+            {
+                imagesToCheck = req.Images;
+            }
+            else
+            {
+                var workloads = await workloadService.GetAggregatedWorkloadsAsync(null, null, ct);
+                imagesToCheck = workloads.Items.SelectMany(w => w.Images).Distinct();
+            }
+
+            var results = await imageUpdateService.CheckImagesAsync(imagesToCheck, req?.Force ?? false, ct);
+            return Results.Ok(results);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("CheckImageUpdates");
+
+        workloadsGroup.MapGet("/images/tags", async (
+            [FromQuery] string image,
+            IImageUpdateService imageUpdateService,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(image)) return Results.Ok(new List<string>());
+            var tags = await imageUpdateService.GetImageTagsAsync(image, ct);
+            return Results.Ok(tags);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetWorkloadImageTags");
+
+        workloadsGroup.MapPost("/{clusterId}/{namespaceName}/{name}/image", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            [FromBody] UpdateWorkloadImageRequestDto req,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Image))
+            {
+                return Results.BadRequest(new { success = false, message = "Target container image reference is required." });
+            }
+
+            var success = await workloadService.UpdateWorkloadImageAsync(
+                clusterId,
+                namespaceName,
+                name,
+                req.Image,
+                req.Kind ?? "Deployment",
+                req.ContainerName,
+                ct);
+
+            return success
+                ? Results.Ok(new { success = true, image = req.Image, message = $"Workload '{name}' container image updated to '{req.Image}'." })
+                : Results.BadRequest(new { success = false, message = $"Failed to update container image for '{name}'." });
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator)
+        .WithName("UpdateWorkloadImage");
 
         workloadsGroup.MapGet("/{clusterId}/{namespaceName}/{name}/pods", async (
             string clusterId,
@@ -36,6 +111,50 @@ public static class WorkloadEndpoints
         })
         .RequireAuthorization(AuthConstants.RequireViewer)
         .WithName("GetWorkloadPods");
+
+        workloadsGroup.MapGet("/{clusterId}/{namespaceName}/pods/{podName}/logs", async (
+            string clusterId,
+            string namespaceName,
+            string podName,
+            [FromQuery] string? container,
+            [FromQuery] int? tailLines,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var logs = await workloadService.GetPodLogsAsync(clusterId, namespaceName, podName, container, tailLines ?? 100, ct);
+            return Results.Ok(new { podName, container, logs });
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetPodLogs");
+
+        workloadsGroup.MapGet("/{clusterId}/{namespaceName}/{name}/revisions", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var revisions = await workloadService.GetDeploymentRevisionsAsync(clusterId, namespaceName, name, ct);
+            return Results.Ok(revisions);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetDeploymentRevisions");
+
+        workloadsGroup.MapPost("/{clusterId}/{namespaceName}/{name}/rollback", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            [FromBody] K8sRollbackRequestDto req,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var success = await workloadService.RollbackDeploymentAsync(clusterId, namespaceName, name, req.Revision, ct);
+            return success
+                ? Results.Ok(new { success = true, message = $"Deployment '{name}' successfully rolled back to revision {req.Revision}." })
+                : Results.BadRequest(new { success = false, message = $"Failed to roll back deployment '{name}' to revision {req.Revision}." });
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator)
+        .WithName("RollbackDeployment");
 
         workloadsGroup.MapPost("/{clusterId}/{namespaceName}/{name}/restart", async (
             string clusterId,
@@ -117,6 +236,22 @@ public static class WorkloadEndpoints
         .RequireAuthorization(AuthConstants.RequireViewer)
         .WithName("GetAppBundle");
 
+        workloadsGroup.MapGet("/{clusterId}/{namespaceName}/{name}/yaml", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            [FromQuery] string? kind,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var yaml = await workloadService.GetResourceYamlAsync(clusterId, namespaceName, name, kind, ct);
+            return yaml != null
+                ? Results.Ok(new K8sResourceYamlDto(name, namespaceName, kind ?? "Resource", yaml))
+                : Results.NotFound(new { message = $"Resource '{name}' ({kind ?? "Resource"}) in namespace '{namespaceName}' not found." });
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetResourceYaml");
+
         workloadsGroup.MapPost("/{clusterId}/apply", async (
             string clusterId,
             [FromBody] K8sApplyRequestDto req,
@@ -157,6 +292,49 @@ public static class WorkloadEndpoints
         var k8sGroup = app.MapGroup("/api/v1/kubernetes")
             .WithTags("Kubernetes");
 
+        k8sGroup.MapGet("/{clusterId}/network/services", async (
+            string clusterId,
+            [FromQuery] string? namespaceName,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var services = await workloadService.ListServicesAsync(clusterId, namespaceName, ct);
+            return Results.Ok(services);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("ListServices");
+
+        k8sGroup.MapGet("/{clusterId}/network/services/{namespaceName}/{name}", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var service = await workloadService.GetServiceAsync(clusterId, namespaceName, name, ct);
+            return service != null
+                ? Results.Ok(service)
+                : Results.NotFound(new { message = $"Service '{name}' in namespace '{namespaceName}' not found." });
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetService");
+
+        k8sGroup.MapPut("/{clusterId}/network/services/{namespaceName}/{name}", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            [FromBody] K8sUpdateServiceRequestDto request,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var result = await workloadService.UpdateServiceAsync(clusterId, namespaceName, name, request, ct);
+            return result.Success
+                ? Results.Ok(result)
+                : Results.BadRequest(result);
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator)
+        .WithName("UpdateService");
+
         k8sGroup.MapGet("/{clusterId}/network/ingresses", async (
             string clusterId,
             [FromQuery] string? namespaceName,
@@ -168,6 +346,37 @@ public static class WorkloadEndpoints
         })
         .RequireAuthorization(AuthConstants.RequireViewer)
         .WithName("ListIngresses");
+
+        k8sGroup.MapGet("/{clusterId}/network/ingresses/{namespaceName}/{name}", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var ingress = await workloadService.GetIngressAsync(clusterId, namespaceName, name, ct);
+            return ingress != null
+                ? Results.Ok(ingress)
+                : Results.NotFound(new { message = $"Ingress '{name}' in namespace '{namespaceName}' not found." });
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetIngress");
+
+        k8sGroup.MapPut("/{clusterId}/network/ingresses/{namespaceName}/{name}", async (
+            string clusterId,
+            string namespaceName,
+            string name,
+            [FromBody] K8sUpdateIngressRequestDto request,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var result = await workloadService.UpdateIngressAsync(clusterId, namespaceName, name, request, ct);
+            return result.Success
+                ? Results.Ok(result)
+                : Results.BadRequest(result);
+        })
+        .RequireAuthorization(AuthConstants.RequireOperator)
+        .WithName("UpdateIngress");
 
         k8sGroup.MapGet("/{clusterId}/network/certificates", async (
             string clusterId,
@@ -564,6 +773,56 @@ public static class WorkloadEndpoints
         .RequireAuthorization(AuthConstants.RequireViewer)
         .WithName("GetHelmCatalog");
 
+        helmGroup.MapGet("/helm/charts/{chartName}/versions", async (
+            string chartName,
+            [FromQuery] string? repoUrl,
+            IHelmUpdateService helmUpdateService,
+            CancellationToken ct) =>
+        {
+            var versions = await helmUpdateService.GetChartVersionsAsync(chartName, repoUrl, ct);
+            return Results.Ok(versions);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetHelmChartVersions");
+
+        helmGroup.MapGet("/helm/updates", (
+            IHelmUpdateService helmUpdateService) =>
+        {
+            var cached = helmUpdateService.GetAllCached();
+            return Results.Ok(cached);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetAllHelmUpdates");
+
+        helmGroup.MapGet("/{clusterId}/helm/updates", (
+            IHelmUpdateService helmUpdateService) =>
+        {
+            var cached = helmUpdateService.GetAllCached();
+            return Results.Ok(cached);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("GetClusterHelmUpdates");
+
+        helmGroup.MapPost("/{clusterId}/helm/updates/check", async (
+            string clusterId,
+            [FromBody] HelmCheckUpdatesRequestDto? req,
+            IWorkloadService workloadService,
+            IHelmUpdateService helmUpdateService,
+            CancellationToken ct) =>
+        {
+            var releases = await workloadService.ListHelmReleasesAsync(clusterId, null, ct);
+            if (req?.ReleaseNames != null && req.ReleaseNames.Count > 0)
+            {
+                var filterSet = new HashSet<string>(req.ReleaseNames, StringComparer.OrdinalIgnoreCase);
+                releases = releases.Where(r => filterSet.Contains(r.Name)).ToList();
+            }
+
+            var results = await helmUpdateService.CheckReleasesAsync(releases, req?.Force ?? false, ct);
+            return Results.Ok(results);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithName("CheckHelmUpdates");
+
         helmGroup.MapGet("/{clusterId}/helm/releases", async (
             string clusterId,
             [FromQuery] string? namespaceName,
@@ -580,10 +839,11 @@ public static class WorkloadEndpoints
             string clusterId,
             string namespaceName,
             string name,
+            [FromQuery] int? revision,
             IWorkloadService workloadService,
             CancellationToken ct) =>
         {
-            var detail = await workloadService.GetHelmReleaseAsync(clusterId, namespaceName, name, ct);
+            var detail = await workloadService.GetHelmReleaseAsync(clusterId, namespaceName, name, revision, ct);
             return detail != null
                 ? Results.Ok(detail)
                 : Results.NotFound(new { message = $"Helm release '{name}' in namespace '{namespaceName}' not found." });
@@ -658,5 +918,19 @@ public static class WorkloadEndpoints
         })
         .RequireAuthorization(AuthConstants.RequireOperator)
         .WithName("UninstallHelmRelease");
+
+        app.MapGet("/api/v1/events", async (
+            [FromQuery] string? clusterId,
+            [FromQuery] string? namespaceName,
+            [FromQuery] string? type,
+            IWorkloadService workloadService,
+            CancellationToken ct) =>
+        {
+            var events = await workloadService.GetClusterEventsAsync(clusterId, namespaceName, type, ct);
+            return Results.Ok(events);
+        })
+        .RequireAuthorization(AuthConstants.RequireViewer)
+        .WithTags("Events")
+        .WithName("GetClusterEvents");
     }
 }

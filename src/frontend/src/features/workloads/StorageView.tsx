@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   HardDrive,
   CheckCircle2,
@@ -10,11 +10,14 @@ import {
 import { Input } from '../../components/ui/input'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import { Select } from '../../components/ui/select'
 import { useStorageOverview } from './useWorkloads'
 
 interface StorageViewProps {
   clusterId: string
   selectedNamespace?: string
+  onNamespaceChange?: (namespace: string) => void
+  availableNamespaces?: string[]
 }
 
 function formatBytes(bytes: number): string {
@@ -26,15 +29,29 @@ function formatBytes(bytes: number): string {
   return `${gib.toFixed(1)} GiB`
 }
 
-export function StorageView({ clusterId, selectedNamespace }: StorageViewProps) {
+export function StorageView({
+  clusterId,
+  selectedNamespace,
+  onNamespaceChange,
+  availableNamespaces = [],
+}: StorageViewProps) {
   const [searchTerm, setSearchTerm] = useState('')
+  const [localNamespace, setLocalNamespace] = useState(selectedNamespace || '')
+
+  useEffect(() => {
+    if (selectedNamespace !== undefined) {
+      setLocalNamespace(selectedNamespace)
+    }
+  }, [selectedNamespace])
+
+  const effectiveNamespace = localNamespace || undefined
 
   const {
     data: storage,
     isLoading,
     refetch,
     isFetching,
-  } = useStorageOverview(clusterId, selectedNamespace)
+  } = useStorageOverview(clusterId, effectiveNamespace)
 
   const pvcs = storage?.pvcs || []
   const storageClasses = storage?.storageClasses || []
@@ -124,14 +141,37 @@ export function StorageView({ clusterId, selectedNamespace }: StorageViewProps) 
 
       {/* Search & Refresh Toolbar */}
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-md">
-        <div className="relative min-w-[220px] flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <Input
-            placeholder="Search PVC name, storage class, or mounting pod..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9 bg-zinc-950/80 text-xs"
-          />
+        <div className="flex items-center gap-3 flex-1 max-w-xl">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+            <Input
+              placeholder="Search PVC name, storage class, or mounting pod..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 bg-zinc-950/80 text-xs"
+            />
+          </div>
+
+          {availableNamespaces.length > 0 && (
+            <div className="w-40 shrink-0">
+              <Select
+                value={localNamespace}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setLocalNamespace(val)
+                  onNamespaceChange?.(val)
+                }}
+                className="bg-zinc-950/80 text-xs h-9"
+              >
+                <option value="">All Namespaces</option>
+                {availableNamespaces.map((ns) => (
+                  <option key={ns} value={ns}>
+                    {ns}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
         </div>
 
         <Button
@@ -172,53 +212,119 @@ export function StorageView({ clusterId, selectedNamespace }: StorageViewProps) 
                   <th className="p-3">PVC Name</th>
                   <th className="p-3">Namespace</th>
                   <th className="p-3">Status</th>
+                  <th className="p-3">Replica Health</th>
                   <th className="p-3">Capacity</th>
+                  <th className="p-3">Usage</th>
                   <th className="p-3">Storage Class</th>
                   <th className="p-3">Access Mode</th>
                   <th className="p-3">Mounting Workload / Pod</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/60 font-mono">
-                {filteredPvcs.map((pvc) => (
-                  <tr key={`${pvc.namespace}-${pvc.name}`} className="hover:bg-zinc-800/40 transition-colors">
-                    <td className="p-3 font-semibold text-zinc-100 flex items-center gap-1.5">
-                      <HardDrive className="h-3.5 w-3.5 text-amber-400" />
-                      {pvc.name}
-                    </td>
-                    <td className="p-3 text-amber-300">{pvc.namespace}</td>
-                    <td className="p-3">
-                      <Badge
-                        variant={pvc.status === 'Bound' ? 'success' : 'warning'}
-                        dot
-                        className="text-[10px]"
-                      >
-                        {pvc.status}
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-zinc-200 font-bold">{pvc.capacity || 'Unknown'}</td>
-                    <td className="p-3 text-sky-400">{pvc.storageClass || 'default'}</td>
-                    <td className="p-3 text-zinc-400">
-                      {pvc.accessModes.join(', ') || 'RWO'}
-                    </td>
-                    <td className="p-3">
-                      {pvc.mountingPods && pvc.mountingPods.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {pvc.mountingPods.map((pod) => (
+                {filteredPvcs.map((pvc) => {
+                  const hasUsage = pvc.usedBytes !== undefined && pvc.usedBytes !== null && Boolean(pvc.capacityBytes)
+                  const usagePercent = hasUsage && pvc.capacityBytes
+                    ? Math.min(100, Math.round((pvc.usedBytes! / pvc.capacityBytes) * 100))
+                    : 0
+                  const replicaHealth = pvc.replicaHealth || (pvc.status === 'Bound' ? 'Healthy' : undefined)
+
+                  return (
+                    <tr key={`${pvc.namespace}-${pvc.name}`} className="hover:bg-zinc-800/40 transition-colors">
+                      <td className="p-3 font-semibold text-zinc-100 flex items-center gap-1.5">
+                        <HardDrive className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                        <span>{pvc.name}</span>
+                      </td>
+                      <td className="p-3 text-amber-300 font-sans">{pvc.namespace}</td>
+                      <td className="p-3 font-sans">
+                        <Badge
+                          variant={pvc.status === 'Bound' ? 'success' : 'warning'}
+                          dot
+                          className="text-[10px]"
+                        >
+                          {pvc.status}
+                        </Badge>
+                      </td>
+                      <td className="p-3">
+                        {replicaHealth ? (
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-sans font-medium border ${
+                              replicaHealth === 'Healthy'
+                                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
+                                : replicaHealth === 'Degraded'
+                                ? 'bg-amber-950/80 text-amber-300 border-amber-800/80'
+                                : 'bg-rose-950/80 text-rose-300 border-rose-800/80'
+                            }`}
+                          >
                             <span
-                              key={pod}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800 text-emerald-400 text-[10px]"
-                            >
-                              <Boxes className="h-2.5 w-2.5" />
-                              {pod}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-zinc-600">Unmounted</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                replicaHealth === 'Healthy'
+                                  ? 'bg-emerald-400'
+                                  : replicaHealth === 'Degraded'
+                                  ? 'bg-amber-400'
+                                  : 'bg-rose-400'
+                              }`}
+                            />
+                            <span>{replicaHealth}</span>
+                          </span>
+                        ) : (
+                          <span className="text-zinc-500 font-mono text-[11px]">-</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-zinc-200 font-bold">{pvc.capacity || 'Unknown'}</td>
+                      <td className="p-3">
+                        {hasUsage && pvc.capacityBytes ? (
+                          <div className="space-y-1 w-28">
+                            <div className="flex items-center justify-between text-[10px] font-mono">
+                              <span className="text-zinc-300 font-semibold">
+                                {formatBytes(pvc.usedBytes!)}
+                              </span>
+                              <span className="text-zinc-500">
+                                {usagePercent}%
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  usagePercent > 90
+                                    ? 'bg-rose-500'
+                                    : usagePercent > 75
+                                    ? 'bg-amber-400'
+                                    : 'bg-sky-500'
+                                }`}
+                                style={{
+                                  width: `${Math.min(100, Math.max(3, usagePercent))}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-zinc-600 font-mono text-[11px]">-</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-sky-400">{pvc.storageClass || 'default'}</td>
+                      <td className="p-3 text-zinc-400">
+                        {pvc.accessModes.join(', ') || 'RWO'}
+                      </td>
+                      <td className="p-3">
+                        {pvc.mountingPods && pvc.mountingPods.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {pvc.mountingPods.map((pod) => (
+                              <span
+                                key={pod}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800 text-emerald-400 text-[10px]"
+                              >
+                                <Boxes className="h-2.5 w-2.5" />
+                                {pod}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-600">Unmounted</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

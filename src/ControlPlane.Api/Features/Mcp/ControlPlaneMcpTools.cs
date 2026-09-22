@@ -6,6 +6,7 @@ using ControlPlane.Api.Features.Adapters.Kubernetes.Helm;
 using ControlPlane.Api.Features.Adapters.OPNsense;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Adapters.UniFi;
+using ControlPlane.Api.Features.Adapters.HomeAssistant;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Discovery;
@@ -40,6 +41,8 @@ public class ControlPlaneMcpTools
     private readonly IKubernetesClientFactory? _kubernetesClientFactory;
     private readonly IProxmoxClientFactory? _proxmoxClientFactory;
     private readonly IHostCorrelationService? _hostCorrelationService;
+    private readonly IHomeAssistantClientFactory? _homeAssistantClientFactory;
+    private readonly IHelmUpdateService? _helmUpdateService;
 
     public ControlPlaneMcpTools(
         ControlPlaneDbContext db,
@@ -55,7 +58,9 @@ public class ControlPlaneMcpTools
         IIdracClientFactory? idracClientFactory = null,
         IKubernetesClientFactory? kubernetesClientFactory = null,
         IProxmoxClientFactory? proxmoxClientFactory = null,
-        IHostCorrelationService? hostCorrelationService = null)
+        IHostCorrelationService? hostCorrelationService = null,
+        IHomeAssistantClientFactory? homeAssistantClientFactory = null,
+        IHelmUpdateService? helmUpdateService = null)
     {
         _db = db;
         _hostService = hostService;
@@ -71,6 +76,8 @@ public class ControlPlaneMcpTools
         _kubernetesClientFactory = kubernetesClientFactory;
         _proxmoxClientFactory = proxmoxClientFactory;
         _hostCorrelationService = hostCorrelationService;
+        _homeAssistantClientFactory = homeAssistantClientFactory;
+        _helmUpdateService = helmUpdateService;
     }
 
     [McpServerTool]
@@ -274,6 +281,27 @@ public class ControlPlaneMcpTools
             host,
             isOnline,
             activeJobs
+        };
+    }
+
+    [McpServerTool]
+    [Description("Get live resource vitals (CPU %, RAM %, disk free %, BMC thermal & power draw) for a managed compute host.")]
+    public async Task<object?> GetHostVitals(
+        [Description("The GUID of the host to inspect.")] Guid hostId,
+        CancellationToken ct = default)
+    {
+        var host = await _db.Hosts.AsNoTracking().FirstOrDefaultAsync(h => h.Id == hostId, ct);
+        if (host == null)
+        {
+            return new { error = $"Host with ID '{hostId}' was not found." };
+        }
+
+        var vitals = await _hostService.GetHostVitalsAsync(hostId, ct);
+        return new
+        {
+            hostId = host.Id,
+            hostname = host.Hostname,
+            vitals
         };
     }
 
@@ -581,8 +609,15 @@ public class ControlPlaneMcpTools
                     var iRes = await iClient.TestInstanceAsync(iConfig, iPass, ct);
                     return new { success = iRes.Success, adapterType = "idrac", instanceId = iConfig.Id, latencyMs = iRes.LatencyMs, message = iRes.Message, model = iRes.Model };
 
+                case "homeassistant":
+                case "home-assistant":
+                    if (_homeAssistantClientFactory == null) return new { success = false, error = "Home Assistant factory not available." };
+                    var (haClient, haConfig, haToken) = await _homeAssistantClientFactory.ResolveAsync(instanceId ?? "default", ct);
+                    var haRes = await haClient.TestConnectionAsync(haConfig.BaseUrl, haToken, haConfig.AllowSelfSignedCert, ct);
+                    return new { success = haRes.Success, adapterType = "homeassistant", instanceId = haConfig.Id, latencyMs = haRes.LatencyMs, message = haRes.Message, coreVersion = haRes.CoreVersion, osVersion = haRes.OsVersion };
+
                 default:
-                    return new { success = false, error = $"Unknown adapter type '{adapterType}'. Valid types: 'proxmox', 'kubernetes', 'unifi', 'opnsense', 'idrac'." };
+                    return new { success = false, error = $"Unknown adapter type '{adapterType}'. Valid types: 'proxmox', 'kubernetes', 'unifi', 'opnsense', 'idrac', 'homeassistant'." };
             }
         }
         catch (Exception ex)
@@ -1079,6 +1114,27 @@ public class ControlPlaneMcpTools
     }
 
     [McpServerTool]
+    [Description("Check if deployed Helm chart releases have newer versions available in remote repositories or Artifact Hub.")]
+    public async Task<object> check_helm_updates(
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        [Description("Force a fresh network check bypassing cache")] bool force = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { error = "Workload service is not available." };
+        }
+        if (_helmUpdateService == null)
+        {
+            return new { error = "Helm update service is not available." };
+        }
+
+        var releases = await _workloadService.ListHelmReleasesAsync(clusterId ?? "", null, cancellationToken);
+        var results = await _helmUpdateService.CheckReleasesAsync(releases, force, cancellationToken);
+        return results;
+    }
+
+    [McpServerTool]
     [Description("Apply raw or multi-document YAML manifests (Secrets, ConfigMaps, PVCs, Deployments, Services) to a Kubernetes cluster.")]
     public async Task<object> apply_kubernetes_manifest(
         [Description("Raw Kubernetes YAML manifest to apply")] string yamlContent,
@@ -1187,6 +1243,281 @@ public class ControlPlaneMcpTools
         var req = new K8sCreateConfigMapRequestDto(name, namespaceName, data);
         var result = await _workloadService.UpdateConfigMapAsync(clusterId ?? "", namespaceName, name, req, cancellationToken);
         return new { success = result.Success, name, namespaceName, clusterId, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Get details and raw YAML of an existing Kubernetes Ingress.")]
+    public async Task<object> get_kubernetes_ingress(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the Ingress")] string name,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var ingress = await _workloadService.GetIngressAsync(clusterId ?? "", namespaceName, name, cancellationToken);
+        return ingress != null
+            ? new { success = true, ingress }
+            : (object)new { success = false, error = $"Ingress '{name}' not found in namespace '{namespaceName}'." };
+    }
+
+    [McpServerTool]
+    [Description("Update an existing Kubernetes Ingress via raw YAML or structured fields.")]
+    public async Task<object> update_kubernetes_ingress(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the Ingress to update")] string name,
+        [Description("Optional raw YAML manifest of the Ingress")] string? rawYaml = null,
+        [Description("Optional Ingress class name (e.g. nginx, traefik)")] string? ingressClass = null,
+        [Description("Optional list of host domains")] List<string>? hosts = null,
+        [Description("Optional enable TLS")] bool? tlsEnabled = null,
+        [Description("Optional TLS secret name")] string? tlsSecretName = null,
+        [Description("Optional annotations dictionary")] Dictionary<string, string>? annotations = null,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var req = new K8sUpdateIngressRequestDto(
+            RawYaml: rawYaml,
+            IngressClass: ingressClass,
+            Hosts: hosts,
+            TlsEnabled: tlsEnabled,
+            TlsSecretName: tlsSecretName,
+            Annotations: annotations
+        );
+
+        var result = await _workloadService.UpdateIngressAsync(clusterId ?? "", namespaceName, name, req, cancellationToken);
+        return new { success = result.Success, name, namespaceName, clusterId, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("Get details and clean raw YAML for an existing Kubernetes Service.")]
+    public async Task<object> get_kubernetes_service(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the Service")] string name,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var service = await _workloadService.GetServiceAsync(clusterId ?? "", namespaceName, name, cancellationToken);
+        return service != null
+            ? new { success = true, service }
+            : (object)new { success = false, error = $"Service '{name}' not found in namespace '{namespaceName}'." };
+    }
+
+    [McpServerTool]
+    [Description("Update an existing Kubernetes Service via raw YAML or structured fields.")]
+    public async Task<object> update_kubernetes_service(
+        [Description("Target namespace")] string namespaceName,
+        [Description("Name of the Service to update")] string name,
+        [Description("Optional raw YAML manifest of the Service")] string? rawYaml = null,
+        [Description("Optional Service type (e.g. ClusterIP, NodePort, LoadBalancer)")] string? type = null,
+        [Description("Optional selector labels")] Dictionary<string, string>? selector = null,
+        [Description("Optional annotations dictionary")] Dictionary<string, string>? annotations = null,
+        [Description("Optional labels dictionary")] Dictionary<string, string>? labels = null,
+        [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_workloadService == null)
+        {
+            return new { success = false, error = "Workload service is not available." };
+        }
+
+        var req = new K8sUpdateServiceRequestDto(
+            RawYaml: rawYaml,
+            Type: type,
+            Selector: selector,
+            Annotations: annotations,
+            Labels: labels
+        );
+
+        var result = await _workloadService.UpdateServiceAsync(clusterId ?? "", namespaceName, name, req, cancellationToken);
+        return new { success = result.Success, name, namespaceName, clusterId, message = result.Message };
+    }
+
+    [McpServerTool]
+    [Description("List all configured Home Assistant / HAOS appliance instances.")]
+    public async Task<object> list_home_assistant_instances(CancellationToken ct = default)
+    {
+        if (_adapterConfigService == null) return new { error = "Adapter config service not available." };
+        var instances = await _adapterConfigService.GetHomeAssistantInstancesAsync(ct);
+        return new { count = instances.Count, instances };
+    }
+
+    [McpServerTool]
+    [Description("Get aggregated telemetry, versions, and backup history from a Home Assistant appliance.")]
+    public async Task<object> get_home_assistant_overview(
+        [Description("Optional instance ID (or null for first instance).")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_homeAssistantClientFactory == null || _adapterConfigService == null)
+            return new { error = "Home Assistant factory or config service not available." };
+
+        string targetId;
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            var instances = await _adapterConfigService.GetHomeAssistantInstancesAsync(ct);
+            if (instances.Count == 0) return new { error = "No Home Assistant instances configured." };
+            targetId = instances[0].Id;
+        }
+        else
+        {
+            targetId = instanceId;
+        }
+
+        try
+        {
+            var (client, config, token) = await _homeAssistantClientFactory.ResolveAsync(targetId, ct);
+            var hostTask = client.GetHostInfoAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+            var osTask = client.GetOsInfoAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+            var coreTask = client.GetCoreInfoAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+            var supTask = client.GetSupervisorInfoAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+            var backupsTask = client.ListBackupsAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+
+            await Task.WhenAll(hostTask, osTask, coreTask, supTask, backupsTask);
+
+            return new
+            {
+                instanceId = config.Id,
+                name = config.Name,
+                baseUrl = config.BaseUrl,
+                host = await hostTask,
+                os = await osTask,
+                core = await coreTask,
+                supervisor = await supTask,
+                recentBackups = (await backupsTask).Take(5).ToList()
+            };
+        }
+        catch (Exception ex)
+        {
+            return new { error = ex.Message };
+        }
+    }
+
+    [McpServerTool]
+    [Description("Run a configuration check on Home Assistant Core before updating or restarting.")]
+    public async Task<object> check_home_assistant_core_config(
+        [Description("Optional instance ID.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_homeAssistantClientFactory == null || _adapterConfigService == null)
+            return new { error = "Home Assistant factory not available." };
+
+        var targetId = instanceId;
+        if (string.IsNullOrWhiteSpace(targetId))
+        {
+            var instances = await _adapterConfigService.GetHomeAssistantInstancesAsync(ct);
+            if (instances.Count == 0) return new { error = "No Home Assistant instances configured." };
+            targetId = instances[0].Id;
+        }
+
+        try
+        {
+            var (client, config, token) = await _homeAssistantClientFactory.ResolveAsync(targetId, ct);
+            return await client.CheckCoreConfigAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+        }
+        catch (Exception ex)
+        {
+            return new { isValid = false, errors = ex.Message };
+        }
+    }
+
+    [McpServerTool]
+    [Description("Create a full snapshot backup of a Home Assistant instance before maintenance.")]
+    public async Task<object> create_home_assistant_backup(
+        [Description("Optional backup name tag.")] string? name = null,
+        [Description("Optional instance ID.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_homeAssistantClientFactory == null || _adapterConfigService == null)
+            return new { error = "Home Assistant factory not available." };
+
+        var targetId = instanceId;
+        if (string.IsNullOrWhiteSpace(targetId))
+        {
+            var instances = await _adapterConfigService.GetHomeAssistantInstancesAsync(ct);
+            if (instances.Count == 0) return new { error = "No Home Assistant instances configured." };
+            targetId = instances[0].Id;
+        }
+
+        try
+        {
+            var (client, config, token) = await _homeAssistantClientFactory.ResolveAsync(targetId, ct);
+            var backupName = !string.IsNullOrWhiteSpace(name) ? name : $"ControlPlane-Backup-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
+            return await client.CreateBackupAsync(config.BaseUrl, token, backupName, null, config.AllowSelfSignedCert, ct);
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, message = ex.Message };
+        }
+    }
+
+    [McpServerTool]
+    [Description("Reboot the Home Assistant host operating system cleanly via the Supervisor API.")]
+    public async Task<object> reboot_home_assistant_host(
+        [Description("Optional instance ID.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_homeAssistantClientFactory == null || _adapterConfigService == null)
+            return new { error = "Home Assistant factory not available." };
+
+        var targetId = instanceId;
+        if (string.IsNullOrWhiteSpace(targetId))
+        {
+            var instances = await _adapterConfigService.GetHomeAssistantInstancesAsync(ct);
+            if (instances.Count == 0) return new { error = "No Home Assistant instances configured." };
+            targetId = instances[0].Id;
+        }
+
+        try
+        {
+            var (client, config, token) = await _homeAssistantClientFactory.ResolveAsync(targetId, ct);
+            var success = await client.RebootHostAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+            return new { success, instanceId = config.Id, message = success ? "Host OS reboot initiated." : "Failed to reboot host OS." };
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, error = ex.Message };
+        }
+    }
+
+    [McpServerTool]
+    [Description("Trigger an official Home Assistant OS (HAOS) OTA system update via the Supervisor API.")]
+    public async Task<object> trigger_home_assistant_update(
+        [Description("Optional instance ID.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_homeAssistantClientFactory == null || _adapterConfigService == null)
+            return new { error = "Home Assistant factory not available." };
+
+        var targetId = instanceId;
+        if (string.IsNullOrWhiteSpace(targetId))
+        {
+            var instances = await _adapterConfigService.GetHomeAssistantInstancesAsync(ct);
+            if (instances.Count == 0) return new { error = "No Home Assistant instances configured." };
+            targetId = instances[0].Id;
+        }
+
+        try
+        {
+            var (client, config, token) = await _homeAssistantClientFactory.ResolveAsync(targetId, ct);
+            var success = await client.UpdateOsAsync(config.BaseUrl, token, config.AllowSelfSignedCert, ct);
+            return new { success, instanceId = config.Id, message = success ? "Home Assistant OS OTA update initiated." : "Failed to trigger OS update." };
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, error = ex.Message };
+        }
     }
 }
 

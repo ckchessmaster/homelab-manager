@@ -2,6 +2,8 @@
 
 Standards for writing client-side web code for the ControlPlane Single-Page Application (SPA).
 
+> **CRITICAL GOVERNANCE:** When generating or modifying UI components, pages, or styles, strictly adhere to the rules, tokens, and component patterns defined in `/DESIGN_SYSTEM.md`. Never invent arbitrary hex colors, use pitch black (`#000000`) backgrounds, or build card grids for lists exceeding 6 items. Always use `<MetricStrip />` for summary stats, `<TableToolbar />` for filtering, and `<InspectorSheet />` for deep telemetry inspection.
+
 ## 1. Technology Choices
 * **Core:** React 19, TypeScript, Vite.
 * **Styling:** Tailwind CSS with modern design tokens (neutral dark modes, glassmorphism, accent badges).

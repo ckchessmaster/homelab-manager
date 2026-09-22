@@ -74,7 +74,7 @@ Phase 5: Unified Infrastructure Adapters & Multi-Platform Management Plane
 | **[Plan 03](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-03-ubiquiti-unifi-adapter.md)** | Ubiquiti UniFi Network Container Adapter | ✅ Completed |
 | **[Plan 04](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-04-grouped-inventory-and-apps.md)** | Modern Grouped Inventory & Application Workloads Hub | ✅ Completed |
 | **[Plan 05](file:///home/ckingdon/projects/homelab-manager/docs/plans/archive/phase5/phase5-05-opnsense-and-oob-adapters.md)** | OPNsense & Out-of-Band (iDRAC/Redfish) Adapters | ✅ Completed |
-| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-06-home-assistant-adapter.md)** | Home Assistant OS & Appliance Adapter | 🔄 In Progress |
+| **[Plan 06](file:///home/ckingdon/projects/homelab-manager/docs/plans/phase5-06-home-assistant-adapter.md)** | Home Assistant OS & Appliance Adapter | ✅ Completed |
 
 ---
 

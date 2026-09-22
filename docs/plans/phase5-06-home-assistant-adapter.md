@@ -100,14 +100,14 @@ tests/ControlPlane.Api.Tests/
 
 ## 📋 Task Checklist
 
-- [ ] Define Home Assistant DTOs (`HomeAssistantInstanceDto`, `HomeAssistantHostInfoDto`, `HomeAssistantOsInfoDto`, `HomeAssistantCoreInfoDto`, `HomeAssistantBackupDto`, `HomeAssistantOverviewDto`, `HomeAssistantTestResultDto`) in `HomeAssistantModels.cs` and `AdapterConfigModels.cs`.
-- [ ] Extend `IAdapterConfigService` and `AdapterConfigService` with Home Assistant instance storage, AES-256-GCM encryption, and secret masking.
-- [ ] Implement `IHomeAssistantClient` and `HomeAssistantClient` with Bearer token authentication, timeout handling, and custom TLS certificate validation.
-- [ ] Implement `IHomeAssistantClientFactory` and `HomeAssistantClientFactory`.
-- [ ] Implement REST endpoints in `HomeAssistantEndpoints.cs` and register them in `Program.cs`.
-- [ ] Implement Home Assistant MCP tools in `ControlPlaneMcpTools.cs`.
-- [ ] Integrate Home Assistant correlation in `DiscoveryService.cs`.
-- [ ] Implement frontend API client in `src/frontend/src/api/homeAssistant.ts` and React Query hooks in `useHomeAssistant.ts`.
-- [ ] Build `HomeAssistantAdaptersView.tsx` and `AddHomeAssistantModal.tsx`, integrating into `AdaptersView.tsx`.
-- [ ] Write backend unit & integration tests in `tests/ControlPlane.Api.Tests/HomeAssistantAdapterTests.cs`.
-- [ ] Verify `dotnet test` (all tests pass) and `npm run build` (clean Vite build).
+- [x] Define Home Assistant DTOs (`HomeAssistantInstanceDto`, `HomeAssistantHostInfoDto`, `HomeAssistantOsInfoDto`, `HomeAssistantCoreInfoDto`, `HomeAssistantBackupDto`, `HomeAssistantOverviewDto`, `HomeAssistantTestResultDto`) in `HomeAssistantModels.cs` and `AdapterConfigModels.cs`.
+- [x] Extend `IAdapterConfigService` and `AdapterConfigService` with Home Assistant instance storage, AES-256-GCM encryption, and secret masking.
+- [x] Implement `IHomeAssistantClient` and `HomeAssistantClient` with Bearer token authentication, timeout handling, and custom TLS certificate validation.
+- [x] Implement `IHomeAssistantClientFactory` and `HomeAssistantClientFactory`.
+- [x] Implement REST endpoints in `HomeAssistantEndpoints.cs` and register them in `Program.cs`.
+- [x] Implement Home Assistant MCP tools in `ControlPlaneMcpTools.cs`.
+- [x] Integrate Home Assistant correlation in `DiscoveryService.cs`.
+- [x] Implement frontend API client in `src/frontend/src/api/homeAssistant.ts` and React Query hooks in `useHomeAssistant.ts`.
+- [x] Build `HomeAssistantAdaptersView.tsx` and `AddHomeAssistantModal.tsx`, integrating into `AdaptersView.tsx`.
+- [x] Write backend unit & integration tests in `tests/ControlPlane.Api.Tests/HomeAssistantAdapterTests.cs`.
+- [x] Verify `dotnet test` (all tests pass) and `npm run build` (clean Vite build).

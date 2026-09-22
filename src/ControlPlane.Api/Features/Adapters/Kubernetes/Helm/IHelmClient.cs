@@ -19,6 +19,17 @@ public interface IHelmClient
         string releaseName,
         CancellationToken ct = default);
 
+    Task<HelmReleaseDetailDto?> GetReleaseDetailAsync(
+        string? kubeconfigYaml,
+        string? apiServerUrl,
+        string? token,
+        bool skipTlsVerify,
+        string namespaceName,
+        string releaseName,
+        int? revision,
+        CancellationToken ct = default)
+        => GetReleaseDetailAsync(kubeconfigYaml, apiServerUrl, token, skipTlsVerify, namespaceName, releaseName, ct);
+
     Task<List<HelmReleaseRevisionDto>> GetReleaseHistoryAsync(
         string? kubeconfigYaml,
         string? apiServerUrl,

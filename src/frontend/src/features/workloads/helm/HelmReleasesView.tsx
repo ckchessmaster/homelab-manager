@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Package,
   Sparkles,
@@ -8,31 +8,49 @@ import {
   Sliders,
   RotateCcw,
   Trash2,
+  Check,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
-import { useHelmReleases, useHelmReleaseDetail } from './useHelm'
+import { Select } from '../../../components/ui/select'
+import { useHelmReleases, useCheckHelmUpdates } from './useHelm'
 import { HelmCatalogModal } from './HelmCatalogModal'
 import { InstallHelmModal } from './InstallHelmModal'
 import { HelmReleaseDetailDrawer } from './HelmReleaseDetailDrawer'
 import { RollbackHelmModal } from './RollbackHelmModal'
 import { UninstallHelmModal } from './UninstallHelmModal'
-import type { HelmReleaseSummary, HelmCatalogItem, InstallHelmReleasePayload } from '../../../api/helm'
+import {
+  getHelmReleaseDetail,
+  type HelmReleaseSummary,
+  type HelmReleaseDetail,
+  type HelmCatalogItem,
+  type InstallHelmReleasePayload,
+} from '../../../api/helm'
 import { useAuthUser } from '../../auth/useAuthUser'
 
 interface HelmReleasesViewProps {
   activeClusterId: string
   selectedNamespace?: string
+  onNamespaceChange?: (namespace: string) => void
   availableNamespaces?: string[]
 }
 
 export function HelmReleasesView({
   activeClusterId,
   selectedNamespace,
+  onNamespaceChange,
   availableNamespaces = [],
 }: HelmReleasesViewProps) {
+  const [localNamespace, setLocalNamespace] = useState<string>(selectedNamespace || '')
+
+  useEffect(() => {
+    if (selectedNamespace !== undefined) {
+      setLocalNamespace(selectedNamespace)
+    }
+  }, [selectedNamespace])
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'deployed' | 'failed' | 'other'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'deployed' | 'failed' | 'outdated' | 'other'>('all')
 
   // Modals & Drawers state
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
@@ -50,13 +68,15 @@ export function HelmReleasesView({
     isLoading,
     isRefetching,
     refetch,
-  } = useHelmReleases(activeClusterId, selectedNamespace)
+  } = useHelmReleases(activeClusterId, localNamespace || undefined)
 
-  // Query detail for upgrade prefill if needed
-  const { data: upgradeDetail } = useHelmReleaseDetail(
-    activeClusterId,
-    detailRelease?.namespace || '',
-    detailRelease?.name || ''
+  const { mutate: checkUpdates, isPending: isCheckingUpdates } = useCheckHelmUpdates(activeClusterId)
+
+
+
+  const outdatedCount = useMemo(
+    () => releases.filter((r) => r.updateInfo?.isOutdated).length,
+    [releases]
   )
 
   const filteredReleases = useMemo(() => {
@@ -64,6 +84,7 @@ export function HelmReleasesView({
       // Status filter
       if (statusFilter === 'deployed' && r.status.toLowerCase() !== 'deployed') return false
       if (statusFilter === 'failed' && r.status.toLowerCase() !== 'failed') return false
+      if (statusFilter === 'outdated' && !r.updateInfo?.isOutdated) return false
       if (
         statusFilter === 'other' &&
         (r.status.toLowerCase() === 'deployed' || r.status.toLowerCase() === 'failed')
@@ -101,23 +122,60 @@ export function HelmReleasesView({
     setIsInstallOpen(true)
   }
 
-  const handleUpgradeRelease = (rel: HelmReleaseSummary) => {
-    setDetailRelease(null)
-    const storedRepo =
-      upgradeDetail?.repoUrl ||
-      localStorage.getItem(`helm_repo_${activeClusterId}_${rel.namespace}_${rel.name}`) ||
-      localStorage.getItem(`helm_chart_repo_${rel.chartName}`) ||
-      ''
+  const [upgradingReleaseKey, setUpgradingReleaseKey] = useState<string | null>(null)
 
-    setInstallInitialData({
-      releaseName: rel.name,
-      namespace: rel.namespace,
-      chartName: rel.chartName,
-      repoUrl: storedRepo,
-      version: rel.chartVersion,
-      valuesYaml: upgradeDetail?.valuesYaml || '',
-    })
-    setIsInstallOpen(true)
+  const handleUpgradeRelease = async (
+    rel: HelmReleaseSummary,
+    passedDetail?: HelmReleaseDetail | null,
+    overrideValuesYaml?: string
+  ) => {
+    const releaseKey = `${rel.namespace}/${rel.name}`
+    setUpgradingReleaseKey(releaseKey)
+
+    try {
+      let detail = passedDetail
+      if (!detail && overrideValuesYaml === undefined) {
+        try {
+          detail = await getHelmReleaseDetail(activeClusterId, rel.namespace, rel.name)
+        } catch (err) {
+          console.warn('Could not fetch live release detail before upgrade', err)
+        }
+      }
+
+      const storedRepo =
+        detail?.repoUrl ||
+        rel.updateInfo?.repoUrl ||
+        localStorage.getItem(`helm_repo_${activeClusterId}_${rel.namespace}_${rel.name}`) ||
+        localStorage.getItem(`helm_chart_repo_${rel.chartName}`) ||
+        ''
+
+      const targetVersion =
+        rel.updateInfo?.isOutdated && rel.updateInfo.latestVersion
+          ? rel.updateInfo.latestVersion
+          : rel.chartVersion
+
+      const cachedBackup =
+        localStorage.getItem(`helm_values_${activeClusterId}_${rel.namespace}_${rel.name}`) || ''
+
+      const resolvedValues =
+        overrideValuesYaml !== undefined
+          ? overrideValuesYaml
+          : (detail?.valuesYaml || cachedBackup || '')
+
+      setInstallInitialData({
+        releaseName: rel.name,
+        namespace: rel.namespace,
+        chartName: rel.chartName,
+        repoUrl: storedRepo,
+        version: targetVersion,
+        valuesYaml: resolvedValues,
+        reuseValues: !resolvedValues && !overrideValuesYaml,
+      })
+      setIsInstallOpen(true)
+      setDetailRelease(null)
+    } finally {
+      setUpgradingReleaseKey(null)
+    }
   }
 
   return (
@@ -135,6 +193,27 @@ export function HelmReleasesView({
               className="pl-9 bg-zinc-900 border-zinc-700 text-zinc-100 text-xs h-9"
             />
           </div>
+
+          {availableNamespaces.length > 0 && (
+            <div className="w-36">
+              <Select
+                value={localNamespace}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setLocalNamespace(val)
+                  onNamespaceChange?.(val)
+                }}
+                className="bg-zinc-900 border-zinc-700 text-zinc-100 text-xs h-9"
+              >
+                <option value="">All Namespaces</option>
+                {availableNamespaces.map((ns) => (
+                  <option key={ns} value={ns}>
+                    {ns}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
 
           {/* Status chips */}
           <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -159,6 +238,19 @@ export function HelmReleasesView({
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
               Deployed ({deployedCount})
             </button>
+            {outdatedCount > 0 && (
+              <button
+                onClick={() => setStatusFilter(statusFilter === 'outdated' ? 'all' : 'outdated')}
+                className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all flex items-center gap-1.5 ${
+                  statusFilter === 'outdated'
+                    ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
+                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
+                }`}
+              >
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                Updates Available ({outdatedCount})
+              </button>
+            )}
             {failedCount > 0 && (
               <button
                 onClick={() => setStatusFilter('failed')}
@@ -177,6 +269,18 @@ export function HelmReleasesView({
 
         {/* Action buttons */}
         <div className="flex items-center gap-2 self-end sm:self-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => checkUpdates({ force: true })}
+            disabled={isLoading || isRefetching || isCheckingUpdates}
+            className="h-8 text-xs border-zinc-700 hover:bg-zinc-800 text-zinc-300 flex items-center gap-1.5"
+            title="Check remote Helm repositories and Artifact Hub for chart updates"
+          >
+            <Sparkles className={`w-3.5 h-3.5 text-amber-400 ${isCheckingUpdates ? 'animate-spin' : ''}`} />
+            <span>{isCheckingUpdates ? 'Checking...' : 'Check Updates'}</span>
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -321,7 +425,32 @@ export function HelmReleasesView({
                       </td>
 
                       <td className="py-3 px-4 text-zinc-200 font-medium">
-                        {r.chart}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span>{r.chart}</span>
+                          </div>
+                          {r.updateInfo?.isOutdated ? (
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                title={r.updateInfo.message || `Version ${r.updateInfo.latestVersion} available`}
+                              >
+                                <Sparkles className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                Update: {r.updateInfo.latestVersion}
+                                {r.updateInfo.updateType && (
+                                  <span className="uppercase text-[9px] px-1 rounded bg-amber-500/20 font-mono font-semibold">
+                                    {r.updateInfo.updateType}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          ) : r.updateInfo && !r.updateInfo.isOutdated ? (
+                            <div className="flex items-center gap-1 text-[10px] text-emerald-400/80">
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              <span>Up to date</span>
+                            </div>
+                          ) : null}
+                        </div>
                       </td>
 
                       <td className="py-3 px-4 text-zinc-400 font-mono">
@@ -350,6 +479,31 @@ export function HelmReleasesView({
 
                           {isOperator && (
                             <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleUpgradeRelease(r)}
+                                disabled={upgradingReleaseKey === `${r.namespace}/${r.name}`}
+                                className={`h-7 px-2 ${
+                                  r.updateInfo?.isOutdated
+                                    ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-950/30'
+                                    : 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/20'
+                                }`}
+                                title={
+                                  r.updateInfo?.isOutdated
+                                    ? `Upgrade release to ${r.updateInfo.latestVersion}`
+                                    : 'Upgrade / Reconfigure Release'
+                                }
+                              >
+                                {upgradingReleaseKey === `${r.namespace}/${r.name}` ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                                ) : r.updateInfo?.isOutdated ? (
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Sliders className="w-3.5 h-3.5" />
+                                )}
+                              </Button>
+
                               <Button
                                 variant="ghost"
                                 size="sm"

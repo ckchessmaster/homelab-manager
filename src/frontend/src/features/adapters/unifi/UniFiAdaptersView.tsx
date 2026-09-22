@@ -402,10 +402,18 @@ export function UniFiAdaptersView() {
                                 <span>v{dev.version}</span>
                               </>
                             )}
-                            {dev.temperature && (
+                            {dev.temperature != null && (
                               <>
                                 <span>•</span>
-                                <span>{dev.temperature.toFixed(0)}°C</span>
+                                <span className="text-zinc-300 font-mono">{dev.temperature.toFixed(0)}°C</span>
+                              </>
+                            )}
+                            {dev.ports && dev.ports.some((p) => (p.poePowerWatts || 0) > 0) && (
+                              <>
+                                <span>•</span>
+                                <span className="text-amber-400 font-mono font-medium">
+                                  {dev.ports.reduce((acc, p) => acc + (p.poePowerWatts || 0), 0).toFixed(1)} W PoE
+                                </span>
                               </>
                             )}
                           </div>

@@ -3,6 +3,21 @@
 
 :root {
   color-scheme: dark;
+  --background: #09090b;
+  --surface: #18181b;
+  --surface-inset: rgba(9, 9, 11, 0.6);
+  --border: #27272a;
+  --primary: #0ea5e9;
+  --primary-hover: #0284c7;
+}
+
+@theme {
+  --color-background: #09090b;
+  --color-surface: #18181b;
+  --color-surface-inset: rgba(9, 9, 11, 0.6);
+  --color-border: #27272a;
+  --color-primary: #0ea5e9;
+  --color-primary-hover: #0284c7;
 }
 
 html,

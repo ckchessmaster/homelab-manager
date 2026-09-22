@@ -96,3 +96,28 @@ export async function testProxmoxInstanceConnection(id: string): Promise<Proxmox
     method: 'POST',
   })
 }
+
+export interface ProxmoxNodeVitals {
+  node: string
+  status: string
+  cpuUsagePct?: number | null
+  maxCpu?: number | null
+  memoryUsedBytes?: number | null
+  memoryMaxBytes?: number | null
+  memoryUsagePct?: number | null
+  uptimeSeconds?: number | null
+}
+
+export interface ProxmoxVitals {
+  instanceId: string
+  instanceName: string
+  version?: string | null
+  totalNodes: number
+  onlineNodes: number
+  nodes: ProxmoxNodeVitals[]
+  fetchedAt: string
+}
+
+export async function fetchProxmoxVitals(id: string): Promise<ProxmoxVitals> {
+  return apiClient<ProxmoxVitals>(`/api/v1/adapters/proxmox/instances/${encodeURIComponent(id)}/vitals`)
+}

@@ -99,6 +99,59 @@ public static class KubernetesEndpoints
 
         // --- Multi-Cluster Node Operations ---
 
+        group.MapGet("/clusters/{id}/vitals", async (
+            string id,
+            IKubernetesClientFactory clientFactory,
+            IAdapterConfigService configService,
+            CancellationToken ct) =>
+        {
+            var cluster = await configService.GetKubernetesClusterAsync(id, ct);
+            if (cluster == null)
+            {
+                return Results.NotFound(new { message = $"Cluster '{id}' not found." });
+            }
+
+            try
+            {
+                var adapter = await clientFactory.CreateAdapterAsync(id, ct);
+                var testResult = await adapter.TestConnectionAsync(ct);
+                var nodes = await adapter.ListNodesAsync(ct);
+                var pods = await adapter.ListPodsAsync(ct: ct);
+                var namespaces = await adapter.ListNamespacesAsync(ct);
+
+                var nodeVitals = nodes.Select(n => new K8sNodeVitalsDto(
+                    Name: n.Name,
+                    IsReady: n.IsReady,
+                    Unschedulable: n.Unschedulable,
+                    Roles: n.Roles,
+                    OsImage: n.OsImage,
+                    KernelVersion: n.KernelVersion,
+                    PodCount: pods.Count(p => string.Equals(p.NodeName, n.Name, StringComparison.OrdinalIgnoreCase))
+                )).ToList();
+
+                var vitals = new KubernetesClusterVitalsDto(
+                    ClusterId: cluster.Id,
+                    ClusterName: cluster.Name,
+                    TotalNodes: nodes.Count,
+                    ReadyNodes: nodes.Count(n => n.IsReady),
+                    TotalPods: pods.Count,
+                    RunningPods: pods.Count(p => string.Equals(p.Phase, "Running", StringComparison.OrdinalIgnoreCase)),
+                    TotalNamespaces: namespaces.Count,
+                    LatencyMs: testResult.LatencyMs,
+                    Nodes: nodeVitals,
+                    FetchedAt: DateTimeOffset.UtcNow
+                );
+
+                return Results.Ok(vitals);
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 500);
+            }
+        })
+        .WithName("GetKubernetesClusterVitals")
+        .WithSummary("Retrieve real-time node, pod, and connectivity vitals for a Kubernetes cluster");
+
         group.MapGet("/clusters/{id}/nodes", async (
             string id,
             IKubernetesClientFactory clientFactory,

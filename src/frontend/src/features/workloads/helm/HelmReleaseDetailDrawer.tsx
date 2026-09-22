@@ -10,20 +10,26 @@ import {
   History,
   FileText,
   Sliders,
+  Sparkles,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '../../../components/ui/button'
 import {
   useHelmReleaseDetail,
   useHelmReleaseHistory,
 } from './useHelm'
-import type { HelmReleaseSummary } from '../../../api/helm'
+import {
+  getHelmReleaseDetail,
+  type HelmReleaseSummary,
+  type HelmReleaseDetail,
+} from '../../../api/helm'
 
 interface HelmReleaseDetailDrawerProps {
   open: boolean
   onClose: () => void
   clusterId: string
   release: HelmReleaseSummary | null
-  onUpgrade?: (release: HelmReleaseSummary) => void
+  onUpgrade?: (release: HelmReleaseSummary, detail?: HelmReleaseDetail | null, overrideValuesYaml?: string) => void
   onRollback?: (release: HelmReleaseSummary) => void
   onUninstall?: (release: HelmReleaseSummary) => void
 }
@@ -41,6 +47,8 @@ export function HelmReleaseDetailDrawer({
 }: HelmReleaseDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<TabType>('values')
   const [copiedText, setCopiedText] = useState<string | null>(null)
+  const [valuesView, setValuesView] = useState<'custom' | 'computed'>('custom')
+  const [loadingRevisionValues, setLoadingRevisionValues] = useState<number | null>(null)
 
   const { data: detail, isLoading: isDetailLoading } = useHelmReleaseDetail(
     clusterId,
@@ -64,6 +72,21 @@ export function HelmReleaseDetailDrawer({
 
   const isDeployed = release.status.toLowerCase() === 'deployed'
   const isFailed = release.status.toLowerCase() === 'failed'
+  const updateInfo = detail?.updateInfo ?? release.updateInfo
+
+  const handleLoadRevisionValues = async (revNumber: number) => {
+    setLoadingRevisionValues(revNumber)
+    try {
+      const revDetail = await getHelmReleaseDetail(clusterId, release.namespace, release.name, revNumber)
+      if (onUpgrade) {
+        onUpgrade(release, revDetail, revDetail.valuesYaml || revDetail.computedValuesYaml || '')
+      }
+    } catch (err) {
+      console.error('Failed to load revision detail', err)
+    } finally {
+      setLoadingRevisionValues(null)
+    }
+  }
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
@@ -95,6 +118,17 @@ export function HelmReleaseDetailDrawer({
               <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
                 rev {release.revision}
               </span>
+              {updateInfo?.isOutdated ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  Update available
+                </span>
+              ) : updateInfo && !updateInfo.isOutdated ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  Up to date
+                </span>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3 text-xs text-zinc-400 mt-1">
@@ -118,6 +152,56 @@ export function HelmReleaseDetailDrawer({
           <X className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Outdated Chart Callout Banner */}
+      {updateInfo?.isOutdated && (
+        <div className="mx-4 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 mt-0.5">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 font-medium text-amber-200">
+                <span>Newer Chart Available:</span>
+                <span className="font-mono font-bold text-white bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30">
+                  {updateInfo.latestVersion}
+                </span>
+                {updateInfo.updateType && (
+                  <span className="uppercase text-[9px] px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300 font-mono font-bold">
+                    {updateInfo.updateType}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-amber-300/80 mt-1 flex-wrap">
+                <span>Current: <strong className="font-mono text-zinc-300">{release.chartVersion}</strong></span>
+                {updateInfo.latestAppVersion && (
+                  <>
+                    <span>•</span>
+                    <span>New App: <strong className="font-mono text-zinc-300">{updateInfo.latestAppVersion}</strong></span>
+                  </>
+                )}
+                {updateInfo.repoUrl && (
+                  <>
+                    <span>•</span>
+                    <span className="text-zinc-400 truncate max-w-xs">{updateInfo.repoUrl}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {onUpgrade && (
+            <Button
+              size="sm"
+              onClick={() => onUpgrade(release)}
+              className="h-7 text-xs bg-amber-600 hover:bg-amber-500 text-white font-medium shrink-0 flex items-center gap-1.5 self-end sm:self-auto shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Upgrade to {updateInfo.latestVersion}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 px-4 border-b border-zinc-800 bg-zinc-900/20">
@@ -177,38 +261,123 @@ export function HelmReleaseDetailDrawer({
         {isDetailLoading ? (
           <div className="py-16 text-center text-xs text-zinc-500">Loading release details...</div>
         ) : activeTab === 'values' ? (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-zinc-400">User-supplied configuration values</span>
-              {detail?.valuesYaml && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleCopy(detail.valuesYaml || '', 'values')}
-                  className="h-7 text-xs flex items-center gap-1"
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setValuesView('custom')}
+                  className={`text-xs px-2.5 py-1 rounded font-medium transition-all ${
+                    valuesView === 'custom'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
                 >
-                  {copiedText === 'values' ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-400" />
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3" />
-                      Copy YAML
-                    </>
-                  )}
-                </Button>
-              )}
+                  Custom Values (User)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setValuesView('computed')}
+                  className={`text-xs px-2.5 py-1 rounded font-medium transition-all ${
+                    valuesView === 'computed'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  Computed Values (All)
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {onUpgrade && (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      onUpgrade(
+                        release,
+                        detail,
+                        valuesView === 'custom'
+                          ? detail?.valuesYaml || ''
+                          : detail?.computedValuesYaml || ''
+                      )
+                    }
+                    className="h-7 text-xs bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1 shadow-sm"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    Configure Values
+                  </Button>
+                )}
+
+                {((valuesView === 'custom' && detail?.valuesYaml) ||
+                  (valuesView === 'computed' && detail?.computedValuesYaml)) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      handleCopy(
+                        valuesView === 'custom'
+                          ? detail?.valuesYaml || ''
+                          : detail?.computedValuesYaml || '',
+                        'values'
+                      )
+                    }
+                    className="h-7 text-xs flex items-center gap-1"
+                  >
+                    {copiedText === 'values' ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        Copy YAML
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
 
-            {detail?.valuesYaml ? (
-              <pre className="p-3.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-200 overflow-x-auto whitespace-pre leading-relaxed">
-                {detail.valuesYaml}
+            {valuesView === 'custom' ? (
+              detail?.valuesYaml ? (
+                <pre className="p-3.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-200 overflow-x-auto whitespace-pre leading-relaxed">
+                  {detail.valuesYaml}
+                </pre>
+              ) : (
+                <div className="p-8 text-center bg-zinc-900/40 border border-zinc-800 rounded-lg text-xs text-zinc-400 space-y-3">
+                  <p>No custom user values provided (this release is using default chart values).</p>
+                  <div className="flex items-center justify-center gap-2">
+                    {detail?.computedValuesYaml && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setValuesView('computed')}
+                        className="text-xs border-zinc-700 text-zinc-300"
+                      >
+                        Inspect Computed Values
+                      </Button>
+                    )}
+                    {onUpgrade && (
+                      <Button
+                        size="sm"
+                        onClick={() => onUpgrade(release, detail, '')}
+                        className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                        Configure Custom Values
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            ) : detail?.computedValuesYaml ? (
+              <pre className="p-3.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-200 overflow-x-auto whitespace-pre leading-relaxed max-h-[60vh]">
+                {detail.computedValuesYaml}
               </pre>
             ) : (
               <div className="p-8 text-center bg-zinc-900/40 border border-zinc-800 rounded-lg text-xs text-zinc-500">
-                No custom user values provided (using default chart values).
+                No computed values available.
               </div>
             )}
           </div>
@@ -296,17 +465,37 @@ export function HelmReleaseDetailDrawer({
                       )}
                     </div>
 
-                    {rev.revision !== release.revision && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => onRollback?.(release)}
-                        className="h-7 text-xs text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10 flex items-center gap-1"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        Rollback
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {onUpgrade && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={loadingRevisionValues === rev.revision}
+                          onClick={() => handleLoadRevisionValues(rev.revision)}
+                          className="h-7 text-xs text-indigo-400 hover:text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/10 flex items-center gap-1"
+                          title="Load configuration values from this revision into setup"
+                        >
+                          {loadingRevisionValues === rev.revision ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                          ) : (
+                            <FileCode className="w-3 h-3" />
+                          )}
+                          <span>Use Values in Setup</span>
+                        </Button>
+                      )}
+
+                      {rev.revision !== release.revision && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onRollback?.(release)}
+                          className="h-7 text-xs text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10 flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          Rollback
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -346,11 +535,32 @@ export function HelmReleaseDetailDrawer({
           </Button>
 
           <Button
-            onClick={() => onUpgrade?.(release)}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs flex items-center gap-1.5"
+            onClick={() =>
+              onUpgrade?.(
+                release,
+                detail,
+                valuesView === 'custom'
+                  ? detail?.valuesYaml || ''
+                  : detail?.computedValuesYaml || ''
+              )
+            }
+            className={`text-xs flex items-center gap-1.5 font-medium ${
+              updateInfo?.isOutdated
+                ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-sm'
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+            }`}
           >
-            <Sliders className="w-3.5 h-3.5" />
-            Upgrade Values
+            {updateInfo?.isOutdated ? (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                Upgrade to {updateInfo.latestVersion}
+              </>
+            ) : (
+              <>
+                <Sliders className="w-3.5 h-3.5" />
+                Configure / Upgrade Values
+              </>
+            )}
           </Button>
         </div>
       </div>

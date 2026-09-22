@@ -1,6 +1,7 @@
 namespace ControlPlane.Api.Features.Workloads;
 
 using ControlPlane.Api.Features.Adapters.Kubernetes;
+using ControlPlane.Api.Features.Workloads.ImageUpdates;
 
 public record WorkloadSummaryDto(
     string ClusterId,
@@ -16,7 +17,8 @@ public record WorkloadSummaryDto(
     string Kind = "Deployment",
     bool IsProtected = false,
     string? Schedule = null,
-    DateTime? LastScheduleTime = null
+    DateTime? LastScheduleTime = null,
+    ImageUpdateInfoDto? ImageUpdate = null
 );
 
 public record WorkloadAggregationResultDto(

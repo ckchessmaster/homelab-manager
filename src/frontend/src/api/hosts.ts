@@ -44,6 +44,18 @@ export interface HostedVmSummary {
   isOnline: boolean
 }
 
+export interface HostVitals {
+  cpuUsagePct?: number | null
+  memoryUsagePct?: number | null
+  diskFreePct?: number | null
+  temperatureCelsius?: number | null
+  powerWatts?: number | null
+  uptimeSeconds?: number | null
+  powerState?: string | null
+  healthStatus?: string | null
+  source?: string | null
+}
+
 export interface Host {
   id: string
   hostname: string
@@ -64,6 +76,7 @@ export interface Host {
   updatedAt: string
   hypervisor?: HypervisorHostSummary | null
   hostedVms?: HostedVmSummary[] | null
+  vitals?: HostVitals | null
 }
 
 export interface CreateHostPayload {
@@ -403,6 +416,10 @@ export async function rebootHost(hostId: string, pipelineId?: string, force = fa
     method: 'POST',
     body: JSON.stringify({ pipelineId, force }),
   })
+}
+
+export async function fetchHostVitals(hostId: string): Promise<HostVitals> {
+  return apiClient<HostVitals>(`/api/v1/hosts/${hostId}/vitals`)
 }
 
 export function isBaremetalHost(h: Host): boolean {

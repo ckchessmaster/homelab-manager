@@ -8,6 +8,7 @@ export interface K8sSecretSummary {
   keys: string[]
   creationTimestamp?: string | null
   isSystem?: boolean
+  usedBy?: string[]
 }
 
 export interface K8sSecretDetail {
@@ -36,6 +37,7 @@ export interface K8sConfigMapSummary {
   keys: string[]
   creationTimestamp?: string | null
   isSystem?: boolean
+  usedBy?: string[]
 }
 
 export interface K8sConfigMapDetail {

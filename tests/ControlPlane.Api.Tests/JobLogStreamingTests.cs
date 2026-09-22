@@ -86,7 +86,7 @@ public class JobLogStreamingTests
         }
 
         // 2. Connect SignalR client to /hubs/jobs
-        var receivedLines = new List<string>();
+        var receivedLines = new System.Collections.Concurrent.ConcurrentBag<string>();
         var logReceivedTcs = new TaskCompletionSource<bool>();
 
         var hubConnection = new HubConnectionBuilder()

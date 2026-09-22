@@ -25,3 +25,24 @@ public record ProxmoxProbeResponse(
     List<ProxmoxNodeDto>? Nodes = null,
     string? ErrorMessage = null
 );
+
+public record ProxmoxNodeVitalsDto(
+    string Node,
+    string Status,
+    double? CpuUsagePct = null,
+    long? MaxCpu = null,
+    long? MemoryUsedBytes = null,
+    long? MemoryMaxBytes = null,
+    double? MemoryUsagePct = null,
+    long? UptimeSeconds = null
+);
+
+public record ProxmoxVitalsDto(
+    string InstanceId,
+    string InstanceName,
+    string? Version,
+    int TotalNodes,
+    int OnlineNodes,
+    List<ProxmoxNodeVitalsDto> Nodes,
+    DateTimeOffset FetchedAt
+);

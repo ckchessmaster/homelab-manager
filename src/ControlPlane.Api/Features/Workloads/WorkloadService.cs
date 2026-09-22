@@ -2,22 +2,31 @@ using System.Text.RegularExpressions;
 using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
 using ControlPlane.Api.Features.Adapters.Kubernetes.Helm;
+using ControlPlane.Api.Features.Workloads.ImageUpdates;
 
 namespace ControlPlane.Api.Features.Workloads;
 
 public interface IWorkloadService
 {
     Task<WorkloadAggregationResultDto> GetAggregatedWorkloadsAsync(string? clusterId = null, string? namespaceName = null, CancellationToken ct = default);
+    Task<WorkloadAggregationResultDto> GetAggregatedWorkloadsAsync(string? clusterId, string? namespaceName, bool includeAll, CancellationToken ct = default);
     Task<List<K8sPodSummaryDto>> GetWorkloadPodsAsync(string clusterId, string namespaceName, string deploymentName, CancellationToken ct = default);
     Task<bool> RestartWorkloadAsync(string clusterId, string namespaceName, string name, CancellationToken ct = default);
     Task<bool> RestartWorkloadAsync(string clusterId, string namespaceName, string name, string kind, CancellationToken ct = default);
+    Task<bool> UpdateWorkloadImageAsync(string clusterId, string namespaceName, string name, string newImage, string? kind = "Deployment", string? containerName = null, CancellationToken ct = default);
     Task<bool> RecreateWorkloadPodsAsync(string clusterId, string namespaceName, string name, string kind = "Deployment", CancellationToken ct = default);
     Task<bool> ScaleWorkloadAsync(string clusterId, string namespaceName, string deploymentName, int replicas, CancellationToken ct = default);
     Task<bool> TriggerCronJobAsync(string clusterId, string namespaceName, string cronJobName, CancellationToken ct = default);
     Task<K8sAppBundleDto?> GetAppBundleAsync(string clusterId, string namespaceName, string appName, CancellationToken ct = default);
+    Task<string?> GetResourceYamlAsync(string clusterId, string namespaceName, string name, string? kind = null, CancellationToken ct = default);
     Task<K8sApplyResultDto> ApplyManifestYamlAsync(string clusterId, string yamlContent, bool dryRun = false, CancellationToken ct = default);
     Task<bool> DeleteAppBundleAsync(string clusterId, string namespaceName, string appName, K8sDeleteOptionsDto options, CancellationToken ct = default);
+    Task<List<K8sServiceSummaryDto>> ListServicesAsync(string clusterId, string? namespaceName = null, CancellationToken ct = default);
+    Task<K8sServiceDetailDto?> GetServiceAsync(string clusterId, string namespaceName, string serviceName, CancellationToken ct = default);
+    Task<K8sResourceOperationResultDto> UpdateServiceAsync(string clusterId, string namespaceName, string serviceName, K8sUpdateServiceRequestDto request, CancellationToken ct = default);
     Task<List<K8sIngressSummaryDto>> ListIngressesAsync(string clusterId, string? namespaceName = null, CancellationToken ct = default);
+    Task<K8sIngressDetailDto?> GetIngressAsync(string clusterId, string namespaceName, string ingressName, CancellationToken ct = default);
+    Task<K8sResourceOperationResultDto> UpdateIngressAsync(string clusterId, string namespaceName, string ingressName, K8sUpdateIngressRequestDto request, CancellationToken ct = default);
     Task<List<K8sCertificateSummaryDto>> ListCertificatesAsync(string clusterId, string? namespaceName = null, CancellationToken ct = default);
     Task<K8sStorageOverviewDto> GetStorageOverviewAsync(string clusterId, string? namespaceName = null, CancellationToken ct = default);
     Task<K8sClusterVitalsDto> GetClusterVitalsAsync(string clusterId, CancellationToken ct = default);
@@ -39,11 +48,19 @@ public interface IWorkloadService
     // Helm operations & Catalog
     Task<List<HelmReleaseSummaryDto>> ListHelmReleasesAsync(string clusterId, string? namespaceName = null, CancellationToken ct = default);
     Task<HelmReleaseDetailDto?> GetHelmReleaseAsync(string clusterId, string namespaceName, string releaseName, CancellationToken ct = default);
+    Task<HelmReleaseDetailDto?> GetHelmReleaseAsync(string clusterId, string namespaceName, string releaseName, int? revision, CancellationToken ct = default)
+        => GetHelmReleaseAsync(clusterId, namespaceName, releaseName, ct);
     Task<List<HelmReleaseRevisionDto>> GetHelmReleaseHistoryAsync(string clusterId, string namespaceName, string releaseName, CancellationToken ct = default);
     Task<HelmOperationResultDto> InstallOrUpgradeHelmReleaseAsync(string clusterId, InstallHelmReleaseRequestDto request, CancellationToken ct = default);
     Task<HelmOperationResultDto> RollbackHelmReleaseAsync(string clusterId, string namespaceName, string releaseName, int revision, CancellationToken ct = default);
     Task<HelmOperationResultDto> UninstallHelmReleaseAsync(string clusterId, string namespaceName, string releaseName, CancellationToken ct = default);
     IReadOnlyList<HelmCatalogItemDto> GetHelmCatalog();
+
+    // Pod Logs, Revisions & Rollbacks, Events
+    Task<string> GetPodLogsAsync(string clusterId, string namespaceName, string podName, string? container = null, int? tailLines = 100, CancellationToken ct = default);
+    Task<List<K8sDeploymentRevisionDto>> GetDeploymentRevisionsAsync(string clusterId, string namespaceName, string deploymentName, CancellationToken ct = default);
+    Task<bool> RollbackDeploymentAsync(string clusterId, string namespaceName, string deploymentName, int revision, CancellationToken ct = default);
+    Task<List<K8sEventDto>> GetClusterEventsAsync(string? clusterId, string? namespaceName = null, string? type = null, CancellationToken ct = default);
 }
 
 public class WorkloadService : IWorkloadService
@@ -52,6 +69,8 @@ public class WorkloadService : IWorkloadService
     private readonly IKubernetesClientFactory _clientFactory;
     private readonly IHelmClient? _helmClient;
     private readonly IHelmCatalogService? _catalogService;
+    private readonly IImageUpdateService? _imageUpdateService;
+    private readonly IHelmUpdateService? _helmUpdateService;
     private readonly ILogger<WorkloadService> _logger;
 
     public WorkloadService(
@@ -59,18 +78,29 @@ public class WorkloadService : IWorkloadService
         IKubernetesClientFactory clientFactory,
         ILogger<WorkloadService> logger,
         IHelmClient? helmClient = null,
-        IHelmCatalogService? catalogService = null)
+        IHelmCatalogService? catalogService = null,
+        IImageUpdateService? imageUpdateService = null,
+        IHelmUpdateService? helmUpdateService = null)
     {
         _configService = configService;
         _clientFactory = clientFactory;
         _logger = logger;
         _helmClient = helmClient;
         _catalogService = catalogService;
+        _imageUpdateService = imageUpdateService;
+        _helmUpdateService = helmUpdateService;
     }
 
-    public async Task<WorkloadAggregationResultDto> GetAggregatedWorkloadsAsync(
+    public Task<WorkloadAggregationResultDto> GetAggregatedWorkloadsAsync(
         string? clusterId = null,
         string? namespaceName = null,
+        CancellationToken ct = default)
+        => GetAggregatedWorkloadsAsync(clusterId, namespaceName, false, ct);
+
+    public async Task<WorkloadAggregationResultDto> GetAggregatedWorkloadsAsync(
+        string? clusterId,
+        string? namespaceName,
+        bool includeAll,
         CancellationToken ct = default)
     {
         var clusters = await _configService.GetKubernetesClustersAsync(ct);
@@ -104,8 +134,8 @@ public class WorkloadService : IWorkloadService
                     _logger.LogWarning(ex, "Failed to list namespaces for cluster {ClusterId}", cluster.Id);
                 }
 
-                // Collect all workload types (Deployments, StatefulSets, DaemonSets, CronJobs)
-                var workloads = await adapter.ListAllWorkloadsAsync(namespaceName, ct);
+                // Collect workloads and optionally extended resources
+                var workloads = await adapter.ListAllWorkloadsAsync(namespaceName, includeAll, ct);
                 foreach (var w in workloads)
                 {
                     allNamespaces.Add(w.Namespace);
@@ -114,6 +144,14 @@ public class WorkloadService : IWorkloadService
                     if (w.Kind == "CronJob")
                     {
                         status = w.Suspend == true ? "ScaledDown" : "Ready";
+                    }
+                    else if (w.Kind is "Service" or "Ingress" or "ConfigMap" or "Secret")
+                    {
+                        status = "Ready";
+                    }
+                    else if (w.Kind == "Job")
+                    {
+                        status = w.ReadyReplicas > 0 ? "Ready" : w.AvailableReplicas > 0 ? "Progressing" : "Ready";
                     }
                     else if (w.DesiredReplicas == 0)
                     {
@@ -132,6 +170,13 @@ public class WorkloadService : IWorkloadService
                         status = "Progressing";
                     }
 
+                    ImageUpdateInfoDto? imageUpdate = null;
+                    var primaryImage = w.Images.FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(primaryImage) && _imageUpdateService != null)
+                    {
+                        imageUpdate = _imageUpdateService.GetCached(primaryImage);
+                    }
+
                     allItems.Add(new WorkloadSummaryDto(
                         ClusterId: cluster.Id,
                         ClusterName: cluster.Name,
@@ -146,13 +191,39 @@ public class WorkloadService : IWorkloadService
                         Kind: w.Kind,
                         IsProtected: w.IsProtected,
                         Schedule: w.Schedule,
-                        LastScheduleTime: w.LastScheduleTime
+                        LastScheduleTime: w.LastScheduleTime,
+                        ImageUpdate: imageUpdate
                     ));
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to fetch workloads for cluster {ClusterId} ({ClusterName})", cluster.Id, cluster.Name);
+            }
+        }
+
+        // Fire-and-forget background pre-warm for uncached images
+        if (_imageUpdateService != null)
+        {
+            var uncachedImages = allItems
+                .SelectMany(w => w.Images)
+                .Where(img => !string.IsNullOrWhiteSpace(img) && _imageUpdateService.GetCached(img) == null)
+                .Distinct()
+                .ToList();
+
+            if (uncachedImages.Count > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _imageUpdateService.CheckImagesAsync(uncachedImages, false, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Background image update check prewarm failed");
+                    }
+                });
             }
         }
 
@@ -216,6 +287,29 @@ public class WorkloadService : IWorkloadService
         {
             _logger.LogError(ex, "Failed to restart {Kind} '{Namespace}/{Name}' in cluster {ClusterId}",
                 kind, namespaceName, name, clusterId);
+            return false;
+        }
+    }
+
+    public async Task<bool> UpdateWorkloadImageAsync(
+        string clusterId,
+        string namespaceName,
+        string name,
+        string newImage,
+        string? kind = "Deployment",
+        string? containerName = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var targetKind = !string.IsNullOrWhiteSpace(kind) ? kind : "Deployment";
+            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+            return await adapter.UpdateWorkloadImageAsync(targetKind, namespaceName, name, newImage, containerName, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update image for {Kind} '{Namespace}/{Name}' to '{Image}' in cluster {ClusterId}",
+                kind, namespaceName, name, newImage, clusterId);
             return false;
         }
     }
@@ -294,6 +388,26 @@ public class WorkloadService : IWorkloadService
         {
             _logger.LogError(ex, "Failed to get app bundle for '{Namespace}/{Name}' in cluster {ClusterId}",
                 namespaceName, appName, clusterId);
+            return null;
+        }
+    }
+
+    public async Task<string?> GetResourceYamlAsync(
+        string clusterId,
+        string namespaceName,
+        string name,
+        string? kind = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+            return await adapter.GetResourceYamlAsync(namespaceName, name, kind, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get resource YAML for {Kind}/{Name} in namespace '{Namespace}' in cluster {ClusterId}",
+                kind, name, namespaceName, clusterId);
             return null;
         }
     }
@@ -407,6 +521,60 @@ public class WorkloadService : IWorkloadService
         }
     }
 
+    public async Task<List<K8sServiceSummaryDto>> ListServicesAsync(
+        string clusterId,
+        string? namespaceName = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+            return await adapter.ListServicesAsync(namespaceName, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list Services in cluster {ClusterId}", clusterId);
+            return new List<K8sServiceSummaryDto>();
+        }
+    }
+
+    public async Task<K8sServiceDetailDto?> GetServiceAsync(
+        string clusterId,
+        string namespaceName,
+        string serviceName,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+            return await adapter.GetServiceAsync(namespaceName, serviceName, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get Service '{Namespace}/{Name}' in cluster {ClusterId}", namespaceName, serviceName, clusterId);
+            return null;
+        }
+    }
+
+    public async Task<K8sResourceOperationResultDto> UpdateServiceAsync(
+        string clusterId,
+        string namespaceName,
+        string serviceName,
+        K8sUpdateServiceRequestDto request,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+            return await adapter.UpdateServiceAsync(namespaceName, serviceName, request, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update Service '{Namespace}/{Name}' in cluster {ClusterId}", namespaceName, serviceName, clusterId);
+            return new K8sResourceOperationResultDto(false, $"Failed to update Service: {ex.Message}", serviceName);
+        }
+    }
+
     public async Task<List<K8sIngressSummaryDto>> ListIngressesAsync(
         string clusterId,
         string? namespaceName = null,
@@ -421,6 +589,43 @@ public class WorkloadService : IWorkloadService
         {
             _logger.LogError(ex, "Failed to list Ingresses in cluster {ClusterId}", clusterId);
             return new List<K8sIngressSummaryDto>();
+        }
+    }
+
+    public async Task<K8sIngressDetailDto?> GetIngressAsync(
+        string clusterId,
+        string namespaceName,
+        string ingressName,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+            return await adapter.GetIngressAsync(namespaceName, ingressName, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get Ingress '{Namespace}/{Name}' in cluster {ClusterId}", namespaceName, ingressName, clusterId);
+            return null;
+        }
+    }
+
+    public async Task<K8sResourceOperationResultDto> UpdateIngressAsync(
+        string clusterId,
+        string namespaceName,
+        string ingressName,
+        K8sUpdateIngressRequestDto request,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+            return await adapter.UpdateIngressAsync(namespaceName, ingressName, request, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update Ingress '{Namespace}/{Name}' in cluster {ClusterId}", namespaceName, ingressName, clusterId);
+            return new K8sResourceOperationResultDto(false, $"Failed to update Ingress: {ex.Message}", ingressName);
         }
     }
 
@@ -487,13 +692,51 @@ public class WorkloadService : IWorkloadService
             var token = rawCluster?.EncryptedToken;
             var skipTls = rawCluster?.SkipTlsVerify ?? true;
 
+            List<HelmReleaseSummaryDto> releases;
             if (_helmClient != null)
             {
-                return await _helmClient.ListReleasesAsync(kubeconfig, url, token, skipTls, namespaceName, ct);
+                releases = await _helmClient.ListReleasesAsync(kubeconfig, url, token, skipTls, namespaceName, ct);
+            }
+            else
+            {
+                var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+                releases = await adapter.ListHelmReleasesAsync(namespaceName, ct);
             }
 
-            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
-            return await adapter.ListHelmReleasesAsync(namespaceName, ct);
+            if (_helmUpdateService != null && releases.Count > 0)
+            {
+                var uncachedReleases = new List<HelmReleaseSummaryDto>();
+                var enriched = new List<HelmReleaseSummaryDto>(releases.Count);
+
+                foreach (var rel in releases)
+                {
+                    var update = _helmUpdateService.GetCached(rel.ChartName, rel.ChartVersion);
+                    if (update == null)
+                    {
+                        uncachedReleases.Add(rel);
+                    }
+                    enriched.Add(rel with { UpdateInfo = update });
+                }
+
+                if (uncachedReleases.Count > 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _helmUpdateService.CheckReleasesAsync(uncachedReleases, false, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "Background Helm update check prewarm failed");
+                        }
+                    });
+                }
+
+                return enriched;
+            }
+
+            return releases;
         }
         catch (Exception ex)
         {
@@ -502,10 +745,18 @@ public class WorkloadService : IWorkloadService
         }
     }
 
+    public Task<HelmReleaseDetailDto?> GetHelmReleaseAsync(
+        string clusterId,
+        string namespaceName,
+        string releaseName,
+        CancellationToken ct = default)
+        => GetHelmReleaseAsync(clusterId, namespaceName, releaseName, null, ct);
+
     public async Task<HelmReleaseDetailDto?> GetHelmReleaseAsync(
         string clusterId,
         string namespaceName,
         string releaseName,
+        int? revision,
         CancellationToken ct = default)
     {
         try
@@ -516,18 +767,29 @@ public class WorkloadService : IWorkloadService
             var token = rawCluster?.EncryptedToken;
             var skipTls = rawCluster?.SkipTlsVerify ?? true;
 
+            HelmReleaseDetailDto? detail;
             if (_helmClient != null)
             {
-                return await _helmClient.GetReleaseDetailAsync(kubeconfig, url, token, skipTls, namespaceName, releaseName, ct);
+                detail = await _helmClient.GetReleaseDetailAsync(kubeconfig, url, token, skipTls, namespaceName, releaseName, revision, ct);
+            }
+            else
+            {
+                var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+                detail = await adapter.GetHelmReleaseAsync(namespaceName, releaseName, revision, ct);
             }
 
-            var adapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
-            return await adapter.GetHelmReleaseAsync(namespaceName, releaseName, ct);
+            if (detail != null && _helmUpdateService != null)
+            {
+                var update = _helmUpdateService.GetCached(detail.ChartName, detail.ChartVersion);
+                detail = detail with { UpdateInfo = update };
+            }
+
+            return detail;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get Helm release '{Namespace}/{Release}' in cluster {ClusterId}",
-                namespaceName, releaseName, clusterId);
+            _logger.LogError(ex, "Failed to get Helm release '{Namespace}/{Release}' (rev: {Revision}) in cluster {ClusterId}",
+                namespaceName, releaseName, revision, clusterId);
             return null;
         }
     }
@@ -806,6 +1068,66 @@ public class WorkloadService : IWorkloadService
         {
             _logger.LogError(ex, "Failed to delete config map {Namespace}/{Name} in cluster {ClusterId}", namespaceName, configMapName, clusterId);
             throw;
+        }
+    }
+
+    public async Task<string> GetPodLogsAsync(string clusterId, string namespaceName, string podName, string? container = null, int? tailLines = 100, CancellationToken ct = default)
+    {
+        try
+        {
+            var effectiveClusterId = string.IsNullOrWhiteSpace(clusterId) ? null : clusterId.Trim();
+            var adapter = await _clientFactory.CreateAdapterAsync(effectiveClusterId, ct);
+            return await adapter.GetPodLogsAsync(namespaceName, podName, container, tailLines, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get logs for pod {Namespace}/{Pod} in cluster {ClusterId}", namespaceName, podName, clusterId);
+            return $"[ControlPlane] Error retrieving pod logs: {ex.Message}";
+        }
+    }
+
+    public async Task<List<K8sDeploymentRevisionDto>> GetDeploymentRevisionsAsync(string clusterId, string namespaceName, string deploymentName, CancellationToken ct = default)
+    {
+        try
+        {
+            var effectiveClusterId = string.IsNullOrWhiteSpace(clusterId) ? null : clusterId.Trim();
+            var adapter = await _clientFactory.CreateAdapterAsync(effectiveClusterId, ct);
+            return await adapter.GetDeploymentRevisionsAsync(namespaceName, deploymentName, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get deployment revisions for {Namespace}/{Deployment} in cluster {ClusterId}", namespaceName, deploymentName, clusterId);
+            return new List<K8sDeploymentRevisionDto> { new(1, DateTime.UtcNow, new List<string>(), 1, 1, true) };
+        }
+    }
+
+    public async Task<bool> RollbackDeploymentAsync(string clusterId, string namespaceName, string deploymentName, int revision, CancellationToken ct = default)
+    {
+        try
+        {
+            var effectiveClusterId = string.IsNullOrWhiteSpace(clusterId) ? null : clusterId.Trim();
+            var adapter = await _clientFactory.CreateAdapterAsync(effectiveClusterId, ct);
+            return await adapter.RollbackDeploymentAsync(namespaceName, deploymentName, revision, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to rollback deployment {Namespace}/{Deployment} to revision {Revision} in cluster {ClusterId}", namespaceName, deploymentName, revision, clusterId);
+            return false;
+        }
+    }
+
+    public async Task<List<K8sEventDto>> GetClusterEventsAsync(string? clusterId, string? namespaceName = null, string? type = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var effectiveClusterId = string.IsNullOrWhiteSpace(clusterId) ? null : clusterId.Trim();
+            var adapter = await _clientFactory.CreateAdapterAsync(effectiveClusterId, ct);
+            return await adapter.ListEventsAsync(namespaceName, type, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get cluster events for cluster {ClusterId}", clusterId);
+            return new List<K8sEventDto>();
         }
     }
 }

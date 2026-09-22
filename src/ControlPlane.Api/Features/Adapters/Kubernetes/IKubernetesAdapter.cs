@@ -46,7 +46,13 @@ public interface IKubernetesAdapter
         )).ToList();
     }
 
+    Task<List<K8sWorkloadItemDto>> ListAllWorkloadsAsync(string? namespaceName, bool includeAllResources, CancellationToken ct = default)
+        => ListAllWorkloadsAsync(namespaceName, ct);
+
     Task<bool> RestartWorkloadAsync(string kind, string namespaceName, string name, CancellationToken ct = default)
+        => Task.FromResult(true);
+
+    Task<bool> UpdateWorkloadImageAsync(string kind, string namespaceName, string name, string newImage, string? containerName = null, CancellationToken ct = default)
         => Task.FromResult(true);
 
     Task<bool> RecreateWorkloadPodsAsync(string kind, string namespaceName, string name, CancellationToken ct = default)
@@ -58,14 +64,32 @@ public interface IKubernetesAdapter
     Task<K8sAppBundleDto?> GetAppBundleAsync(string namespaceName, string appName, CancellationToken ct = default)
         => Task.FromResult<K8sAppBundleDto?>(null);
 
+    Task<string?> GetResourceYamlAsync(string namespaceName, string name, string? kind = null, CancellationToken ct = default)
+        => Task.FromResult<string?>(null);
+
     Task<K8sApplyResultDto> ApplyManifestYamlAsync(string yamlContent, bool dryRun = false, CancellationToken ct = default)
         => Task.FromResult(new K8sApplyResultDto(true, "Applied successfully", new List<string>()));
 
     Task<bool> DeleteAppBundleAsync(string namespaceName, string appName, K8sDeleteOptionsDto options, CancellationToken ct = default)
         => Task.FromResult(true);
 
+    Task<List<K8sServiceSummaryDto>> ListServicesAsync(string? namespaceName = null, CancellationToken ct = default)
+        => Task.FromResult(new List<K8sServiceSummaryDto>());
+
+    Task<K8sServiceDetailDto?> GetServiceAsync(string namespaceName, string serviceName, CancellationToken ct = default)
+        => Task.FromResult<K8sServiceDetailDto?>(null);
+
+    Task<K8sResourceOperationResultDto> UpdateServiceAsync(string namespaceName, string serviceName, K8sUpdateServiceRequestDto request, CancellationToken ct = default)
+        => Task.FromResult(new K8sResourceOperationResultDto(true, "Updated successfully.", serviceName));
+
     Task<List<K8sIngressSummaryDto>> ListIngressesAsync(string? namespaceName = null, CancellationToken ct = default)
         => Task.FromResult(new List<K8sIngressSummaryDto>());
+
+    Task<K8sIngressDetailDto?> GetIngressAsync(string namespaceName, string ingressName, CancellationToken ct = default)
+        => Task.FromResult<K8sIngressDetailDto?>(null);
+
+    Task<K8sResourceOperationResultDto> UpdateIngressAsync(string namespaceName, string ingressName, K8sUpdateIngressRequestDto request, CancellationToken ct = default)
+        => Task.FromResult(new K8sResourceOperationResultDto(true, "Updated successfully.", ingressName));
 
     Task<List<K8sCertificateSummaryDto>> ListCertificatesAsync(string? namespaceName = null, CancellationToken ct = default)
         => Task.FromResult(new List<K8sCertificateSummaryDto>());
@@ -88,6 +112,9 @@ public interface IKubernetesAdapter
 
     Task<HelmReleaseDetailDto?> GetHelmReleaseAsync(string namespaceName, string releaseName, CancellationToken ct = default)
         => Task.FromResult<HelmReleaseDetailDto?>(null);
+
+    Task<HelmReleaseDetailDto?> GetHelmReleaseAsync(string namespaceName, string releaseName, int? revision, CancellationToken ct = default)
+        => GetHelmReleaseAsync(namespaceName, releaseName, ct);
 
     Task<List<HelmReleaseRevisionDto>> GetHelmReleaseHistoryAsync(string namespaceName, string releaseName, CancellationToken ct = default)
         => Task.FromResult(new List<HelmReleaseRevisionDto>());
@@ -131,5 +158,20 @@ public interface IKubernetesAdapter
 
     Task<bool> DeleteConfigMapAsync(string namespaceName, string configMapName, CancellationToken ct = default)
         => Task.FromResult(true);
+
+    // Pod Logs & Diagnostics
+    Task<string> GetPodLogsAsync(string namespaceName, string podName, string? container = null, int? tailLines = 100, CancellationToken ct = default)
+        => Task.FromResult(string.Empty);
+
+    // Deployment Revisions & Rollback
+    Task<List<K8sDeploymentRevisionDto>> GetDeploymentRevisionsAsync(string namespaceName, string deploymentName, CancellationToken ct = default)
+        => Task.FromResult(new List<K8sDeploymentRevisionDto>());
+
+    Task<bool> RollbackDeploymentAsync(string namespaceName, string deploymentName, int revision, CancellationToken ct = default)
+        => Task.FromResult(true);
+
+    // Events
+    Task<List<K8sEventDto>> ListEventsAsync(string? namespaceName = null, string? type = null, CancellationToken ct = default)
+        => Task.FromResult(new List<K8sEventDto>());
 }
 

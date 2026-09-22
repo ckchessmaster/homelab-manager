@@ -8,8 +8,13 @@ import {
   TableRow,
 } from '../../components/ui/table'
 import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
+import {
+  TableToolbar,
+  TableToolbarSearch,
+  TableToolbarGroup,
+  TableToolbarActions,
+} from '../../components/ui/table-toolbar'
 import {
   OsBadge,
   TargetTypeBadge,
@@ -17,6 +22,7 @@ import {
   RebootBadge,
   UpdatesBadge,
 } from './HostStatusBadge'
+import { HostVitalsBadge } from './HostVitalsBadge'
 import { HostDetailsModal } from './HostDetailsModal'
 import { EditHostModal } from './EditHostModal'
 import { HostTerminalDrawer } from './HostTerminalDrawer'
@@ -33,7 +39,6 @@ import { WorkflowCanvasModal } from '../orchestration/canvas/WorkflowCanvasModal
 import { useActiveJobsByHost } from '../orchestration/useJobs'
 import type { JobSummary } from '../../api/jobs'
 import {
-  Search,
   Plus,
   RefreshCw,
   Trash2,
@@ -173,7 +178,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         `Correlations synchronized: ${res.correlatedKubernetesNodes} Kubernetes node(s) and ${res.correlatedProxmoxHosts} Proxmox host(s) updated in database.`
       )
       setTimeout(() => setSyncNotice(null), 6000)
-    } catch (err: unknown) {
+    } catch {
       setSyncNotice('Failed to synchronize correlations across adapters.')
       setTimeout(() => setSyncNotice(null), 6000)
     }
@@ -312,25 +317,20 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
       />
 
       {/* Controls / Filter & Action Bar */}
-      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl backdrop-blur-md">
-        <div className="flex flex-1 flex-wrap items-center gap-3">
-          {/* Search Box */}
-          <div className="relative min-w-[240px] flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-            <Input
-              placeholder="Search hostname, IP, friendly name..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 bg-zinc-950/80"
-            />
-          </div>
+      <TableToolbar>
+        <TableToolbarGroup className="flex-1">
+          <TableToolbarSearch
+            placeholder="Search hostname, IP, friendly name..."
+            value={searchTerm}
+            onChange={setSearchTerm}
+          />
 
           {/* OS Filter */}
           <div className="w-40">
             <Select
               value={selectedOs}
               onChange={(e) => setSelectedOs(e.target.value)}
-              className="bg-zinc-950/80"
+              className="bg-zinc-950/80 h-9 text-xs"
             >
               <option value="">All OS Families</option>
               <option value="linux_debian">Debian</option>
@@ -339,11 +339,11 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
               <option value="windows">Windows</option>
             </Select>
           </div>
-        </div>
+        </TableToolbarGroup>
 
         {/* Action Buttons: Seamlessly transforms between Fleet Tools and Selected Hosts Actions */}
         {selectedHostIds.size > 0 ? (
-          <div className="flex flex-wrap items-center gap-2 animate-in fade-in">
+          <TableToolbarActions className="animate-in fade-in">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-950/70 border border-sky-800/80 text-xs font-semibold text-sky-300">
               <span className="w-2 h-2 rounded-full bg-sky-400" />
               {selectedHostIds.size} Selected
@@ -398,9 +398,9 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             >
               Deselect
             </Button>
-          </div>
+          </TableToolbarActions>
         ) : (
-          <div className="flex items-center gap-2 self-end md:self-auto">
+          <TableToolbarActions>
             <Button
               variant="outline"
               size="sm"
@@ -481,9 +481,9 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                 Add Host
               </Button>
             </RoleGate>
-          </div>
+          </TableToolbarActions>
         )}
-      </div>
+      </TableToolbar>
 
       {/* Sync Correlation Feedback Notice */}
       {syncNotice && (
@@ -699,6 +699,8 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                 {/* Vitals */}
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-2">
+                    <HostVitalsBadge vitals={host.vitals} />
+
                     {activeJob ? (
                       <span
                         onClick={(e) => {
@@ -738,7 +740,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                         >
                           <UpdatesBadge count={host.agent.upgradablePackagesCount} />
                         </span>
-                        {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && (
+                        {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && !host.vitals && (
                           <span className="text-xs text-zinc-500">Clean</span>
                         )}
                       </>

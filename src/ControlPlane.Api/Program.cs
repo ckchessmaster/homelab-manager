@@ -8,6 +8,7 @@ using ControlPlane.Api.Features.Adapters.Redfish;
 using ControlPlane.Api.Features.Adapters.UniFi;
 using ControlPlane.Api.Features.Adapters.OPNsense;
 using ControlPlane.Api.Features.Adapters.Idrac;
+using ControlPlane.Api.Features.Adapters.HomeAssistant;
 using ControlPlane.Api.Features.Adoption;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
@@ -22,6 +23,7 @@ using ControlPlane.Api.Features.Orchestration.Temporal;
 using ControlPlane.Api.Features.Orchestration.Temporal.Endpoints;
 using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Features.Workloads;
+using ControlPlane.Api.Features.Workloads.ImageUpdates;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Security;
 using ControlPlane.Api.Storage;
@@ -78,8 +80,13 @@ builder.Services.AddScoped<IUniFiClient, UniFiClient>();
 builder.Services.AddScoped<IUniFiClientFactory, UniFiClientFactory>();
 builder.Services.AddScoped<IOPNsenseClient, OPNsenseClient>();
 builder.Services.AddScoped<IOPNsenseClientFactory, OPNsenseClientFactory>();
+builder.Services.AddScoped<IHomeAssistantClient, HomeAssistantClient>();
+builder.Services.AddScoped<IHomeAssistantClientFactory, HomeAssistantClientFactory>();
 builder.Services.AddSingleton<IHelmClient, HelmClient>();
 builder.Services.AddSingleton<IHelmCatalogService, HelmCatalogService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<IImageUpdateService, ImageUpdateService>();
+builder.Services.AddSingleton<IHelmUpdateService, HelmUpdateService>();
 builder.Services.AddScoped<IWorkloadService, WorkloadService>();
 builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddControlPlaneMcpServer(builder.Configuration);
@@ -123,6 +130,13 @@ builder.Services.AddHttpClient(IdracClient.InsecureHttpClientName)
     {
         ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
     });
+builder.Services.AddHttpClient(HomeAssistantClient.InsecureHttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    });
+builder.Services.AddHttpClient(ImageUpdateService.HttpClientName);
+builder.Services.AddHttpClient(HelmUpdateService.HttpClientName);
 
 
 builder.Services.AddOpenApi(options =>
@@ -222,6 +236,7 @@ app.MapRedfishEndpoints();
 app.MapIdracEndpoints();
 app.MapUniFiEndpoints();
 app.MapOPNsenseEndpoints();
+app.MapHomeAssistantEndpoints();
 app.MapKubernetesEndpoints();
 app.MapWorkloadEndpoints();
 app.MapDiscoveryEndpoints();

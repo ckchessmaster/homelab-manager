@@ -4,6 +4,7 @@ import { KubernetesAdaptersView } from './kubernetes/KubernetesAdaptersView'
 import { UniFiAdaptersView } from './unifi/UniFiAdaptersView'
 import { OPNsenseAdaptersView } from './opnsense/OPNsenseAdaptersView'
 import { IdracAdaptersView } from './idrac/IdracAdaptersView'
+import { HomeAssistantAdaptersView } from './homeAssistant/HomeAssistantAdaptersView'
 import { Badge } from '../../components/ui/badge'
 import {
   Server,
@@ -11,14 +12,16 @@ import {
   Shield,
   Layers,
   Wifi,
+  Home,
 } from 'lucide-react'
 import { useProxmoxInstances } from './useAdapters'
 import { useKubernetesClusters } from './kubernetes/useKubernetes'
 import { useUniFiInstances } from './unifi/useUniFi'
 import { useOPNsenseInstances } from './opnsense/useOPNsense'
 import { useIdracInstances } from './idrac/useIdrac'
+import { useHomeAssistantInstances } from './homeAssistant/useHomeAssistant'
 
-export type AdapterTab = 'proxmox' | 'kubernetes' | 'unifi' | 'opnsense' | 'idrac'
+export type AdapterTab = 'proxmox' | 'kubernetes' | 'unifi' | 'opnsense' | 'idrac' | 'homeassistant'
 
 export function AdaptersView() {
   const [activeTab, setActiveTab] = useState<AdapterTab>('proxmox')
@@ -27,6 +30,7 @@ export function AdaptersView() {
   const { data: unifiInstances } = useUniFiInstances()
   const { data: opnsenseInstances } = useOPNsenseInstances()
   const { data: idracInstances } = useIdracInstances()
+  const { data: haInstances } = useHomeAssistantInstances()
 
   const tabs: {
     id: AdapterTab
@@ -70,6 +74,13 @@ export function AdaptersView() {
       badge: idracInstances && idracInstances.length > 0 ? `${idracInstances.length}` : undefined,
       badgeVariant: 'purple',
     },
+    {
+      id: 'homeassistant',
+      label: 'Home Assistant',
+      icon: Home,
+      badge: haInstances && haInstances.length > 0 ? `${haInstances.length}` : undefined,
+      badgeVariant: 'purple',
+    },
   ]
 
   return (
@@ -111,6 +122,7 @@ export function AdaptersView() {
       {activeTab === 'unifi' && <UniFiAdaptersView />}
       {activeTab === 'opnsense' && <OPNsenseAdaptersView />}
       {activeTab === 'idrac' && <IdracAdaptersView />}
+      {activeTab === 'homeassistant' && <HomeAssistantAdaptersView />}
     </div>
   )
 }

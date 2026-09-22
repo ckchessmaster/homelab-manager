@@ -1,5 +1,19 @@
 import { apiClient } from './client'
 
+export interface HelmChartUpdateInfo {
+  chartName: string
+  currentVersion: string
+  latestVersion?: string | null
+  currentAppVersion?: string | null
+  latestAppVersion?: string | null
+  isOutdated: boolean
+  updateType?: 'major' | 'minor' | 'patch' | string | null
+  repoUrl?: string | null
+  message?: string | null
+  checkedAt?: string | null
+  availableVersions?: string[] | null
+}
+
 export interface HelmReleaseSummary {
   name: string
   namespace: string
@@ -12,6 +26,7 @@ export interface HelmReleaseSummary {
   appVersion: string
   description?: string | null
   notes?: string | null
+  updateInfo?: HelmChartUpdateInfo | null
 }
 
 export interface HelmReleaseDetail {
@@ -27,8 +42,10 @@ export interface HelmReleaseDetail {
   description?: string | null
   notes?: string | null
   valuesYaml?: string | null
+  computedValuesYaml?: string | null
   manifest?: string | null
   repoUrl?: string | null
+  updateInfo?: HelmChartUpdateInfo | null
 }
 
 export interface HelmReleaseRevision {
@@ -47,6 +64,8 @@ export interface InstallHelmReleasePayload {
   repoUrl?: string | null
   version?: string | null
   valuesYaml?: string | null
+  reuseValues?: boolean
+  resetValues?: boolean
   createNamespace?: boolean
   wait?: boolean
   timeoutSeconds?: number
@@ -95,13 +114,37 @@ export async function getHelmReleases(
   )
 }
 
+export async function getHelmUpdates(
+  clusterId: string
+): Promise<Record<string, HelmChartUpdateInfo>> {
+  return apiClient<Record<string, HelmChartUpdateInfo>>(
+    `/api/v1/kubernetes/${encodeURIComponent(clusterId)}/helm/updates`
+  )
+}
+
+export async function checkHelmUpdates(
+  clusterId: string,
+  force = false,
+  releaseNames?: string[]
+): Promise<Record<string, HelmChartUpdateInfo>> {
+  return apiClient<Record<string, HelmChartUpdateInfo>>(
+    `/api/v1/kubernetes/${encodeURIComponent(clusterId)}/helm/updates/check`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ force, releaseNames }),
+    }
+  )
+}
+
 export async function getHelmReleaseDetail(
   clusterId: string,
   namespaceName: string,
-  name: string
+  name: string,
+  revision?: number
 ): Promise<HelmReleaseDetail> {
+  const query = revision != null ? `?revision=${revision}` : ''
   return apiClient<HelmReleaseDetail>(
-    `/api/v1/kubernetes/${encodeURIComponent(clusterId)}/helm/releases/${encodeURIComponent(namespaceName)}/${encodeURIComponent(name)}`
+    `/api/v1/kubernetes/${encodeURIComponent(clusterId)}/helm/releases/${encodeURIComponent(namespaceName)}/${encodeURIComponent(name)}${query}`
   )
 }
 
@@ -155,3 +198,11 @@ export async function uninstallHelmRelease(
     }
   )
 }
+
+export async function getChartVersions(chartName: string, repoUrl?: string): Promise<string[]> {
+  const params = new URLSearchParams()
+  if (repoUrl) params.append('repoUrl', repoUrl)
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  return apiClient<string[]>(`/api/v1/kubernetes/helm/charts/${encodeURIComponent(chartName)}/versions${qs}`)
+}
+

@@ -18,6 +18,7 @@ public class AdapterConfigService : IAdapterConfigService
     public const string UniFiInstancesKey = "adapters:unifi:instances";
     public const string OPNsenseInstancesKey = "adapters:opnsense:instances";
     public const string IdracInstancesKey = "adapters:idrac:instances";
+    public const string HomeAssistantInstancesKey = "adapters:homeassistant:instances";
     public const string MaskedPlaceholder = "••••••••";
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -1240,6 +1241,154 @@ public class AdapterConfigService : IAdapterConfigService
             clean = "idrac";
         }
         return $"{clean}-{Guid.NewGuid():N}"[..Math.Min(16, clean.Length + 9)];
+    }
+
+    public async Task<List<HomeAssistantInstanceDto>> GetHomeAssistantInstancesAsync(CancellationToken ct = default)
+    {
+        var stored = await LoadStoredHomeAssistantInstancesAsync(ct);
+        return stored.Select(MapToHomeAssistantDto).ToList();
+    }
+
+    public async Task<HomeAssistantInstanceDto?> GetHomeAssistantInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredHomeAssistantInstancesAsync(ct);
+        var entry = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        return entry == null ? null : MapToHomeAssistantDto(entry);
+    }
+
+    public async Task<HomeAssistantStoredInstance?> GetRawHomeAssistantInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredHomeAssistantInstancesAsync(ct);
+        return stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task<HomeAssistantInstanceDto> SaveHomeAssistantInstanceAsync(SaveHomeAssistantInstanceRequest request, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredHomeAssistantInstancesAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+
+        var id = string.IsNullOrWhiteSpace(request.Id)
+            ? GenerateHomeAssistantInstanceId(request.Name)
+            : request.Id.Trim();
+
+        var existing = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+
+        var encryptedToken = existing?.EncryptedToken ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(request.Token) && request.Token != MaskedPlaceholder)
+        {
+            encryptedToken = _encryptionService.Encrypt(request.Token.Trim());
+        }
+
+        var entry = new HomeAssistantStoredInstance
+        {
+            Id = id,
+            Name = string.IsNullOrWhiteSpace(request.Name) ? id : request.Name.Trim(),
+            BaseUrl = (request.BaseUrl ?? string.Empty).Trim().TrimEnd('/'),
+            EncryptedToken = encryptedToken,
+            AllowSelfSignedCert = request.AllowSelfSignedCert,
+            UpdatedAt = now
+        };
+
+        if (existing != null)
+        {
+            var idx = stored.IndexOf(existing);
+            stored[idx] = entry;
+        }
+        else
+        {
+            stored.Add(entry);
+        }
+
+        await PersistHomeAssistantInstancesAsync(stored, ct);
+        _logger.LogInformation("Saved Home Assistant instance '{InstanceId}' ({Name})", entry.Id, entry.Name);
+        return MapToHomeAssistantDto(entry);
+    }
+
+    public async Task<bool> DeleteHomeAssistantInstanceAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await LoadStoredHomeAssistantInstancesAsync(ct);
+        var existing = stored.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (existing == null) return false;
+
+        stored.Remove(existing);
+        await PersistHomeAssistantInstancesAsync(stored, ct);
+        _logger.LogInformation("Deleted Home Assistant instance '{InstanceId}'", id);
+        return true;
+    }
+
+    private async Task<List<HomeAssistantStoredInstance>> LoadStoredHomeAssistantInstancesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var setting = await _dbContext.SystemSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Key == HomeAssistantInstancesKey, ct);
+
+            if (setting != null && !string.IsNullOrWhiteSpace(setting.ValueJson))
+            {
+                return JsonSerializer.Deserialize<List<HomeAssistantStoredInstance>>(setting.ValueJson, SerializerOptions)
+                    ?? new List<HomeAssistantStoredInstance>();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load Home Assistant instances from system settings.");
+        }
+
+        return new List<HomeAssistantStoredInstance>();
+    }
+
+    private async Task PersistHomeAssistantInstancesAsync(List<HomeAssistantStoredInstance> instances, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var json = JsonSerializer.Serialize(instances, SerializerOptions);
+
+        var setting = await _dbContext.SystemSettings
+            .FirstOrDefaultAsync(s => s.Key == HomeAssistantInstancesKey, ct);
+
+        if (setting == null)
+        {
+            _dbContext.SystemSettings.Add(new SystemSetting
+            {
+                Key = HomeAssistantInstancesKey,
+                ValueJson = json,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            setting.ValueJson = json;
+            setting.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync(ct);
+    }
+
+    private static HomeAssistantInstanceDto MapToHomeAssistantDto(HomeAssistantStoredInstance inst)
+    {
+        return new HomeAssistantInstanceDto(
+            Id: inst.Id,
+            Name: inst.Name,
+            BaseUrl: inst.BaseUrl,
+            TokenMasked: string.IsNullOrWhiteSpace(inst.EncryptedToken) ? string.Empty : MaskedPlaceholder,
+            HasToken: !string.IsNullOrWhiteSpace(inst.EncryptedToken),
+            AllowSelfSignedCert: inst.AllowSelfSignedCert,
+            UpdatedAt: inst.UpdatedAt
+        );
+    }
+
+    private static string GenerateHomeAssistantInstanceId(string name)
+    {
+        var clean = new string(name.ToLowerInvariant()
+            .Replace(' ', '-')
+            .Where(c => char.IsLetterOrDigit(c) || c == '-')
+            .ToArray()).Trim('-');
+
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            clean = "homeassistant";
+        }
+        return $"{clean}-{Guid.NewGuid():N}"[..Math.Min(20, clean.Length + 9)];
     }
 }
 

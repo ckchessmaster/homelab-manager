@@ -430,6 +430,12 @@ public class DiscoveryService : IDiscoveryService
                         || (!string.IsNullOrWhiteSpace(ip) && string.Equals(h.IpAddress, ip, StringComparison.OrdinalIgnoreCase))
                         || string.Equals(h.Hostname, name, StringComparison.OrdinalIgnoreCase));
 
+                    var roles = new List<string> { isLxc ? "container" : "virtual-machine" };
+                    if (detectedOs == "haos" || name.Contains("hass", StringComparison.OrdinalIgnoreCase) || name.Contains("homeassistant", StringComparison.OrdinalIgnoreCase))
+                    {
+                        roles.Add("home-assistant");
+                    }
+
                     candidates.Add(new DiscoveredCandidateDto(
                         Id: $"pve:{instanceId}:{res.Node}:{vmid}",
                         Source: "Proxmox",
@@ -441,7 +447,7 @@ public class DiscoveryService : IDiscoveryService
                         ProxmoxNode: res.Node,
                         ProxmoxVmid: vmid > 0 ? vmid : null,
                         ProxmoxInstanceId: instanceId,
-                        Roles: new List<string> { isLxc ? "container" : "virtual-machine" },
+                        Roles: roles,
                         IsManaged: matchedHost != null,
                         ExistingHostId: matchedHost?.Id,
                         ExistingHostname: matchedHost?.Hostname
@@ -667,6 +673,7 @@ public class DiscoveryService : IDiscoveryService
         if (lower.Contains("suse")) return "linux_suse";
         if (lower.Contains("win")) return "windows";
         if (lower.Contains("bsd")) return "freebsd";
+        if (lower.Contains("haos") || lower.Contains("hass") || lower.Contains("home assistant") || lower.Contains("homeassistant")) return "haos";
 
         return "linux_debian";
     }

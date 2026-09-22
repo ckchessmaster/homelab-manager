@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react'
 import {
   Compass,
   RefreshCw,
-  Search,
   CheckCircle2,
   Server,
   Cpu,
@@ -21,7 +20,12 @@ import { useSyncHostCorrelations } from '../hosts/useHosts'
 import { ImportCandidateModal } from './ImportCandidateModal'
 import { MassAdoptModal } from './MassAdoptModal'
 import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
+import { MetricStrip } from '../../components/ui/metric-strip'
+import {
+  TableToolbar,
+  TableToolbarSearch,
+  TableToolbarGroup,
+} from '../../components/ui/table-toolbar'
 import {
   Table,
   TableBody,
@@ -168,48 +172,47 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
         </div>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-zinc-400">Discovered Hosts</span>
-            <Layers className="h-4 w-4 text-zinc-500" />
-          </div>
-          <div className="text-2xl font-bold text-zinc-100 mt-1">{scanData?.totalDiscovered ?? 0}</div>
-          <div className="text-[11px] text-zinc-500 mt-1">Across all infrastructure adapters</div>
-        </div>
-
-        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-zinc-400">Unmanaged Targets</span>
-            <Compass className="h-4 w-4 text-sky-400" />
-          </div>
-          <div className="text-2xl font-bold text-sky-400 mt-1">{scanData?.unmanagedCount ?? 0}</div>
-          <div className="text-[11px] text-sky-500/80 mt-1">Available for 1-click adoption</div>
-        </div>
-
-        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-zinc-400">Already Managed</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="text-2xl font-bold text-emerald-400 mt-1">{scanData?.alreadyManaged ?? 0}</div>
-          <div className="text-[11px] text-emerald-500/80 mt-1">Bound in host inventory</div>
-        </div>
-
-        <div className="p-4 bg-zinc-900/40 border border-zinc-800/80 rounded-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-zinc-400">Active Adapters</span>
-            <Box className="h-4 w-4 text-purple-400" />
-          </div>
-          <div className="text-2xl font-bold text-purple-400 mt-1">
-            {activeSources.length > 0 ? activeSources.length : 4}
-          </div>
-          <div className="text-[11px] text-purple-500/80 mt-1 truncate" title={activeSources.length > 0 ? activeSources.join(', ') : 'Proxmox, K8s, UniFi, OPNsense'}>
-            {activeSources.length > 0 ? activeSources.join(', ') : 'Proxmox, K8s, UniFi, OPNsense'}
-          </div>
-        </div>
-      </div>
+      {/* Sleek Top Metric Strip */}
+      <MetricStrip
+        items={[
+          {
+            id: 'discovered',
+            label: 'Discovered Hosts',
+            value: scanData?.totalDiscovered ?? 0,
+            icon: Layers,
+            iconColor: 'text-zinc-400',
+            subtext: 'Across all infrastructure adapters',
+          },
+          {
+            id: 'unmanaged',
+            label: 'Unmanaged Targets',
+            value: scanData?.unmanagedCount ?? 0,
+            icon: Compass,
+            iconColor: 'text-sky-400',
+            badge: (scanData?.unmanagedCount ?? 0) > 0 ? `${scanData?.unmanagedCount} New` : undefined,
+            badgeVariant: 'warning',
+            subtext: 'Available for 1-click adoption',
+          },
+          {
+            id: 'managed',
+            label: 'Already Managed',
+            value: scanData?.alreadyManaged ?? 0,
+            icon: CheckCircle2,
+            iconColor: 'text-emerald-400',
+            badge: 'In Fleet',
+            badgeVariant: 'success',
+            subtext: 'Bound in host inventory',
+          },
+          {
+            id: 'active-adapters',
+            label: 'Active Adapters',
+            value: activeSources.length > 0 ? activeSources.length : 4,
+            icon: Box,
+            iconColor: 'text-purple-400',
+            subtext: activeSources.length > 0 ? activeSources.join(', ') : 'Proxmox, K8s, UniFi, OPNsense',
+          },
+        ]}
+      />
 
       {/* Success Notification Banner */}
       {successNotice && (
@@ -272,44 +275,38 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
-          <Input
+      {/* Filter and Search Toolbar */}
+      <TableToolbar>
+        <TableToolbarGroup className="flex-1">
+          <TableToolbarSearch
             placeholder="Search discovered hosts..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9 bg-zinc-900/60 border-zinc-800 text-xs h-9"
+            onChange={setSearchTerm}
           />
-        </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="flex items-center gap-2">
-            <select
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value as any)}
-              className="h-9 bg-zinc-900 border border-zinc-800 rounded-md px-3 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700"
-            >
-              <option value="all">All Sources</option>
-              <option value="Proxmox">Proxmox VE</option>
-              <option value="Kubernetes">Kubernetes</option>
-              <option value="UniFi">UniFi Network</option>
-              <option value="OPNsense">OPNsense Firewall</option>
-            </select>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value as any)}
+            className="h-9 bg-zinc-950/80 border border-zinc-800 rounded-lg px-3 text-xs text-zinc-300 focus:outline-none focus:border-sky-500/80 cursor-pointer"
+          >
+            <option value="all">All Sources</option>
+            <option value="Proxmox">Proxmox VE</option>
+            <option value="Kubernetes">Kubernetes</option>
+            <option value="UniFi">UniFi Network</option>
+            <option value="OPNsense">OPNsense Firewall</option>
+          </select>
 
-            <select
-              value={managementFilter}
-              onChange={(e) => setManagementFilter(e.target.value as any)}
-              className="h-9 bg-zinc-900 border border-zinc-800 rounded-md px-3 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700"
-            >
-              <option value="all">All Items</option>
-              <option value="unmanaged">Unmanaged Only</option>
-              <option value="managed">Already Managed</option>
-            </select>
-          </div>
-        </div>
-      </div>
+          <select
+            value={managementFilter}
+            onChange={(e) => setManagementFilter(e.target.value as any)}
+            className="h-9 bg-zinc-950/80 border border-zinc-800 rounded-lg px-3 text-xs text-zinc-300 focus:outline-none focus:border-sky-500/80 cursor-pointer"
+          >
+            <option value="all">All Items</option>
+            <option value="unmanaged">Unmanaged Only</option>
+            <option value="managed">Already Managed</option>
+          </select>
+        </TableToolbarGroup>
+      </TableToolbar>
 
       {/* Candidates Table */}
       <div className="border border-zinc-800 rounded-xl overflow-hidden bg-zinc-900/40">

@@ -5,6 +5,7 @@ import {
   probeProxmox,
   fetchProxmoxInstances,
   fetchProxmoxInstance,
+  fetchProxmoxVitals,
   saveProxmoxInstance,
   deleteProxmoxInstance,
   testProxmoxInstanceConnection,
@@ -81,7 +82,20 @@ export function useDeleteProxmoxInstance() {
 }
 
 export function useTestProxmoxInstance() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => testProxmoxInstanceConnection(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: [...PROXMOX_INSTANCES_QUERY_KEY, id, 'vitals'] })
+    },
+  })
+}
+
+export function useProxmoxVitals(id?: string | null, options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: [...PROXMOX_INSTANCES_QUERY_KEY, id, 'vitals'],
+    queryFn: () => (id ? fetchProxmoxVitals(id) : Promise.reject('No ID provided')),
+    enabled: Boolean(id),
+    refetchInterval: options?.refetchInterval ?? 10000,
   })
 }

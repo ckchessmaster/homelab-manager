@@ -42,6 +42,17 @@ public static class HostEndpoints
         .WithName("GetHostById")
         .WithSummary("Retrieve details of a single managed host");
 
+        group.MapGet("/{id:guid}/vitals", async (
+            Guid id,
+            HostService hostService,
+            CancellationToken cancellationToken) =>
+        {
+            var vitals = await hostService.GetHostVitalsAsync(id, cancellationToken);
+            return vitals == null ? Results.NotFound(new { message = $"Host with ID '{id}' was not found." }) : Results.Ok(vitals);
+        })
+        .WithName("GetHostVitals")
+        .WithSummary("Retrieve real-time resource and hardware vitals for a managed host");
+
         group.MapPost("/", async (
             CreateHostRequest request,
             HostService hostService,

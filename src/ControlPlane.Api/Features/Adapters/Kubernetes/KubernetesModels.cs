@@ -1,5 +1,28 @@
 namespace ControlPlane.Api.Features.Adapters.Kubernetes;
 
+public record K8sNodeVitalsDto(
+    string Name,
+    bool IsReady,
+    bool Unschedulable,
+    List<string> Roles,
+    string? OsImage,
+    string? KernelVersion,
+    int PodCount
+);
+
+public record KubernetesClusterVitalsDto(
+    string ClusterId,
+    string ClusterName,
+    int TotalNodes,
+    int ReadyNodes,
+    int TotalPods,
+    int RunningPods,
+    int TotalNamespaces,
+    long LatencyMs,
+    List<K8sNodeVitalsDto> Nodes,
+    DateTimeOffset FetchedAt
+);
+
 public record K8sNodeStatus(
     string NodeName,
     bool IsReady,
@@ -61,7 +84,8 @@ public record K8sPodSummaryDto(
     string? PodIp,
     int RestartCount,
     bool IsReady,
-    DateTime? StartTime
+    DateTime? StartTime,
+    List<string>? Containers = null
 );
 
 public record K8sScaleDeploymentRequest(
@@ -93,7 +117,19 @@ public record K8sAppPortMapping(
 public record K8sAppEnvVar(
     string Key,
     string Value,
-    bool IsSecret = false
+    bool IsSecret = false,
+    string? SecretName = null,
+    string? SecretKey = null,
+    string? ConfigMapName = null,
+    string? ConfigMapKey = null,
+    string? ContainerName = null
+);
+
+public record K8sAppEnvFromSource(
+    string? SecretRef = null,
+    string? ConfigMapRef = null,
+    string? Prefix = null,
+    string? ContainerName = null
 );
 
 public record K8sAppVolumeMount(
@@ -120,7 +156,8 @@ public record K8sAppBundleDto(
     string? CpuLimit = null,
     string? MemoryRequest = null,
     string? MemoryLimit = null,
-    string? RawYaml = null
+    string? RawYaml = null,
+    List<K8sAppEnvFromSource>? EnvFrom = null
 );
 
 public record K8sApplyRequestDto(
@@ -173,6 +210,82 @@ public record K8sIngressSummaryDto(
     DateTime? CreationTimestamp
 );
 
+public record K8sIngressDetailDto(
+    string Name,
+    string Namespace,
+    string? IngressClass,
+    List<string> Hosts,
+    List<K8sIngressRulePathDto> Paths,
+    List<string> TlsHosts,
+    string? TlsSecretName,
+    Dictionary<string, string> Annotations,
+    Dictionary<string, string>? Labels,
+    DateTime? CreationTimestamp,
+    string RawYaml
+);
+
+public record K8sServicePortDto(
+    string? Name,
+    int Port,
+    string? TargetPort,
+    string Protocol,
+    int? NodePort = null
+);
+
+public record K8sServiceSummaryDto(
+    string Name,
+    string Namespace,
+    string Type,
+    string? ClusterIp,
+    List<string>? ExternalIps,
+    List<K8sServicePortDto> Ports,
+    Dictionary<string, string>? Selector,
+    int EndpointsCount,
+    DateTime? CreationTimestamp
+);
+
+public record K8sServiceDetailDto(
+    string Name,
+    string Namespace,
+    string Type,
+    string? ClusterIp,
+    List<string>? ClusterIps,
+    List<string>? ExternalIps,
+    List<K8sServicePortDto> Ports,
+    Dictionary<string, string>? Selector,
+    Dictionary<string, string>? Annotations,
+    Dictionary<string, string>? Labels,
+    int EndpointsCount,
+    DateTime? CreationTimestamp,
+    string RawYaml
+);
+
+public record K8sUpdateServiceRequestDto(
+    string? RawYaml = null,
+    string? Type = null,
+    List<K8sServicePortDto>? Ports = null,
+    Dictionary<string, string>? Selector = null,
+    Dictionary<string, string>? Annotations = null,
+    Dictionary<string, string>? Labels = null
+);
+
+public record K8sUpdateIngressRequestDto(
+    string? RawYaml = null,
+    string? IngressClass = null,
+    List<string>? Hosts = null,
+    List<K8sIngressRulePathDto>? Paths = null,
+    bool? TlsEnabled = null,
+    string? TlsSecretName = null,
+    Dictionary<string, string>? Annotations = null
+);
+
+public record K8sResourceYamlDto(
+    string Name,
+    string Namespace,
+    string Kind,
+    string YamlContent
+);
+
 public record K8sCertificateSummaryDto(
     string Name,
     string Namespace,
@@ -181,7 +294,8 @@ public record K8sCertificateSummaryDto(
     bool IsReady,
     DateTime? RenewalTime,
     DateTime? NotAfter,
-    List<string> Conditions
+    List<string> Conditions,
+    List<string>? DnsNames = null
 );
 
 public record K8sPvcSummaryDto(
@@ -193,7 +307,10 @@ public record K8sPvcSummaryDto(
     string? StorageClass,
     List<string> AccessModes,
     List<string> MountingPods,
-    DateTime? CreationTimestamp
+    DateTime? CreationTimestamp,
+    long? UsedBytes = null,
+    long? CapacityBytes = null,
+    string? ReplicaHealth = null
 );
 
 public record K8sStorageClassDto(
@@ -213,6 +330,16 @@ public record K8sStorageOverviewDto(
     bool LonghornDetected
 );
 
+public record K8sVersionInfoDto(
+    string GitVersion,
+    string? Major = null,
+    string? Minor = null,
+    string? Platform = null,
+    string? LatestStableVersion = null,
+    bool IsOutdated = false,
+    string? UpdateType = null
+);
+
 public record K8sNodeVitalDto(
     string NodeName,
     long CpuUsageMillis,
@@ -222,7 +349,13 @@ public record K8sNodeVitalDto(
     bool DiskPressure,
     bool MemoryPressure,
     bool PidPressure,
-    bool Ready
+    bool Ready,
+    bool Unschedulable = false,
+    string? KubeletVersion = null,
+    string? OsImage = null,
+    string? KernelVersion = null,
+    string? ContainerRuntime = null,
+    string? Architecture = null
 );
 
 public record K8sPodVitalDto(
@@ -239,7 +372,8 @@ public record K8sClusterVitalsDto(
     long TotalMemoryUsageBytes,
     long TotalMemoryAllocatableBytes,
     List<K8sNodeVitalDto> Nodes,
-    List<K8sPodVitalDto> TopPods
+    List<K8sPodVitalDto> TopPods,
+    K8sVersionInfoDto? ServerVersion = null
 );
 
 // --- Individual Resources: Secrets & ConfigMaps ---
@@ -251,7 +385,8 @@ public record K8sSecretSummaryDto(
     int KeysCount,
     List<string> Keys,
     DateTime? CreationTimestamp,
-    bool IsSystem = false
+    bool IsSystem = false,
+    List<string>? UsedBy = null
 );
 
 public record K8sSecretDetailDto(
@@ -279,7 +414,8 @@ public record K8sConfigMapSummaryDto(
     int KeysCount,
     List<string> Keys,
     DateTime? CreationTimestamp,
-    bool IsSystem = false
+    bool IsSystem = false,
+    List<string>? UsedBy = null
 );
 
 public record K8sConfigMapDetailDto(
@@ -303,4 +439,30 @@ public record K8sResourceOperationResultDto(
     bool Success,
     string Message,
     string? ResourceName = null
+);
+
+public record K8sDeploymentRevisionDto(
+    int Revision,
+    DateTime? CreationTimestamp,
+    List<string> Images,
+    int Replicas,
+    int ReadyReplicas,
+    bool IsCurrent
+);
+
+public record K8sRollbackRequestDto(
+    int Revision
+);
+
+public record K8sEventDto(
+    string Name,
+    string Namespace,
+    string Type,
+    string Reason,
+    string Message,
+    string InvolvedObjectKind,
+    string InvolvedObjectName,
+    int? Count,
+    DateTime? LastTimestamp,
+    string? SourceComponent
 );

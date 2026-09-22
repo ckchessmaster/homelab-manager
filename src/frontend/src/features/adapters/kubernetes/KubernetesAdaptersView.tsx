@@ -10,6 +10,7 @@ import {
   XCircle,
   AlertCircle,
   ExternalLink,
+  Activity,
 } from 'lucide-react'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
@@ -17,6 +18,7 @@ import {
   useKubernetesClusters,
   useDeleteKubernetesCluster,
   useTestKubernetesClusterConnection,
+  useKubernetesClusterVitals,
 } from './useKubernetes'
 import { AddKubernetesModal } from './AddKubernetesModal'
 import { ClusterDetailDrawer } from './ClusterDetailDrawer'
@@ -144,123 +146,21 @@ export function KubernetesAdaptersView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {clusters.map((cluster) => {
-            const testResult = testResults[cluster.id]
-            const isTesting = testingId === cluster.id
-
-            return (
-              <div
-                key={cluster.id}
-                className="flex flex-col justify-between p-5 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 hover:border-zinc-700 transition-all shadow-lg backdrop-blur-sm group"
-              >
-                <div className="space-y-4">
-                  {/* Top info */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-sm text-zinc-100 group-hover:text-sky-400 transition-colors">
-                          {cluster.name}
-                        </h3>
-                        <Badge variant="success" className="text-[10px] px-1.5 py-0 font-mono">
-                          Ready
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-zinc-400 font-mono truncate max-w-[240px]">
-                        {cluster.apiServerUrl || (cluster.hasKubeConfig ? 'Kubeconfig File' : 'Default In-Cluster')}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => {
-                          setEditingCluster(cluster)
-                          setModalOpen(true)
-                        }}
-                        className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors"
-                        title="Edit Cluster"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(cluster)}
-                        className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors"
-                        title="Remove Cluster"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Badges / Metrics */}
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    {cluster.contextName && (
-                      <Badge variant="default" className="text-[10px] font-mono text-zinc-400">
-                        ctx: {cluster.contextName}
-                      </Badge>
-                    )}
-                    {cluster.skipTlsVerify && (
-                      <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        Insecure TLS
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Test Connection Banner */}
-                  {testResult && (
-                    <div
-                      className={`p-2.5 rounded-xl border text-xs space-y-1 ${
-                        testResult.success
-                          ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
-                          : 'bg-rose-950/30 border-rose-800/60 text-rose-200'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between font-medium">
-                        <span className="flex items-center gap-1.5">
-                          {testResult.success ? (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                          ) : (
-                            <XCircle className="h-3.5 w-3.5 text-rose-400" />
-                          )}
-                          {testResult.success ? 'API Online' : 'Failed'}
-                        </span>
-                        <span className="text-[10px] font-mono opacity-80">{testResult.latencyMs}ms</span>
-                      </div>
-                      {testResult.success ? (
-                        <div className="text-[11px] opacity-90">
-                          k8s {testResult.serverVersion} • {testResult.nodeCount} nodes
-                        </div>
-                      ) : (
-                        <p className="text-[11px] line-clamp-2 opacity-90">{testResult.message}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Card Footer Actions */}
-                <div className="pt-4 mt-4 border-t border-zinc-800/60 flex items-center justify-between gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => handleTestConnection(cluster)}
-                    disabled={isTesting}
-                    className="text-xs h-8 px-2.5 border-zinc-700 hover:bg-zinc-800 text-zinc-300"
-                  >
-                    <Radio className={`h-3 w-3 mr-1.5 ${isTesting ? 'animate-spin text-sky-400' : 'text-zinc-400'}`} />
-                    <span>{isTesting ? 'Pinging...' : 'Test API'}</span>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    onClick={() => setInspectingCluster(cluster)}
-                    className="text-xs h-8 px-3 border-sky-800/60 bg-sky-950/30 hover:bg-sky-900/40 text-sky-300 font-medium"
-                  >
-                    <ExternalLink className="h-3 w-3 mr-1.5" />
-                    <span>Manage Workloads</span>
-                  </Button>
-                </div>
-              </div>
-            )
-          })}
+          {clusters.map((cluster) => (
+            <KubernetesClusterCard
+              key={cluster.id}
+              cluster={cluster}
+              testResult={testResults[cluster.id]}
+              isTesting={testingId === cluster.id}
+              onEdit={(c) => {
+                setEditingCluster(c)
+                setModalOpen(true)
+              }}
+              onDelete={handleDelete}
+              onTest={handleTestConnection}
+              onInspect={setInspectingCluster}
+            />
+          ))}
         </div>
       )}
 
@@ -280,6 +180,191 @@ export function KubernetesAdaptersView() {
         open={Boolean(inspectingCluster)}
         onClose={() => setInspectingCluster(null)}
       />
+    </div>
+  )
+}
+
+interface KubernetesClusterCardProps {
+  cluster: KubernetesClusterDto
+  testResult?: KubernetesClusterTestResult
+  isTesting: boolean
+  onEdit: (cluster: KubernetesClusterDto) => void
+  onDelete: (cluster: KubernetesClusterDto) => void
+  onTest: (cluster: KubernetesClusterDto) => void
+  onInspect: (cluster: KubernetesClusterDto) => void
+}
+
+function KubernetesClusterCard({
+  cluster,
+  testResult,
+  isTesting,
+  onEdit,
+  onDelete,
+  onTest,
+  onInspect,
+}: KubernetesClusterCardProps) {
+  const { data: vitals } = useKubernetesClusterVitals(cluster.id)
+
+  return (
+    <div className="flex flex-col justify-between p-5 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 hover:border-zinc-700 transition-all shadow-lg backdrop-blur-sm group space-y-4">
+      <div className="space-y-4">
+        {/* Top info */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-sm text-zinc-100 group-hover:text-sky-400 transition-colors">
+                {cluster.name}
+              </h3>
+              <Badge variant="success" className="text-[10px] px-1.5 py-0 font-mono">
+                Ready
+              </Badge>
+            </div>
+            <p className="text-xs text-zinc-400 font-mono truncate max-w-[240px]">
+              {cluster.apiServerUrl || (cluster.hasKubeConfig ? 'Kubeconfig File' : 'Default In-Cluster')}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={() => onEdit(cluster)}
+              className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors"
+              title="Edit Cluster"
+            >
+              <Edit2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => onDelete(cluster)}
+              className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors"
+              title="Remove Cluster"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Badges / Metrics */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {cluster.contextName && (
+            <Badge variant="default" className="text-[10px] font-mono text-zinc-400">
+              ctx: {cluster.contextName}
+            </Badge>
+          )}
+          {cluster.skipTlsVerify && (
+            <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Insecure TLS
+            </span>
+          )}
+        </div>
+
+        {/* Cluster Vitals Strip */}
+        {vitals && (
+          <div className="p-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-400 font-medium flex items-center gap-1.5">
+                <Activity className="h-3.5 w-3.5 text-sky-400" />
+                Cluster Vitals
+              </span>
+              <span className="text-[10px] font-mono text-zinc-500">
+                {vitals.latencyMs}ms latency
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="p-2 bg-zinc-900/50 rounded-lg border border-zinc-800/60 space-y-0.5">
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Nodes</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-semibold text-zinc-100">
+                    {vitals.readyNodes} / {vitals.totalNodes}
+                  </span>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      vitals.readyNodes === vitals.totalNodes ? 'bg-emerald-400' : 'bg-amber-400'
+                    }`}
+                  />
+                  <span className="text-[10px] text-zinc-400">Ready</span>
+                </div>
+              </div>
+
+              <div className="p-2 bg-zinc-900/50 rounded-lg border border-zinc-800/60 space-y-0.5">
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Pods</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-semibold text-zinc-100">
+                    {vitals.runningPods} / {vitals.totalPods}
+                  </span>
+                  <span className="text-[10px] text-zinc-400">Running</span>
+                </div>
+              </div>
+
+              <div className="p-2 bg-zinc-900/50 rounded-lg border border-zinc-800/60 space-y-0.5">
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Namespaces</span>
+                <p className="font-mono font-semibold text-zinc-100">
+                  {vitals.totalNamespaces}
+                </p>
+              </div>
+
+              <div className="p-2 bg-zinc-900/50 rounded-lg border border-zinc-800/60 space-y-0.5">
+                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Latency</span>
+                <p className="font-mono font-semibold text-sky-400">
+                  {vitals.latencyMs} ms
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Test Connection Banner */}
+        {testResult && (
+          <div
+            className={`p-2.5 rounded-xl border text-xs space-y-1 ${
+              testResult.success
+                ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
+                : 'bg-rose-950/30 border-rose-800/60 text-rose-200'
+            }`}
+          >
+            <div className="flex items-center justify-between font-medium">
+              <span className="flex items-center gap-1.5">
+                {testResult.success ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5 text-rose-400" />
+                )}
+                {testResult.success ? 'API Online' : 'Failed'}
+              </span>
+              <span className="text-[10px] font-mono opacity-80">{testResult.latencyMs}ms</span>
+            </div>
+            {testResult.success ? (
+              <div className="text-[11px] opacity-90">
+                k8s {testResult.serverVersion} • {testResult.nodeCount} nodes
+              </div>
+            ) : (
+              <p className="text-[11px] line-clamp-2 opacity-90">{testResult.message}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Card Footer Actions */}
+      <div className="pt-4 mt-4 border-t border-zinc-800/60 flex items-center justify-between gap-2">
+        <Button
+          variant="outline"
+          onClick={() => onTest(cluster)}
+          disabled={isTesting}
+          className="text-xs h-8 px-2.5 border-zinc-700 hover:bg-zinc-800 text-zinc-300"
+        >
+          <Radio className={`h-3 w-3 mr-1.5 ${isTesting ? 'animate-spin text-sky-400' : 'text-zinc-400'}`} />
+          <span>{isTesting ? 'Pinging...' : 'Test API'}</span>
+        </Button>
+
+        <Button
+          variant="outline"
+          onClick={() => onInspect(cluster)}
+          className="text-xs h-8 px-3 border-sky-800/60 bg-sky-950/30 hover:bg-sky-900/40 text-sky-300 font-medium"
+        >
+          <ExternalLink className="h-3 w-3 mr-1.5" />
+          <span>Manage Workloads</span>
+        </Button>
+      </div>
     </div>
   )
 }

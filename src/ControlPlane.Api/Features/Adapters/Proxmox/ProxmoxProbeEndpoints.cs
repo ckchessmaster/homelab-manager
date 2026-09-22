@@ -155,6 +155,64 @@ public static class ProxmoxProbeEndpoints
         .WithName("TestProxmoxInstanceConnection")
         .WithSummary("Probe and verify connectivity to a specific saved Proxmox instance");
 
+        group.MapGet("/instances/{id}/vitals", async (
+            string id,
+            IProxmoxClientFactory clientFactory,
+            IAdapterConfigService configService,
+            CancellationToken ct) =>
+        {
+            var instance = await configService.GetProxmoxInstanceAsync(id, ct);
+            if (instance == null)
+            {
+                return Results.NotFound(new { message = $"Proxmox instance '{id}' not found." });
+            }
+
+            try
+            {
+                var client = await clientFactory.GetClientAsync(id, ct);
+                var nodes = await client.ListNodesAsync(ct);
+
+                var nodeVitals = nodes.Select(n =>
+                {
+                    double? cpuPct = n.Cpu.HasValue
+                        ? Math.Round(n.Cpu.Value <= 1.0 ? n.Cpu.Value * 100 : n.Cpu.Value, 1)
+                        : null;
+                    double? memPct = n.Memory.HasValue && n.MaxMemory.HasValue && n.MaxMemory.Value > 0
+                        ? Math.Round((double)n.Memory.Value / n.MaxMemory.Value * 100, 1)
+                        : null;
+
+                    return new ProxmoxNodeVitalsDto(
+                        Node: n.Node,
+                        Status: n.Status,
+                        CpuUsagePct: cpuPct,
+                        MaxCpu: n.MaxCpu,
+                        MemoryUsedBytes: n.Memory,
+                        MemoryMaxBytes: n.MaxMemory,
+                        MemoryUsagePct: memPct,
+                        UptimeSeconds: n.Uptime
+                    );
+                }).ToList();
+
+                var vitals = new ProxmoxVitalsDto(
+                    InstanceId: instance.Id,
+                    InstanceName: instance.Name,
+                    Version: null,
+                    TotalNodes: nodeVitals.Count,
+                    OnlineNodes: nodeVitals.Count(n => string.Equals(n.Status, "online", StringComparison.OrdinalIgnoreCase)),
+                    Nodes: nodeVitals,
+                    FetchedAt: DateTimeOffset.UtcNow
+                );
+
+                return Results.Ok(vitals);
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 500);
+            }
+        })
+        .WithName("GetProxmoxInstanceVitals")
+        .WithSummary("Retrieve real-time node and cluster vitals for a Proxmox VE instance");
+
         return group;
     }
 }

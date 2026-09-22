@@ -23,6 +23,7 @@ import type { JobSummary } from '../../api/jobs'
 import type { PlatformFilter } from './HostFilterPills'
 import { Badge } from '../../components/ui/badge'
 import { AgentStatusBadge, RebootBadge, UpdatesBadge } from './HostStatusBadge'
+import { HostVitalsBadge } from './HostVitalsBadge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -253,6 +254,7 @@ export function GroupedHostView({
         {/* Telemetry & Action Buttons */}
         <div className="flex items-center gap-3 shrink-0 ml-3">
           <div className="flex items-center gap-2">
+            <HostVitalsBadge vitals={host.vitals} />
             <AgentStatusBadge agent={host.agent} />
             <RebootBadge pending={host.agent.pendingReboot} />
             <UpdatesBadge count={host.agent.upgradablePackagesCount} />

@@ -387,4 +387,32 @@ public class HostEndpointsTests
         // It either resolved to an IP or accepted the valid FQDN
         Assert.False(string.IsNullOrWhiteSpace(created.IpAddress));
     }
+
+    [Fact]
+    public async Task GetHostVitals_ExistingHost_Returns200WithVitals()
+    {
+        using var factory = new HostTestAppFactory();
+        var client = CreateAuthClient(factory);
+
+        var listResp = await client.GetAsync("/api/v1/hosts");
+        var hosts = await listResp.Content.ReadFromJsonAsync<List<HostResponse>>();
+        Assert.NotNull(hosts);
+        var targetHost = hosts.First();
+
+        var vitalsResp = await client.GetAsync($"/api/v1/hosts/{targetHost.Id}/vitals");
+        Assert.Equal(HttpStatusCode.OK, vitalsResp.StatusCode);
+
+        var vitals = await vitalsResp.Content.ReadFromJsonAsync<HostVitalsDto>();
+        Assert.NotNull(vitals);
+    }
+
+    [Fact]
+    public async Task GetHostVitals_UnknownHost_Returns404()
+    {
+        using var factory = new HostTestAppFactory();
+        var client = CreateAuthClient(factory);
+
+        var vitalsResp = await client.GetAsync($"/api/v1/hosts/{Guid.NewGuid()}/vitals");
+        Assert.Equal(HttpStatusCode.NotFound, vitalsResp.StatusCode);
+    }
 }

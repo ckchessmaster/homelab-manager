@@ -201,6 +201,7 @@ public class DeterministicRebootTests
             new Uri(factory.Server.BaseAddress, $"/agent-hub?token=dev-secret-key-123&hostId={hostId}"),
             CancellationToken.None
         );
+        for (var i = 0; i < 50 && !connMgr.IsOnline(hostId); i++) await Task.Delay(10);
 
         string? executedProbe = null;
         var mockExecutor = new MockCommandExecutor
