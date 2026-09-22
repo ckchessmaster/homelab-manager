@@ -74,13 +74,15 @@ export function HelmReleasesView({
 
 
 
+  const releaseList = Array.isArray(releases) ? releases : []
+
   const outdatedCount = useMemo(
-    () => releases.filter((r) => r.updateInfo?.isOutdated).length,
-    [releases]
+    () => releaseList.filter((r) => r.updateInfo?.isOutdated).length,
+    [releaseList]
   )
 
   const filteredReleases = useMemo(() => {
-    return releases.filter((r) => {
+    return releaseList.filter((r) => {
       // Status filter
       if (statusFilter === 'deployed' && r.status.toLowerCase() !== 'deployed') return false
       if (statusFilter === 'failed' && r.status.toLowerCase() !== 'failed') return false
@@ -106,10 +108,10 @@ export function HelmReleasesView({
 
       return true
     })
-  }, [releases, statusFilter, searchQuery])
+  }, [releaseList, statusFilter, searchQuery])
 
-  const deployedCount = releases.filter((r) => r.status.toLowerCase() === 'deployed').length
-  const failedCount = releases.filter((r) => r.status.toLowerCase() === 'failed').length
+  const deployedCount = releaseList.filter((r) => r.status.toLowerCase() === 'deployed').length
+  const failedCount = releaseList.filter((r) => r.status.toLowerCase() === 'failed').length
 
   const handleSelectCatalogItem = (item: HelmCatalogItem) => {
     setInstallInitialData({

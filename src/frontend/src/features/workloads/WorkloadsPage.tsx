@@ -110,7 +110,7 @@ function getResourceIcon(kind?: string) {
 type SubTab = 'applications' | 'helm' | 'config' | 'network' | 'storage' | 'vitals'
 
 export function WorkloadsPage() {
-  const [currentSubTab, setCurrentSubTab] = useState<SubTab>('vitals')
+  const [currentSubTab, setCurrentSubTab] = useState<SubTab>('applications')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCluster, setSelectedCluster] = useState('')
   const [workloadNamespace, setWorkloadNamespace] = useState('')
@@ -169,7 +169,7 @@ export function WorkloadsPage() {
   // Filter client-side by kind, search query, and status chip
   const filteredItems = useMemo(() => {
     return items.filter((w) => {
-      const k = w.kind || ''
+      const k = w.kind || 'Deployment'
       // Kind filter
       if (kindFilter === 'main') {
         if (!MAIN_KINDS.includes(k)) return false
@@ -937,6 +937,40 @@ export function WorkloadsPage() {
                                       className="flex items-center justify-end gap-1 font-sans"
                                       onClick={(e) => e.stopPropagation()}
                                     >
+                                      {/* Direct Pods & Scale Action Buttons */}
+                                      {isPodWorkload && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setInspectPodsWorkload(w)
+                                            setDrawerInitialTab('pods')
+                                          }}
+                                          className="h-7 text-xs px-2 text-zinc-300 hover:text-zinc-100 gap-1 border-zinc-700 hover:bg-zinc-800"
+                                          title="Pods"
+                                        >
+                                          <Boxes className="h-3 w-3" />
+                                          Pods
+                                        </Button>
+                                      )}
+
+                                      {['Deployment', 'StatefulSet'].includes(k) && isOperator && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setScalingWorkload(w)
+                                          }}
+                                          className="h-7 text-xs px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 border-sky-800/40 gap-1"
+                                          title="Scale"
+                                        >
+                                          <Sliders className="h-3 w-3" />
+                                          Scale
+                                        </Button>
+                                      )}
+
                                       {/* Quick Logs Primary Action Button */}
                                       {isPodWorkload && (
                                         <Button

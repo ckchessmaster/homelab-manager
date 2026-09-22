@@ -1,6 +1,34 @@
 import { Page } from '@playwright/test'
 import type { Host } from '../../src/api/hosts'
 import type { DiscoveredCandidate, DiscoveryScanResult } from '../../src/api/discovery'
+import type { HelmCatalogItem } from '../../src/api/helm'
+
+export const INITIAL_MOCK_HELM_CATALOG: HelmCatalogItem[] = [
+  {
+    id: 'ingress-nginx',
+    name: 'Ingress NGINX',
+    category: 'Networking',
+    description: 'Ingress controller for Kubernetes using NGINX as a reverse proxy and load balancer.',
+    repoUrl: 'https://kubernetes.github.io/ingress-nginx',
+    chartName: 'ingress-nginx',
+    defaultNamespace: 'ingress-nginx',
+    defaultValuesYaml: '# Default values for ingress-nginx\ncontroller:\n  replicaCount: 1\n',
+    icon: 'Network',
+    officialUrl: 'https://kubernetes.github.io/ingress-nginx/',
+  },
+  {
+    id: 'prometheus-stack',
+    name: 'kube-prometheus-stack',
+    category: 'Monitoring',
+    description: 'Collection of Kubernetes manifests, Grafana dashboards, and Prometheus rules.',
+    repoUrl: 'https://prometheus-community.github.io/helm-charts',
+    chartName: 'kube-prometheus-stack',
+    defaultNamespace: 'monitoring',
+    defaultValuesYaml: '# Default values for kube-prometheus-stack\ngrafana:\n  enabled: true\n',
+    icon: 'Activity',
+    officialUrl: 'https://github.com/prometheus-community/helm-charts',
+  },
+]
 
 export const INITIAL_MOCK_HOSTS: Host[] = [
   {
@@ -718,6 +746,7 @@ export async function setupMockApi(page: Page, options?: {
       images: ['registry.k8s.io/ingress-nginx/controller:v1.9.4'],
       creationTimestamp: '2026-01-01T00:00:00Z',
       status: 'Ready',
+      kind: 'Deployment',
     },
     {
       clusterId: 'k8s-prod',
@@ -730,6 +759,7 @@ export async function setupMockApi(page: Page, options?: {
       images: ['prom/prometheus:v2.48.0'],
       creationTimestamp: '2026-01-02T00:00:00Z',
       status: 'Ready',
+      kind: 'Deployment',
     },
     {
       clusterId: 'k8s-prod',
@@ -742,6 +772,7 @@ export async function setupMockApi(page: Page, options?: {
       images: ['linuxserver/plex:latest'],
       creationTimestamp: '2026-01-03T00:00:00Z',
       status: 'Degraded',
+      kind: 'Deployment',
     },
   ]
 
@@ -819,6 +850,121 @@ export async function setupMockApi(page: Page, options?: {
         replicas: payload?.replicas ?? 1,
         message: 'Deployment scaled successfully.',
       }),
+    })
+  })
+
+  // Kubernetes Helm Catalog & Releases
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/helm\/catalog/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(INITIAL_MOCK_HELM_CATALOG),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/helm\/releases/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/helm\/updates/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({}),
+    })
+  })
+
+  // Kubernetes Secrets & ConfigMaps
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/secrets/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/configmaps/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  // Kubernetes Networking & Services
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/services/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/ingresses/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/certificates/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  // Kubernetes Storage & Vitals & Events
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/storage-overview/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        totalPvcs: 0,
+        boundPvcs: 0,
+        totalCapacityBytes: 0,
+        pvcs: [],
+        storageClasses: [],
+        longhornDetected: false,
+      }),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/vitals/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        metricsServerAvailable: false,
+        totalCpuUsageMillis: 0,
+        totalCpuAllocatableMillis: 0,
+        totalMemoryUsageBytes: 0,
+        totalMemoryAllocatableBytes: 0,
+        nodes: [],
+        topPods: [],
+      }),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/events/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/image-updates/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
     })
   })
 }

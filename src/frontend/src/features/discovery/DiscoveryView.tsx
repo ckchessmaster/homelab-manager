@@ -409,9 +409,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                           : candidate.source === 'UniFi'
                           ? candidate.roles?.includes('network-client')
                             ? 'Client'
+                            : candidate.targetType === 'switch'
+                            ? 'Switch'
+                            : candidate.targetType === 'access_point'
+                            ? 'AP'
+                            : candidate.targetType === 'gateway'
+                            ? 'Gateway'
                             : 'Device'
                           : candidate.source === 'OPNsense'
-                          ? candidate.roles?.includes('dhcp-lease')
+                          ? candidate.roles?.includes('firewall')
+                            ? 'Firewall'
+                            : candidate.roles?.includes('dhcp-lease')
                             ? 'DHCP'
                             : 'Lease'
                           : candidate.targetType === 'baremetal'
@@ -431,9 +439,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                         : candidate.k8sNodeName
                         ? candidate.k8sNodeName
                         : candidate.source === 'UniFi'
-                        ? 'UniFi Client'
+                        ? candidate.roles?.includes('network-device')
+                          ? (candidate.targetType === 'switch' ? 'UniFi Switch' : candidate.targetType === 'access_point' ? 'UniFi Access Point' : candidate.targetType === 'gateway' ? 'UniFi Gateway' : 'UniFi Device')
+                          : 'UniFi Client'
                         : candidate.source === 'OPNsense'
-                        ? 'DHCP Lease'
+                        ? candidate.roles?.includes('firewall')
+                          ? 'OPNsense Firewall'
+                          : 'DHCP Lease'
                         : '—'}
                     </div>
                   </TableCell>

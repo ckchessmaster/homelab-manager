@@ -67,6 +67,8 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
         proxmoxNode: candidate.proxmoxNode || undefined,
         proxmoxVmid: candidate.proxmoxVmid || undefined,
         k8sNodeName: candidate.k8sNodeName || undefined,
+        unifiSwitchMac: candidate.unifiSwitchMac || undefined,
+        unifiSwitchPort: candidate.unifiSwitchPort || undefined,
       })
 
       if (result.success && result.hostId) {
@@ -168,6 +170,12 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
                 <option value="proxmox_lxc">Proxmox LXC Container</option>
                 <option value="kubernetes_node">Kubernetes Node</option>
                 <option value="baremetal">Bare-Metal Server</option>
+                <option value="switch">UniFi Switch</option>
+                <option value="access_point">UniFi Access Point</option>
+                <option value="gateway">Network Gateway</option>
+                <option value="firewall">OPNsense Firewall</option>
+                <option value="network_device">Network Device</option>
+                <option value="appliance">Appliance</option>
               </select>
             </div>
 
@@ -184,6 +192,8 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
                 <option value="linux_arch">Arch Linux</option>
                 <option value="linux_alpine">Alpine Linux</option>
                 <option value="windows">Windows Server</option>
+                <option value="freebsd">FreeBSD (OPNsense)</option>
+                <option value="unifi_os">UniFi OS (Debian)</option>
               </select>
             </div>
           </div>

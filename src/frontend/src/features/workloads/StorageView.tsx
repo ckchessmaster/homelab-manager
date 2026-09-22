@@ -53,8 +53,8 @@ export function StorageView({
     isFetching,
   } = useStorageOverview(clusterId, effectiveNamespace)
 
-  const pvcs = storage?.pvcs || []
-  const storageClasses = storage?.storageClasses || []
+  const pvcs = Array.isArray(storage?.pvcs) ? storage.pvcs : []
+  const storageClasses = Array.isArray(storage?.storageClasses) ? storage.storageClasses : []
 
   const filteredPvcs = pvcs.filter((p) => {
     if (!searchTerm.trim()) return true

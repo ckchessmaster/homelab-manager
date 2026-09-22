@@ -21,7 +21,10 @@ import {
 export function useHelmCatalog() {
   return useQuery<HelmCatalogItem[]>({
     queryKey: ['helm-catalog'],
-    queryFn: getHelmCatalog,
+    queryFn: async () => {
+      const data = await getHelmCatalog()
+      return Array.isArray(data) ? data : []
+    },
     staleTime: 1000 * 60 * 30, // 30 minutes
   })
 }
@@ -29,7 +32,10 @@ export function useHelmCatalog() {
 export function useHelmReleases(clusterId: string, namespaceName?: string) {
   return useQuery<HelmReleaseSummary[]>({
     queryKey: ['helm-releases', clusterId, namespaceName || 'all'],
-    queryFn: () => getHelmReleases(clusterId, namespaceName),
+    queryFn: async () => {
+      const data = await getHelmReleases(clusterId, namespaceName)
+      return Array.isArray(data) ? data : []
+    },
     enabled: Boolean(clusterId),
     refetchInterval: 15000,
   })

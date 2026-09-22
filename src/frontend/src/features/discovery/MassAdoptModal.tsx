@@ -69,6 +69,8 @@ export const MassAdoptModal: React.FC<MassAdoptModalProps> = ({
         proxmoxNode: c.proxmoxNode || undefined,
         proxmoxVmid: c.proxmoxVmid || undefined,
         k8sNodeName: c.k8sNodeName || undefined,
+        unifiSwitchMac: c.unifiSwitchMac || undefined,
+        unifiSwitchPort: c.unifiSwitchPort || undefined,
       })),
       commonTargetType: commonTargetType !== 'auto' ? commonTargetType : undefined,
       commonOsFamily: commonOsFamily !== 'auto' ? commonOsFamily : undefined,
@@ -214,6 +216,9 @@ export const MassAdoptModal: React.FC<MassAdoptModalProps> = ({
                   <option value="proxmox_vm">Proxmox QEMU VM</option>
                   <option value="proxmox_lxc">Proxmox LXC Container</option>
                   <option value="baremetal">Baremetal Server</option>
+                  <option value="switch">UniFi Switch</option>
+                  <option value="firewall">OPNsense Firewall</option>
+                  <option value="network_device">Network Device</option>
                 </select>
               </div>
 
@@ -231,6 +236,8 @@ export const MassAdoptModal: React.FC<MassAdoptModalProps> = ({
                   <option value="linux_ubuntu">Ubuntu LTS</option>
                   <option value="linux_rhel">RHEL / Rocky / Alma</option>
                   <option value="linux_alpine">Alpine Linux</option>
+                  <option value="freebsd">FreeBSD / OPNsense</option>
+                  <option value="unifi_os">UniFi OS</option>
                 </select>
               </div>
             </div>

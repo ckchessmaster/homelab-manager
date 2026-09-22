@@ -107,7 +107,8 @@ export function ConfigSecretsView({
 
   // Filtered Secrets
   const filteredSecrets = useMemo(() => {
-    return secrets.filter((s) => {
+    const list = Array.isArray(secrets) ? secrets : []
+    return list.filter((s) => {
       if (hideSystem && s.isSystem) return false
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase()
@@ -122,7 +123,8 @@ export function ConfigSecretsView({
 
   // Filtered ConfigMaps
   const filteredConfigMaps = useMemo(() => {
-    return configMaps.filter((c) => {
+    const list = Array.isArray(configMaps) ? configMaps : []
+    return list.filter((c) => {
       if (hideSystem && c.isSystem) return false
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase()

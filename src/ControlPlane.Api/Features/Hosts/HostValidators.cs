@@ -16,7 +16,9 @@ public static partial class HostValidators
         "linux_alpine",
         "linux_suse",
         "windows",
-        "freebsd"
+        "freebsd",
+        "unifi_os",
+        "haos"
     };
 
     private static readonly HashSet<string> AllowedTargetTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -27,7 +29,13 @@ public static partial class HostValidators
         "proxmox_lxc",
         "hypervisor",
         "kubernetes_node",
-        "k8s_node"
+        "k8s_node",
+        "switch",
+        "access_point",
+        "gateway",
+        "network_device",
+        "firewall",
+        "appliance"
     };
 
     private static readonly Regex HostnameRegex = new(

@@ -42,8 +42,8 @@ test.describe('Modern Grouped Inventory & Application Workloads Hub', () => {
     await page.getByRole('button', { name: /Applications & Workloads/i }).click()
 
     // Header and metrics should appear
-    await expect(page.getByRole('heading', { name: 'Applications & Workloads' })).toBeVisible()
-    await expect(page.getByText(/Total Deployments/i)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Applications & Workloads', exact: true })).toBeVisible()
+    await expect(page.getByText(/Total (Workloads|Deployments)/i)).toBeVisible()
     await expect(page.getByText('nginx-ingress-controller')).toBeVisible()
     await expect(page.getByText('prometheus-server')).toBeVisible()
     await expect(page.getByText('plex-media-server')).toBeVisible()

@@ -3,6 +3,7 @@ using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
 using ControlPlane.Api.Features.Adapters.OPNsense;
 using ControlPlane.Api.Features.Adapters.Proxmox;
+using ControlPlane.Api.Features.Adapters.UniFi;
 using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Storage;
@@ -607,8 +608,41 @@ public class DiscoveryTests
         public IOPNsenseClient GetClient() => Client;
     }
 
+    private class FakeUniFiClient : IUniFiClient
+    {
+        public List<UniFiDeviceDto> Devices { get; set; } = new();
+        public List<UniFiMacLease> Clients { get; set; } = new();
+
+        public Task<bool> LoginAsync(string controllerUrl, string username, string password, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<UniFiTestResultDto> TestConnectionAsync(string controllerUrl, string? username, string? password, string site = "default", string? apiKey = null, CancellationToken ct = default) => Task.FromResult(new UniFiTestResultDto(true, "8.0", 1, 1, new List<string> { "default" }, 5, null));
+        public Task<List<UniFiDeviceDto>> GetDevicesAsync(string controllerUrl, string? username, string? password, string site = "default", string? apiKey = null, CancellationToken ct = default) => Task.FromResult(Devices);
+        public Task<bool> RestartDeviceAsync(string controllerUrl, string? username, string? password, string deviceMac, string site = "default", string? apiKey = null, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> UpgradeDeviceAsync(string controllerUrl, string? username, string? password, string deviceMac, string site = "default", string? apiKey = null, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<UniFiBounceResult> CyclePoEPortAsync(string controllerUrl, string? username, string? password, string switchMac, int portNumber, string site = "default", int delaySeconds = 5, string? apiKey = null, CancellationToken ct = default) => Task.FromResult(new UniFiBounceResult(true, "OK", switchMac, portNumber));
+        public Task<List<UniFiMacLease>> GetActiveClientsAsync(string controllerUrl, string? username, string? password, string site = "default", string? apiKey = null, CancellationToken ct = default) => Task.FromResult(Clients);
+    }
+
+    private class FakeUniFiClientFactory : IUniFiClientFactory
+    {
+        public FakeUniFiClient Client { get; } = new();
+        public List<UniFiStoredInstance> Instances { get; set; } = new();
+
+        public Task<(IUniFiClient Client, UniFiStoredInstance Config, string Password, string? ApiKey)> ResolveAsync(string instanceId, CancellationToken ct = default)
+        {
+            var match = Instances.First(i => i.Id == instanceId);
+            return Task.FromResult<(IUniFiClient, UniFiStoredInstance, string, string?)>((Client, match, "password", "api-key"));
+        }
+
+        public Task<List<(UniFiStoredInstance Config, string Password, string? ApiKey)>> ResolveAllAsync(CancellationToken ct = default)
+        {
+            return Task.FromResult(Instances.Select(i => (i, "password", (string?)"api-key")).ToList());
+        }
+
+        public IUniFiClient GetClient() => Client;
+    }
+
     [Fact]
-    public async Task ScanAsync_WithOPNsense_DiscoversDhcpLeasesAsCandidates()
+    public async Task ScanAsync_WithOPNsense_DiscoversFirewallHostAndDhcpLeases()
     {
         var (db, conn) = CreateInMemoryDbContext();
         using var _ = conn;
@@ -646,12 +680,167 @@ public class DiscoveryTests
 
         var result = await service.ScanAsync(includeProxmox: false, includeKubernetes: false, includeUniFi: false, includeOPNsense: true);
 
-        Assert.Single(result.Candidates);
-        var cand = result.Candidates[0];
-        Assert.Equal("OPNsense", cand.Source);
-        Assert.Equal("nas-storage", cand.Name);
-        Assert.Equal("192.168.1.88", cand.IpAddress);
-        Assert.Equal("opnsense:opn-core:112233445566", cand.Id);
-        Assert.False(cand.IsManaged);
+        Assert.Equal(2, result.Candidates.Count);
+
+        // 1. OPNsense Firewall Machine
+        var fw = result.Candidates.FirstOrDefault(c => c.Id == "opnsense:host:opn-core");
+        Assert.NotNull(fw);
+        Assert.Equal("OPNsense", fw.Source);
+        Assert.Equal("opn", fw.Name);
+        Assert.Equal("192.168.1.1", fw.IpAddress);
+        Assert.Equal("firewall", fw.TargetType);
+        Assert.Equal("freebsd", fw.OsFamily);
+        Assert.Contains("firewall", fw.Roles ?? new());
+        Assert.False(fw.IsManaged);
+
+        // 2. DHCP Lease
+        var lease = result.Candidates.FirstOrDefault(c => c.Id == "opnsense:opn-core:112233445566");
+        Assert.NotNull(lease);
+        Assert.Equal("nas-storage", lease.Name);
+        Assert.Equal("192.168.1.88", lease.IpAddress);
+        Assert.False(lease.IsManaged);
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithUniFi_DiscoversDevicesAndClientsAsCandidates()
+    {
+        var (db, conn) = CreateInMemoryDbContext();
+        using var _ = conn;
+
+        var hostService = new HostService(db, NullLogger<HostService>.Instance);
+        var fakePve = new FakeProxmoxClient();
+        var fakeK8s = new FakeKubernetesAdapter();
+        var fakeUniFiFactory = new FakeUniFiClientFactory();
+        fakeUniFiFactory.Instances.Add(new UniFiStoredInstance
+        {
+            Id = "unifi-site-01",
+            Name = "Primary Controller",
+            ControllerUrl = "https://192.168.1.2:8443",
+            Username = "admin",
+            Site = "default"
+        });
+
+        // 1 Switch, 1 AP
+        fakeUniFiFactory.Client.Devices.Add(new UniFiDeviceDto(
+            Mac: "00:11:22:33:44:55",
+            Name: "Core-Switch-24",
+            Model: "USW-24-PoE",
+            Type: "usw",
+            Ip: "192.168.1.5",
+            State: "online",
+            Version: "6.5.59",
+            UpgradeAvailable: false,
+            UptimeSeconds: 7200,
+            Temperature: 44.5,
+            Ports: new List<UniFiPortDto>()
+        ));
+        fakeUniFiFactory.Client.Devices.Add(new UniFiDeviceDto(
+            Mac: "aa:bb:cc:dd:ee:11",
+            Name: "Living-Room-AP",
+            Model: "U6-Pro",
+            Type: "uap",
+            Ip: "192.168.1.6",
+            State: "online",
+            Version: "6.5.54",
+            UpgradeAvailable: false,
+            UptimeSeconds: 7200,
+            Temperature: null,
+            Ports: new List<UniFiPortDto>()
+        ));
+
+        // 1 Client
+        fakeUniFiFactory.Client.Clients.Add(new UniFiMacLease(
+            Mac: "ff:ee:dd:cc:bb:aa",
+            Ip: "192.168.1.150",
+            Hostname: "workstation-pc",
+            LastSeen: DateTimeOffset.UtcNow
+        ));
+
+        var pveOpts = Options.Create(new ProxmoxOptions());
+        var service = new DiscoveryService(
+            db,
+            fakePve,
+            fakeK8s,
+            hostService,
+            pveOpts,
+            NullLogger<DiscoveryService>.Instance,
+            unifiClientFactory: fakeUniFiFactory);
+
+        var result = await service.ScanAsync(includeProxmox: false, includeKubernetes: false, includeUniFi: true, includeOPNsense: false);
+
+        Assert.Equal(3, result.Candidates.Count);
+
+        // Verify Switch
+        var sw = result.Candidates.FirstOrDefault(c => c.Name == "Core-Switch-24");
+        Assert.NotNull(sw);
+        Assert.Equal("UniFi", sw.Source);
+        Assert.Equal("switch", sw.TargetType);
+        Assert.Equal("unifi_os", sw.OsFamily);
+        Assert.Equal("00:11:22:33:44:55", sw.UnifiSwitchMac);
+        Assert.Equal("192.168.1.5", sw.IpAddress);
+        Assert.Contains("network-device", sw.Roles ?? new());
+
+        // Verify AP
+        var ap = result.Candidates.FirstOrDefault(c => c.Name == "Living-Room-AP");
+        Assert.NotNull(ap);
+        Assert.Equal("access_point", ap.TargetType);
+        Assert.Equal("192.168.1.6", ap.IpAddress);
+
+        // Verify Client
+        var client = result.Candidates.FirstOrDefault(c => c.Name == "workstation-pc");
+        Assert.NotNull(client);
+        Assert.Equal("baremetal", client.TargetType);
+        Assert.Contains("network-client", client.Roles ?? new());
+    }
+
+    [Fact]
+    public async Task ImportCandidateAsync_WithUniFiSwitchAndOPNsenseFirewall_ImportsSuccessfully()
+    {
+        var (db, conn) = CreateInMemoryDbContext();
+        using var _ = conn;
+
+        var hostService = new HostService(db, NullLogger<HostService>.Instance);
+        var fakePve = new FakeProxmoxClient();
+        var fakeK8s = new FakeKubernetesAdapter();
+        var pveOpts = Options.Create(new ProxmoxOptions());
+        var service = new DiscoveryService(db, fakePve, fakeK8s, hostService, pveOpts, NullLogger<DiscoveryService>.Instance);
+
+        // 1. Import UniFi Switch
+        var swReq = new ImportCandidateRequest(
+            Name: "Core Switch 24", // Has spaces, should be slugified and original saved as FriendlyName
+            IpAddress: "192.168.1.5",
+            TargetType: "switch",
+            OsFamily: "unifi_os",
+            UnifiSwitchMac: "00:11:22:33:44:55"
+        );
+        var swRes = await service.ImportCandidateAsync(swReq);
+        Assert.True(swRes.Success);
+        Assert.Equal("core-switch-24", swRes.Hostname);
+
+        var swHost = await db.Hosts.Include(h => h.NetworkPort).FirstAsync(h => h.Id == swRes.HostId);
+        Assert.Equal("core-switch-24", swHost.Hostname);
+        Assert.Equal("Core Switch 24", swHost.FriendlyName);
+        Assert.Equal("switch", swHost.TargetType);
+        Assert.Equal("unifi_os", swHost.OsFamily);
+        Assert.NotNull(swHost.NetworkPort);
+        Assert.Equal("00:11:22:33:44:55", swHost.NetworkPort.SwitchMac);
+
+        // 2. Import OPNsense Firewall
+        var fwReq = new ImportCandidateRequest(
+            Name: "opnsense-core",
+            IpAddress: "192.168.1.1",
+            TargetType: "firewall",
+            OsFamily: "freebsd",
+            FriendlyName: "Primary Gateway & Firewall"
+        );
+        var fwRes = await service.ImportCandidateAsync(fwReq);
+        Assert.True(fwRes.Success);
+        Assert.Equal("opnsense-core", fwRes.Hostname);
+
+        var fwHost = await db.Hosts.FirstAsync(h => h.Id == fwRes.HostId);
+        Assert.Equal("opnsense-core", fwHost.Hostname);
+        Assert.Equal("Primary Gateway & Firewall", fwHost.FriendlyName);
+        Assert.Equal("firewall", fwHost.TargetType);
+        Assert.Equal("freebsd", fwHost.OsFamily);
     }
 }

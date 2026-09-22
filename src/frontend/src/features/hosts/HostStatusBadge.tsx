@@ -1,9 +1,9 @@
-import { Server, Box, Layers, AlertTriangle, ArrowUpCircle, Cpu } from 'lucide-react'
+import { Server, Box, Layers, AlertTriangle, ArrowUpCircle, Cpu, Network, Shield, Router, Wifi } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
 import type { AgentState } from '../../api/hosts'
 
 export function TargetTypeBadge({ type }: { type: string }) {
-  switch (type.toLowerCase()) {
+  switch (type?.toLowerCase()) {
     case 'baremetal':
     case 'physical':
       return (
@@ -43,6 +43,42 @@ export function TargetTypeBadge({ type }: { type: string }) {
           Proxmox LXC
         </span>
       )
+    case 'switch':
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-cyan-300 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40">
+          <Network className="h-3 w-3 text-cyan-400" />
+          Switch
+        </span>
+      )
+    case 'access_point':
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-sky-300 bg-sky-950/40 px-2 py-0.5 rounded border border-sky-800/40">
+          <Wifi className="h-3 w-3 text-sky-400" />
+          Access Point
+        </span>
+      )
+    case 'gateway':
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-300 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40">
+          <Router className="h-3 w-3 text-emerald-400" />
+          Gateway
+        </span>
+      )
+    case 'firewall':
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-300 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">
+          <Shield className="h-3 w-3 text-amber-400" />
+          Firewall
+        </span>
+      )
+    case 'network_device':
+    case 'appliance':
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-teal-300 bg-teal-950/40 px-2 py-0.5 rounded border border-teal-800/40">
+          <Network className="h-3 w-3 text-teal-400" />
+          Network Device
+        </span>
+      )
     default:
       return (
         <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 bg-zinc-800/40 px-2 py-0.5 rounded">
@@ -65,6 +101,12 @@ export function OsBadge({ osFamily }: { osFamily: string }) {
   }
   if (normalized.includes('windows')) {
     return <Badge variant="info" className="bg-sky-950/30 text-sky-300 border-sky-800/40 font-mono text-[11px]">Windows</Badge>
+  }
+  if (normalized.includes('bsd') || normalized.includes('freebsd')) {
+    return <Badge variant="warning" className="bg-amber-950/30 text-amber-300 border-amber-800/40 font-mono text-[11px]">FreeBSD</Badge>
+  }
+  if (normalized.includes('unifi')) {
+    return <Badge variant="info" className="bg-cyan-950/30 text-cyan-300 border-cyan-800/40 font-mono text-[11px]">UniFi OS</Badge>
   }
   return <Badge variant="outline" className="font-mono text-[11px]">{osFamily}</Badge>
 }

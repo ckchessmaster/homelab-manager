@@ -54,7 +54,8 @@ export function HelmCatalogModal({ open, onClose, onSelectChart }: HelmCatalogMo
   const [searchQuery, setSearchQuery] = useState('')
 
   const filteredItems = useMemo(() => {
-    return catalog.filter((item) => {
+    const list = Array.isArray(catalog) ? catalog : []
+    return list.filter((item) => {
       if (selectedCategory !== 'All' && item.category !== selectedCategory) {
         return false
       }

@@ -19,9 +19,10 @@ import {
 export function useSecrets(clusterId?: string, namespaceName?: string) {
   return useQuery({
     queryKey: ['kubernetes', 'secrets', clusterId, namespaceName],
-    queryFn: () => {
+    queryFn: async () => {
       if (!clusterId) return []
-      return listSecrets(clusterId, namespaceName)
+      const res = await listSecrets(clusterId, namespaceName)
+      return Array.isArray(res) ? res : []
     },
     enabled: Boolean(clusterId),
     staleTime: 10_000,
@@ -100,9 +101,10 @@ export function useDeleteSecret(clusterId?: string) {
 export function useConfigMaps(clusterId?: string, namespaceName?: string) {
   return useQuery({
     queryKey: ['kubernetes', 'configmaps', clusterId, namespaceName],
-    queryFn: () => {
+    queryFn: async () => {
       if (!clusterId) return []
-      return listConfigMaps(clusterId, namespaceName)
+      const res = await listConfigMaps(clusterId, namespaceName)
+      return Array.isArray(res) ? res : []
     },
     enabled: Boolean(clusterId),
     staleTime: 10_000,

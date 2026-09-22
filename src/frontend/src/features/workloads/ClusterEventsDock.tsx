@@ -48,11 +48,13 @@ export function ClusterEventsDock({
   )
 
   const warningCount = useMemo(() => {
-    return events.filter((e) => e.type === 'Warning').length
+    const list = Array.isArray(events) ? events : []
+    return list.filter((e) => e.type === 'Warning').length
   }, [events])
 
   const filteredEvents = useMemo(() => {
-    return events.filter((e) => {
+    const list = Array.isArray(events) ? events : []
+    return list.filter((e) => {
       // Type filter (if not already filtered by query)
       if (typeFilter !== 'all' && e.type !== typeFilter) return false
 

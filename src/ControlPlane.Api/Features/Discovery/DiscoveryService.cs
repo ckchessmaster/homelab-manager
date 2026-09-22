@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 using HostEntity = ControlPlane.Api.Storage.Entities.Host;
 using ControlPlane.Api.Features.Adapters.Kubernetes;
 using ControlPlane.Api.Features.Adapters.Proxmox;
@@ -150,7 +151,7 @@ public class DiscoveryService : IDiscoveryService
             }
         }
 
-        // 3. Scan UniFi Network Clients
+        // 3. Scan UniFi Network (Devices & Clients)
         if (includeUniFi && _unifiClientFactory != null)
         {
             try
@@ -158,49 +159,7 @@ public class DiscoveryService : IDiscoveryService
                 var unifiInstances = await _unifiClientFactory.ResolveAllAsync(ct);
                 foreach (var (config, password, apiKey) in unifiInstances)
                 {
-                    try
-                    {
-                        var clients = await _unifiClientFactory.GetClient().GetActiveClientsAsync(
-                            config.ControllerUrl, config.Username, password, config.Site, apiKey, ct);
-
-                        foreach (var client in clients)
-                        {
-                            if (string.IsNullOrWhiteSpace(client.Ip)) continue;
-
-                            var matchedHost = existingHosts.FirstOrDefault(h =>
-                                string.Equals(h.IpAddress, client.Ip, StringComparison.OrdinalIgnoreCase) ||
-                                (h.NetworkPort != null && string.Equals(h.NetworkPort.SwitchMac, client.Mac, StringComparison.OrdinalIgnoreCase)));
-
-                            if (candidates.Any(c => c.IpAddress == client.Ip)) continue;
-
-                            var cleanMac = client.Mac.Replace(":", "").Replace("-", "").ToLowerInvariant();
-                            candidates.Add(new DiscoveredCandidateDto(
-                                Id: $"unifi:{config.Id}:{cleanMac}",
-                                Source: "UniFi",
-                                Name: string.IsNullOrWhiteSpace(client.Hostname) ? $"client-{cleanMac[..Math.Min(6, cleanMac.Length)]}" : client.Hostname,
-                                IpAddress: client.Ip,
-                                TargetType: "baremetal",
-                                OsFamily: "linux_debian",
-                                Status: "online",
-                                ProxmoxNode: null,
-                                ProxmoxVmid: null,
-                                ProxmoxInstanceId: null,
-                                K8sClusterId: null,
-                                K8sNodeName: null,
-                                UnifiSwitchMac: null,
-                                UnifiSwitchPort: null,
-                                Roles: new List<string> { "network-client" },
-                                IsManaged: matchedHost != null,
-                                ExistingHostId: matchedHost?.Id,
-                                ExistingHostname: matchedHost?.Hostname
-                            ));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to scan clients from UniFi instance '{InstanceId}'", config.Id);
-                        errors.Add($"Failed to scan UniFi instance '{config.Name}': {ex.Message}");
-                    }
+                    await ScanSingleUniFiInstanceAsync(config, password, apiKey, existingHosts, candidates, errors, ct);
                 }
             }
             catch (Exception ex)
@@ -209,7 +168,7 @@ public class DiscoveryService : IDiscoveryService
             }
         }
 
-        // 4. Scan OPNsense DHCP leases
+        // 4. Scan OPNsense (Firewall Host & DHCP leases)
         if (includeOPNsense && _opnsenseClientFactory != null)
         {
             try
@@ -217,54 +176,7 @@ public class DiscoveryService : IDiscoveryService
                 var opnsenseInstances = await _opnsenseClientFactory.ResolveAllAsync(ct);
                 foreach (var (config, secret) in opnsenseInstances)
                 {
-                    try
-                    {
-                        var leases = await _opnsenseClientFactory.GetClient().GetDhcpLeasesAsync(
-                            config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
-
-                        foreach (var lease in leases)
-                        {
-                            if (string.IsNullOrWhiteSpace(lease.Ip)) continue;
-
-                            var matchedHost = existingHosts.FirstOrDefault(h =>
-                                string.Equals(h.IpAddress, lease.Ip, StringComparison.OrdinalIgnoreCase) ||
-                                (h.NetworkPort != null && !string.IsNullOrWhiteSpace(lease.Mac) &&
-                                 string.Equals(h.NetworkPort.SwitchMac, lease.Mac, StringComparison.OrdinalIgnoreCase)));
-
-                            if (candidates.Any(c => c.IpAddress == lease.Ip)) continue;
-
-                            var cleanMac = (lease.Mac ?? string.Empty).Replace(":", "").Replace("-", "").ToLowerInvariant();
-                            var candidateName = !string.IsNullOrWhiteSpace(lease.Hostname)
-                                ? lease.Hostname
-                                : (!string.IsNullOrWhiteSpace(cleanMac) ? $"dhcp-{cleanMac[..Math.Min(6, cleanMac.Length)]}" : $"host-{lease.Ip.Replace('.', '-')}");
-
-                            candidates.Add(new DiscoveredCandidateDto(
-                                Id: $"opnsense:{config.Id}:{cleanMac}",
-                                Source: "OPNsense",
-                                Name: candidateName,
-                                IpAddress: lease.Ip,
-                                TargetType: "baremetal",
-                                OsFamily: "linux_debian",
-                                Status: lease.Status ?? "active",
-                                ProxmoxNode: null,
-                                ProxmoxVmid: null,
-                                ProxmoxInstanceId: null,
-                                K8sClusterId: null,
-                                K8sNodeName: null,
-                                UnifiSwitchMac: null,
-                                UnifiSwitchPort: null,
-                                Roles: new List<string> { "dhcp-lease" },
-                                IsManaged: matchedHost != null,
-                                ExistingHostId: matchedHost?.Id,
-                                ExistingHostname: matchedHost?.Hostname
-                            ));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to scan DHCP leases from OPNsense instance '{InstanceId}'", config.Id);
-                        errors.Add($"Failed to scan OPNsense instance '{config.Name}': {ex.Message}");
-                    }
+                    await ScanSingleOPNsenseInstanceAsync(config, secret, existingHosts, candidates, errors, ct);
                 }
             }
             catch (Exception ex)
@@ -538,6 +450,310 @@ public class DiscoveryService : IDiscoveryService
         }
     }
 
+    private async Task ScanSingleUniFiInstanceAsync(
+        Features.Adapters.Config.UniFiStoredInstance config,
+        string? password,
+        string? apiKey,
+        List<HostEntity> existingHosts,
+        List<DiscoveredCandidateDto> candidates,
+        List<string> errors,
+        CancellationToken ct)
+    {
+        var client = _unifiClientFactory!.GetClient();
+
+        // 3a. Discover UniFi infrastructure devices (switches, access points, gateways, dream machines)
+        try
+        {
+            var devices = await client.GetDevicesAsync(
+                config.ControllerUrl, config.Username, password, config.Site, apiKey, ct);
+
+            foreach (var dev in devices)
+            {
+                if (string.IsNullOrWhiteSpace(dev.Ip) || dev.Ip == "0.0.0.0") continue;
+
+                var cleanMac = (dev.Mac ?? string.Empty).Replace(":", "").Replace("-", "").ToLowerInvariant();
+
+                var matchedHost = existingHosts.FirstOrDefault(h =>
+                    string.Equals(h.IpAddress, dev.Ip, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrWhiteSpace(dev.Name) && string.Equals(h.Hostname, dev.Name, StringComparison.OrdinalIgnoreCase)) ||
+                    (h.NetworkPort != null && !string.IsNullOrWhiteSpace(dev.Mac) &&
+                     string.Equals(h.NetworkPort.SwitchMac, dev.Mac, StringComparison.OrdinalIgnoreCase)));
+
+                if (candidates.Any(c => c.IpAddress == dev.Ip)) continue;
+
+                var devType = (dev.Type ?? string.Empty).ToLowerInvariant();
+                var targetType = devType switch
+                {
+                    "usw" => "switch",
+                    "uap" => "access_point",
+                    "ugw" or "udm" or "uxg" => "gateway",
+                    _ => "network_device"
+                };
+
+                var roles = new List<string> { "network-device" };
+                if (!string.IsNullOrWhiteSpace(dev.Type))
+                {
+                    roles.Add($"unifi-{dev.Type.ToLowerInvariant()}");
+                }
+                if (!string.IsNullOrWhiteSpace(dev.Model))
+                {
+                    roles.Add(dev.Model);
+                }
+
+                var candidateName = !string.IsNullOrWhiteSpace(dev.Name)
+                    ? dev.Name
+                    : (!string.IsNullOrWhiteSpace(dev.Model)
+                        ? $"{dev.Model.ToLowerInvariant().Replace(' ', '-')}-{cleanMac[..Math.Min(4, cleanMac.Length)]}"
+                        : $"unifi-{cleanMac[..Math.Min(6, cleanMac.Length)]}");
+
+                candidates.Add(new DiscoveredCandidateDto(
+                    Id: $"unifi:dev:{config.Id}:{cleanMac}",
+                    Source: "UniFi",
+                    Name: candidateName,
+                    IpAddress: dev.Ip,
+                    TargetType: targetType,
+                    OsFamily: "unifi_os",
+                    Status: dev.State ?? "online",
+                    ProxmoxNode: null,
+                    ProxmoxVmid: null,
+                    ProxmoxInstanceId: null,
+                    K8sClusterId: null,
+                    K8sNodeName: null,
+                    UnifiSwitchMac: devType == "usw" ? dev.Mac : null,
+                    UnifiSwitchPort: null,
+                    Roles: roles,
+                    IsManaged: matchedHost != null,
+                    ExistingHostId: matchedHost?.Id,
+                    ExistingHostname: matchedHost?.Hostname
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to scan devices from UniFi instance '{InstanceId}'", config.Id);
+            errors.Add($"Failed to scan UniFi devices from '{config.Name}': {ex.Message}");
+        }
+
+        // 3b. Discover UniFi connected clients
+        try
+        {
+            var clients = await client.GetActiveClientsAsync(
+                config.ControllerUrl, config.Username, password, config.Site, apiKey, ct);
+
+            foreach (var clientLease in clients)
+            {
+                if (string.IsNullOrWhiteSpace(clientLease.Ip) || clientLease.Ip == "0.0.0.0") continue;
+
+                var matchedHost = existingHosts.FirstOrDefault(h =>
+                    string.Equals(h.IpAddress, clientLease.Ip, StringComparison.OrdinalIgnoreCase) ||
+                    (h.NetworkPort != null && string.Equals(h.NetworkPort.SwitchMac, clientLease.Mac, StringComparison.OrdinalIgnoreCase)));
+
+                if (candidates.Any(c => c.IpAddress == clientLease.Ip)) continue;
+
+                var cleanMac = clientLease.Mac.Replace(":", "").Replace("-", "").ToLowerInvariant();
+                candidates.Add(new DiscoveredCandidateDto(
+                    Id: $"unifi:{config.Id}:{cleanMac}",
+                    Source: "UniFi",
+                    Name: string.IsNullOrWhiteSpace(clientLease.Hostname) ? $"client-{cleanMac[..Math.Min(6, cleanMac.Length)]}" : clientLease.Hostname,
+                    IpAddress: clientLease.Ip,
+                    TargetType: "baremetal",
+                    OsFamily: "linux_debian",
+                    Status: "online",
+                    ProxmoxNode: null,
+                    ProxmoxVmid: null,
+                    ProxmoxInstanceId: null,
+                    K8sClusterId: null,
+                    K8sNodeName: null,
+                    UnifiSwitchMac: null,
+                    UnifiSwitchPort: null,
+                    Roles: new List<string> { "network-client" },
+                    IsManaged: matchedHost != null,
+                    ExistingHostId: matchedHost?.Id,
+                    ExistingHostname: matchedHost?.Hostname
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to scan clients from UniFi instance '{InstanceId}'", config.Id);
+            errors.Add($"Failed to scan UniFi instance '{config.Name}': {ex.Message}");
+        }
+    }
+
+    private async Task ScanSingleOPNsenseInstanceAsync(
+        Features.Adapters.Config.OPNsenseStoredInstance config,
+        string secret,
+        List<HostEntity> existingHosts,
+        List<DiscoveredCandidateDto> candidates,
+        List<string> errors,
+        CancellationToken ct)
+    {
+        var client = _opnsenseClientFactory!.GetClient();
+
+        // 4a. Discover OPNsense firewall machine itself
+        try
+        {
+            string? opnsenseIp = null;
+            if (Uri.TryCreate(config.BaseUrl, UriKind.Absolute, out var opnUri))
+            {
+                opnsenseIp = opnUri.Host;
+                if (!IPAddress.TryParse(opnsenseIp, out _))
+                {
+                    try
+                    {
+                        var addresses = await Dns.GetHostAddressesAsync(opnsenseIp, ct);
+                        var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                                ?? addresses.FirstOrDefault();
+                        if (ipv4 != null)
+                        {
+                            opnsenseIp = ipv4.ToString();
+                        }
+                    }
+                    catch (Exception dnsEx)
+                    {
+                        _logger.LogDebug(dnsEx, "Could not resolve IP address for OPNsense base URL host {Host}", opnUri.Host);
+                    }
+                }
+            }
+
+            string? firewallHostname = null;
+            string firewallStatus = "online";
+            string? firmwareVersion = null;
+
+            try
+            {
+                var telemetry = await client.GetTelemetryAsync(
+                    config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+                if (telemetry != null)
+                {
+                    firewallHostname = telemetry.Hostname;
+                    if (!string.IsNullOrWhiteSpace(telemetry.Status))
+                    {
+                        firewallStatus = telemetry.Status;
+                    }
+                    firmwareVersion = telemetry.Version;
+                }
+            }
+            catch (Exception telemEx)
+            {
+                _logger.LogDebug(telemEx, "Could not retrieve telemetry for OPNsense instance '{InstanceId}', falling back to test connection", config.Id);
+                try
+                {
+                    var testRes = await client.TestConnectionAsync(
+                        config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+                    if (testRes != null)
+                    {
+                        firewallHostname = testRes.Hostname;
+                        firmwareVersion = testRes.Version;
+                        if (!string.IsNullOrWhiteSpace(testRes.Status))
+                        {
+                            firewallStatus = testRes.Status;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fallback failed, continue with basic info
+                }
+            }
+
+            var candidateName = !string.IsNullOrWhiteSpace(firewallHostname)
+                ? firewallHostname
+                : (!string.IsNullOrWhiteSpace(config.Name)
+                    ? config.Name.ToLowerInvariant().Replace(' ', '-')
+                    : $"opnsense-{config.Id}");
+
+            var matchedHost = existingHosts.FirstOrDefault(h =>
+                (!string.IsNullOrWhiteSpace(opnsenseIp) && string.Equals(h.IpAddress, opnsenseIp, StringComparison.OrdinalIgnoreCase)) ||
+                string.Equals(h.Hostname, candidateName, StringComparison.OrdinalIgnoreCase));
+
+            var roles = new List<string> { "firewall", "gateway", "opnsense" };
+            if (!string.IsNullOrWhiteSpace(firmwareVersion))
+            {
+                roles.Add($"opnsense-{firmwareVersion}");
+            }
+
+            if (!candidates.Any(c => c.Id == $"opnsense:host:{config.Id}" || (!string.IsNullOrWhiteSpace(opnsenseIp) && c.IpAddress == opnsenseIp)))
+            {
+                candidates.Add(new DiscoveredCandidateDto(
+                    Id: $"opnsense:host:{config.Id}",
+                    Source: "OPNsense",
+                    Name: candidateName,
+                    IpAddress: opnsenseIp,
+                    TargetType: "firewall",
+                    OsFamily: "freebsd",
+                    Status: firewallStatus,
+                    ProxmoxNode: null,
+                    ProxmoxVmid: null,
+                    ProxmoxInstanceId: null,
+                    K8sClusterId: null,
+                    K8sNodeName: null,
+                    UnifiSwitchMac: null,
+                    UnifiSwitchPort: null,
+                    Roles: roles,
+                    IsManaged: matchedHost != null,
+                    ExistingHostId: matchedHost?.Id,
+                    ExistingHostname: matchedHost?.Hostname
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to discover firewall host for OPNsense instance '{InstanceId}'", config.Id);
+            errors.Add($"Failed to discover OPNsense firewall host '{config.Name}': {ex.Message}");
+        }
+
+        // 4b. Discover OPNsense DHCP leases
+        try
+        {
+            var leases = await client.GetDhcpLeasesAsync(
+                config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+
+            foreach (var lease in leases)
+            {
+                if (string.IsNullOrWhiteSpace(lease.Ip) || lease.Ip == "0.0.0.0") continue;
+
+                var matchedHost = existingHosts.FirstOrDefault(h =>
+                    string.Equals(h.IpAddress, lease.Ip, StringComparison.OrdinalIgnoreCase) ||
+                    (h.NetworkPort != null && !string.IsNullOrWhiteSpace(lease.Mac) &&
+                     string.Equals(h.NetworkPort.SwitchMac, lease.Mac, StringComparison.OrdinalIgnoreCase)));
+
+                if (candidates.Any(c => c.IpAddress == lease.Ip)) continue;
+
+                var cleanMac = (lease.Mac ?? string.Empty).Replace(":", "").Replace("-", "").ToLowerInvariant();
+                var candidateName = !string.IsNullOrWhiteSpace(lease.Hostname)
+                    ? lease.Hostname
+                    : (!string.IsNullOrWhiteSpace(cleanMac) ? $"dhcp-{cleanMac[..Math.Min(6, cleanMac.Length)]}" : $"host-{lease.Ip.Replace('.', '-')}");
+
+                candidates.Add(new DiscoveredCandidateDto(
+                    Id: $"opnsense:{config.Id}:{cleanMac}",
+                    Source: "OPNsense",
+                    Name: candidateName,
+                    IpAddress: lease.Ip,
+                    TargetType: "baremetal",
+                    OsFamily: "linux_debian",
+                    Status: lease.Status ?? "active",
+                    ProxmoxNode: null,
+                    ProxmoxVmid: null,
+                    ProxmoxInstanceId: null,
+                    K8sClusterId: null,
+                    K8sNodeName: null,
+                    UnifiSwitchMac: null,
+                    UnifiSwitchPort: null,
+                    Roles: new List<string> { "dhcp-lease" },
+                    IsManaged: matchedHost != null,
+                    ExistingHostId: matchedHost?.Id,
+                    ExistingHostname: matchedHost?.Hostname
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to scan DHCP leases from OPNsense instance '{InstanceId}'", config.Id);
+            errors.Add($"Failed to scan OPNsense instance '{config.Name}': {ex.Message}");
+        }
+    }
+
     public async Task<ImportCandidateResponse> ImportCandidateAsync(ImportCandidateRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
@@ -569,12 +785,28 @@ public class DiscoveryService : IDiscoveryService
             }
         }
 
+        var hostname = request.Name.Trim();
+        var friendlyName = string.IsNullOrWhiteSpace(request.FriendlyName) ? null : request.FriendlyName.Trim();
+
+        // If hostname is not a valid DNS hostname (e.g. contains spaces, uppercase or unsupported characters),
+        // save the original candidate name as FriendlyName (if not already set) and slugify the hostname.
+        if (!HostValidators.IsValidHostname(hostname))
+        {
+            friendlyName ??= hostname;
+            var sanitized = Regex.Replace(hostname.ToLowerInvariant().Replace(' ', '-').Replace('_', '-'), @"[^a-z0-9\-.]", "");
+            sanitized = Regex.Replace(sanitized, @"\-+", "-").Trim('-');
+            if (HostValidators.IsValidHostname(sanitized))
+            {
+                hostname = sanitized;
+            }
+        }
+
         var createRequest = new CreateHostRequest(
-            Hostname: request.Name.Trim(),
-            FriendlyName: string.IsNullOrWhiteSpace(request.FriendlyName) ? null : request.FriendlyName.Trim(),
+            Hostname: hostname,
+            FriendlyName: friendlyName,
             IpAddress: cleanIp,
             OsFamily: string.IsNullOrWhiteSpace(request.OsFamily) ? "linux_debian" : request.OsFamily.Trim(),
-            TargetType: string.IsNullOrWhiteSpace(request.TargetType) ? "kubernetes_node" : request.TargetType.Trim(),
+            TargetType: string.IsNullOrWhiteSpace(request.TargetType) ? "baremetal" : request.TargetType.Trim(),
             ProxmoxNode: string.IsNullOrWhiteSpace(request.ProxmoxNode) ? null : request.ProxmoxNode.Trim(),
             ProxmoxVmid: request.ProxmoxVmid,
             ProxmoxInstanceId: string.IsNullOrWhiteSpace(request.ProxmoxInstanceId) ? null : request.ProxmoxInstanceId.Trim(),
@@ -672,8 +904,9 @@ public class DiscoveryService : IDiscoveryService
         if (lower.Contains("arch")) return "linux_arch";
         if (lower.Contains("suse")) return "linux_suse";
         if (lower.Contains("win")) return "windows";
-        if (lower.Contains("bsd")) return "freebsd";
+        if (lower.Contains("bsd") || lower.Contains("opnsense") || lower.Contains("pfsense")) return "freebsd";
         if (lower.Contains("haos") || lower.Contains("hass") || lower.Contains("home assistant") || lower.Contains("homeassistant")) return "haos";
+        if (lower.Contains("unifi")) return "unifi_os";
 
         return "linux_debian";
     }

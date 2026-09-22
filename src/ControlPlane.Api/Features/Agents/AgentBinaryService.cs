@@ -20,8 +20,7 @@ public class AgentBinaryService
             Path.Combine(AppContext.BaseDirectory, "../../agent/dist", filename),
             Path.Combine(Directory.GetCurrentDirectory(), "src/agent/dist", filename),
             Path.Combine(Directory.GetCurrentDirectory(), "../agent/dist", filename),
-            Path.Combine(Directory.GetCurrentDirectory(), "agent/dist", filename),
-            $"/home/ckingdon/projects/homelab-manager/src/agent/dist/{filename}"
+            Path.Combine(Directory.GetCurrentDirectory(), "agent/dist", filename)
         };
 
         var found = candidates.FirstOrDefault(File.Exists);

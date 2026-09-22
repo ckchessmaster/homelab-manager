@@ -66,8 +66,7 @@ public static class AgentManagementEndpoints
             Path.Combine(AppContext.BaseDirectory, "../../agent/scripts", "install-agent.ps1"),
             Path.Combine(Directory.GetCurrentDirectory(), "src/agent/scripts", "install-agent.ps1"),
             Path.Combine(Directory.GetCurrentDirectory(), "../agent/scripts", "install-agent.ps1"),
-            Path.Combine(Directory.GetCurrentDirectory(), "agent/scripts", "install-agent.ps1"),
-            "/home/ckingdon/projects/homelab-manager/src/agent/scripts/install-agent.ps1"
+            Path.Combine(Directory.GetCurrentDirectory(), "agent/scripts", "install-agent.ps1")
         };
 
         var found = candidates.FirstOrDefault(File.Exists);

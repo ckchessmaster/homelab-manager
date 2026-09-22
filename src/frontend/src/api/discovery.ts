@@ -11,6 +11,8 @@ export interface DiscoveredCandidate {
   proxmoxNode?: string | null
   proxmoxVmid?: number | null
   k8sNodeName?: string | null
+  unifiSwitchMac?: string | null
+  unifiSwitchPort?: number | null
   roles?: string[] | null
   isManaged: boolean
   existingHostId?: string | null
@@ -35,6 +37,8 @@ export interface ImportCandidatePayload {
   proxmoxNode?: string
   proxmoxVmid?: number
   k8sNodeName?: string
+  unifiSwitchMac?: string
+  unifiSwitchPort?: number
 }
 
 export interface ImportCandidateResponse {

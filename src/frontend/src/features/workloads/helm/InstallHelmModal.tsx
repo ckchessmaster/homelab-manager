@@ -121,7 +121,8 @@ export function InstallHelmModal({
   const localBackupKey = `helm_values_${clusterId}_${trimmedNs}_${trimmedRelease}`
   const hasLocalBackup = Boolean(trimmedRelease && trimmedNs && localStorage.getItem(localBackupKey))
 
-  const matchingCatalogItem = catalog.find(
+  const catalogList = Array.isArray(catalog) ? catalog : []
+  const matchingCatalogItem = catalogList.find(
     (c) =>
       c.chartName.toLowerCase() === trimmedChart.toLowerCase() ||
       c.id.toLowerCase() === trimmedChart.toLowerCase() ||

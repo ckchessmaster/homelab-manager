@@ -138,7 +138,8 @@ export function NetworkIngressView({
   }
 
   const filteredServices = useMemo(() => {
-    return services.filter((svc) => {
+    const list = Array.isArray(services) ? services : []
+    return list.filter((svc) => {
       if (!searchTerm.trim()) return true
       const q = searchTerm.toLowerCase()
       const matchesName = svc.name.toLowerCase().includes(q)
@@ -174,7 +175,8 @@ export function NetworkIngressView({
   }, [services, searchTerm])
 
   const filteredIngresses = useMemo(() => {
-    return ingresses.filter((ing) => {
+    const list = Array.isArray(ingresses) ? ingresses : []
+    return list.filter((ing) => {
       if (!searchTerm.trim()) return true
       const q = searchTerm.toLowerCase()
       return (
@@ -187,7 +189,8 @@ export function NetworkIngressView({
   }, [ingresses, searchTerm])
 
   const filteredCerts = useMemo(() => {
-    return certificates.filter((cert) => {
+    const list = Array.isArray(certificates) ? certificates : []
+    return list.filter((cert) => {
       if (!searchTerm.trim()) return true
       const q = searchTerm.toLowerCase()
       return (

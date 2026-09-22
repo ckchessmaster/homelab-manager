@@ -69,9 +69,11 @@ test.describe('Service Discovery & Adoption', () => {
   test('supports multi-select mass adoption of unmanaged candidates', async ({ page }) => {
     // Select checkboxes for gitlab-runner-vm and pihole-dns
     const runnerRow = page.locator('tr', { hasText: 'gitlab-runner-vm' })
+    await expect(runnerRow).toBeVisible()
     await runnerRow.locator('input[type="checkbox"]').check()
 
     const piholeRow = page.locator('tr', { hasText: 'pihole-dns' })
+    await expect(piholeRow).toBeVisible()
     await piholeRow.locator('input[type="checkbox"]').check()
 
     // Selection bar appears
