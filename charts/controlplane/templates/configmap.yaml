@@ -17,7 +17,6 @@ data:
   Temporal__Auth__Enabled: {{ .Values.temporal.auth.enabled | quote }}
   Temporal__Auth__TokenUrl: {{ .Values.temporal.auth.tokenUrl | quote }}
   Temporal__Auth__ClientId: {{ .Values.temporal.auth.clientId | quote }}
-  Temporal__Auth__ClientSecret: {{ .Values.temporal.auth.clientSecret | quote }}
   Temporal__Auth__Scopes: {{ .Values.temporal.auth.scopes | quote }}
   {{- end }}
   {{- if .Values.zitadel.enabled }}
