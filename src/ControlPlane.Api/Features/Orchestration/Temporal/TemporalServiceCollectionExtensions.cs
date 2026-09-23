@@ -32,7 +32,7 @@ public static class TemporalServiceCollectionExtensions
 
         services.Configure<TemporalOptions>(configuration.GetSection(TemporalOptions.SectionName));
 
-        var targetHost = options.ServerUrl;
+        var targetHost = options.Endpoint;
         if (string.IsNullOrWhiteSpace(targetHost))
         {
             targetHost = "localhost:7233";
@@ -55,7 +55,21 @@ public static class TemporalServiceCollectionExtensions
         services.AddScoped<IHealthProbeActivities, HealthProbeActivities>();
         services.AddScoped<IUpdateJobActivities, UpdateJobActivities>();
 
-        services.AddTemporalClient(targetHost, options.Namespace);
+        // Register Zitadel M2M Auth services if enabled
+        if (options.Auth.Enabled)
+        {
+            services.AddHttpClient<ControlPlane.Api.Features.Orchestration.Temporal.Auth.IZitadelTokenProvider, ControlPlane.Api.Features.Orchestration.Temporal.Auth.ZitadelTokenProvider>();
+            services.AddHostedService<ControlPlane.Api.Features.Orchestration.Temporal.Auth.TemporalTokenRefreshService>();
+        }
+
+        services.AddTemporalClient(clientOptions =>
+        {
+            clientOptions.TargetHost = targetHost;
+            clientOptions.Namespace = options.Namespace;
+        });
+
+        services.AddHostedService<TemporalStartupDiagnosticsService>();
+
         services.AddHostedTemporalWorker(options.TaskQueue)
             .AddWorkflow<Workflows.HostUpgradeWorkflow>()
             .AddWorkflow<Workflows.RollingUpgradeWorkflow>()
@@ -66,6 +80,8 @@ public static class TemporalServiceCollectionExtensions
             .AddScopedActivities<Activities.AgentActivities>()
             .AddScopedActivities<Activities.HealthProbeActivities>()
             .AddScopedActivities<Activities.UpdateJobActivities>();
+
+        services.AddHealthChecks().AddCheck<TemporalHealthCheck>("temporal", tags: ["ready"]);
 
         return services;
     }

@@ -9,9 +9,17 @@ data:
   ASPNETCORE_HTTP_PORTS: "8080"
   ENABLE_MCP_SERVER: {{ .Values.mcp.enabled | quote }}
   Temporal__Enabled: {{ .Values.temporal.enabled | quote }}
-  Temporal__ServerUrl: {{ .Values.temporal.serverUrl | quote }}
+  Temporal__Address: {{ .Values.temporal.address | default .Values.temporal.serverUrl | quote }}
+  Temporal__ServerUrl: {{ .Values.temporal.serverUrl | default .Values.temporal.address | quote }}
   Temporal__Namespace: {{ .Values.temporal.namespace | quote }}
   Temporal__TaskQueue: {{ .Values.temporal.taskQueue | quote }}
+  {{- if and .Values.temporal.auth .Values.temporal.auth.enabled }}
+  Temporal__Auth__Enabled: {{ .Values.temporal.auth.enabled | quote }}
+  Temporal__Auth__TokenUrl: {{ .Values.temporal.auth.tokenUrl | quote }}
+  Temporal__Auth__ClientId: {{ .Values.temporal.auth.clientId | quote }}
+  Temporal__Auth__ClientSecret: {{ .Values.temporal.auth.clientSecret | quote }}
+  Temporal__Auth__Scopes: {{ .Values.temporal.auth.scopes | quote }}
+  {{- end }}
   {{- if .Values.zitadel.enabled }}
   Zitadel__Authority: {{ .Values.zitadel.authority | quote }}
   Zitadel__Audience: {{ .Values.zitadel.audience | quote }}

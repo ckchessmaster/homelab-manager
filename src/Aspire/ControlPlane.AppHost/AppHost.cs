@@ -16,11 +16,20 @@ var controlPlaneDb = postgres.AddDatabase("ControlPlaneDatabase", "controlplane"
 var temporalDb = postgres.AddDatabase("TemporalDatabase", "temporal");
 var zitadelDb = postgres.AddDatabase("ZitadelDatabase", "zitadel");
 
-var temporal = builder.AddContainer("temporal", "temporalio/temporal")
-    .WithArgs("server", "start-dev", "--ip", "0.0.0.0", "--port", "7233", "--ui-port", "8233", "--db-filename", "/home/temporal/temporal.db")
-    .WithVolume("temporal-data", "/home/temporal")
-    .WithHttpEndpoint(port: 7233, targetPort: 7233, name: "grpc")
-    .WithHttpEndpoint(port: 8233, targetPort: 8233, name: "ui");
+var externalTemporalEndpoint = builder.Configuration["Temporal:Endpoint"]
+    ?? builder.Configuration["Temporal:Address"]
+    ?? builder.Configuration["Temporal:ServerUrl"]
+    ?? builder.Configuration["temporal-endpoint"];
+
+IResourceBuilder<ContainerResource>? temporal = null;
+if (string.IsNullOrWhiteSpace(externalTemporalEndpoint))
+{
+    temporal = builder.AddContainer("temporal", "temporalio/temporal")
+        .WithArgs("server", "start-dev", "--ip", "0.0.0.0", "--port", "7233", "--ui-port", "8233", "--db-filename", "/home/temporal/temporal.db", "--namespace", "homelab-manager")
+        .WithVolume("temporal-data", "/home/temporal")
+        .WithHttpEndpoint(port: 7233, targetPort: 7233, name: "grpc")
+        .WithHttpEndpoint(port: 8233, targetPort: 8233, name: "ui");
+}
 
 var bootstrapDir = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "../../../docker/compose/zitadel/bootstrap"));
 Directory.CreateDirectory(bootstrapDir);
@@ -89,19 +98,41 @@ var zitadel = builder.AddYarp("zitadel")
 var api = builder.AddProject<Projects.ControlPlane_Api>("api")
     .WithReference(controlPlaneDb)
     .WaitFor(controlPlaneDb)
-    .WithReference(temporal.GetEndpoint("grpc"))
-    .WaitFor(temporal)
     .WaitFor(zitadel)
     .WithHttpEndpoint(port: 5029, targetPort: 5029, isProxied: false)
     .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:5029")
     .WithEnvironment("ControlPlane__ApiKey", apiKey)
     .WithEnvironment("CONTROLPLANE_MASTER_KEY", masterKey)
-    .WithEnvironment("Temporal__ServerUrl", temporal.GetEndpoint("grpc"))
     .WithEnvironment("ENABLE_MCP_SERVER", enableMcpServer)
     .WithEnvironment("Zitadel__Authority", zitadel.GetEndpoint("http"))
     .WithEnvironment("Zitadel__Audience", "controlplane")
     .WithEnvironment("Zitadel__ValidAudiences__0", zitadelClientId)
     .WithEnvironment("Zitadel__RequireHttpsMetadata", "false");
+
+if (temporal != null)
+{
+    api.WithReference(temporal.GetEndpoint("grpc"))
+       .WaitFor(temporal)
+       .WithEnvironment("Temporal__Address", temporal.GetEndpoint("grpc"))
+       .WithEnvironment("Temporal__ServerUrl", temporal.GetEndpoint("grpc"));
+}
+else
+{
+    api.WithEnvironment("Temporal__Address", externalTemporalEndpoint!)
+       .WithEnvironment("Temporal__ServerUrl", externalTemporalEndpoint!);
+}
+
+api.WithEnvironment("Temporal__Namespace", builder.Configuration["Temporal:Namespace"] ?? "homelab-manager")
+   .WithEnvironment("Temporal__TaskQueue", builder.Configuration["Temporal:TaskQueue"] ?? "homelab-manager-tasks");
+
+if (!string.IsNullOrWhiteSpace(builder.Configuration["Temporal:Auth:TokenUrl"]))
+{
+    api.WithEnvironment("Temporal__Auth__Enabled", builder.Configuration["Temporal:Auth:Enabled"] ?? "true")
+       .WithEnvironment("Temporal__Auth__TokenUrl", builder.Configuration["Temporal:Auth:TokenUrl"]!)
+       .WithEnvironment("Temporal__Auth__ClientId", builder.Configuration["Temporal:Auth:ClientId"] ?? "")
+       .WithEnvironment("Temporal__Auth__ClientSecret", builder.Configuration["Temporal:Auth:ClientSecret"] ?? "")
+       .WithEnvironment("Temporal__Auth__Scopes", builder.Configuration["Temporal:Auth:Scopes"] ?? "openid urn:zitadel:iam:org:projects:roles");
+}
 
 builder.AddViteApp("frontend", "../../frontend")
     .WithNpm(install: false)

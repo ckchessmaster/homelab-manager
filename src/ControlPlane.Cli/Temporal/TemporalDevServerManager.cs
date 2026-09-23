@@ -22,6 +22,10 @@ public class TemporalDevServerManager : ITemporalDevServerManager
     public string BuildCommandLineArgs(TemporalDevServerConfig config)
     {
         var args = $"server start-dev --ip {config.Ip} --port {config.GrpcPort} --ui-port {config.UiPort}";
+        if (!string.IsNullOrWhiteSpace(config.Namespace))
+        {
+            args += $" --namespace {config.Namespace}";
+        }
         if (!string.IsNullOrWhiteSpace(config.DbFilename))
         {
             args += $" --db-filename \"{config.DbFilename}\"";

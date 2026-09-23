@@ -20,7 +20,7 @@ public class TemporalDevServerManagerTests
 
         var args = manager.BuildCommandLineArgs(config);
 
-        Assert.Equal("server start-dev --ip 127.0.0.1 --port 7233 --ui-port 8233", args);
+        Assert.Equal("server start-dev --ip 127.0.0.1 --port 7233 --ui-port 8233 --namespace homelab-manager", args);
     }
 
     [Fact]
@@ -41,6 +41,7 @@ public class TemporalDevServerManagerTests
         Assert.Contains("--ip 0.0.0.0", args);
         Assert.Contains("--port 7999", args);
         Assert.Contains("--ui-port 8999", args);
+        Assert.Contains("--namespace homelab-manager", args);
         Assert.Contains("--db-filename \"/tmp/test-temporal.db\"", args);
         Assert.Contains("--headless", args);
     }

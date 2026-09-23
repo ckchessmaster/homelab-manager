@@ -7,7 +7,8 @@ public record TemporalDevServerConfig(
     string DbFilename = "",
     string Ip = "127.0.0.1",
     string? CustomBinaryPath = null,
-    bool Headless = false
+    bool Headless = false,
+    string Namespace = "homelab-manager"
 );
 
 public interface ITemporalDevServerManager : IAsyncDisposable

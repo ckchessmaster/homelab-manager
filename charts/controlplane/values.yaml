@@ -126,9 +126,16 @@ database:
 
 temporal:
   enabled: true
+  address: "controlplane-temporal:7233"
   serverUrl: "controlplane-temporal:7233"
-  namespace: "default"
-  taskQueue: "controlplane-orchestration"
+  namespace: "homelab-manager"
+  taskQueue: "homelab-manager-tasks"
+  auth:
+    enabled: false
+    tokenUrl: "https://auth.chriskingdon.com/oauth/v2/token"
+    clientId: ""
+    clientSecret: ""
+    scopes: "openid urn:zitadel:iam:org:projects:roles"
 
 zitadel:
   enabled: false

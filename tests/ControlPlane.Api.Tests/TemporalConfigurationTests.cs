@@ -51,12 +51,48 @@ public class TemporalConfigurationTests
         var options = provider.GetRequiredService<IOptions<TemporalOptions>>().Value;
         Assert.True(options.Enabled);
         Assert.Equal("http://127.0.0.1:7233", options.ServerUrl);
+        Assert.Equal("http://127.0.0.1:7233", options.Endpoint);
         Assert.Equal("test-namespace", options.Namespace);
         Assert.Equal("test-task-queue", options.TaskQueue);
 
         // Verify client registered in DI
         var client = provider.GetService<ITemporalClient>();
         Assert.NotNull(client);
+    }
+
+    [Fact]
+    public void AddTemporalOrchestration_DefaultOptions_UsesHomelabManagerNamespaceAndTasksQueue()
+    {
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Temporal:Enabled"] = "true"
+            })
+            .Build();
+
+        services.AddLogging();
+        services.AddTemporalOrchestration(configuration);
+
+        var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<TemporalOptions>>().Value;
+
+        Assert.Equal("homelab-manager", options.Namespace);
+        Assert.Equal("homelab-manager-tasks", options.TaskQueue);
+        Assert.Equal("localhost:7233", options.Endpoint);
+        Assert.False(options.Auth.Enabled);
+    }
+
+    [Fact]
+    public void TemporalOptions_Endpoint_PrefersAddressOverServerUrl()
+    {
+        var options = new TemporalOptions
+        {
+            ServerUrl = "localhost:7233",
+            Address = "temporal-frontend.temporal.svc.cluster.local:7233"
+        };
+
+        Assert.Equal("temporal-frontend.temporal.svc.cluster.local:7233", options.Endpoint);
     }
 
     [Fact]
