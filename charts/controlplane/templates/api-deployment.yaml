@@ -36,11 +36,67 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          {{- $hasEnv := or (and .Values.temporal.auth .Values.temporal.auth.enabled .Values.temporal.auth.secretRef .Values.temporal.auth.secretRef.name) (and .Values.auth.apiKeySecretRef .Values.auth.apiKeySecretRef.name) (and .Values.auth.masterKeySecretRef .Values.auth.masterKeySecretRef.name) .Values.api.extraEnv -}}
+          {{- if $hasEnv }}
+          env:
+            {{- if and .Values.temporal.auth .Values.temporal.auth.enabled .Values.temporal.auth.secretRef .Values.temporal.auth.secretRef.name }}
+            - name: Temporal__Auth__ClientSecret
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.temporal.auth.secretRef.name }}
+                  key: {{ .Values.temporal.auth.secretRef.key | default "clientSecret" }}
+            {{- end }}
+            {{- if and .Values.auth.apiKeySecretRef .Values.auth.apiKeySecretRef.name }}
+            - name: ControlPlane__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.apiKeySecretRef.name }}
+                  key: {{ .Values.auth.apiKeySecretRef.key | default "apiKey" }}
+            {{- end }}
+            {{- if and .Values.auth.masterKeySecretRef .Values.auth.masterKeySecretRef.name }}
+            - name: CONTROLPLANE_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.masterKeySecretRef.name }}
+                  key: {{ .Values.auth.masterKeySecretRef.key | default "masterKey" }}
+            {{- end }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "controlplane.configMapName" . }}
+            {{- if not .Values.auth.existingSecret }}
             - secretRef:
                 name: {{ include "controlplane.secretName" . }}
+            {{- else }}
+            - secretRef:
+                name: {{ .Values.auth.existingSecret }}
+            {{- end }}
+            {{- if .Values.existingSecret }}
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+            {{- end }}
+            {{- if .Values.temporal.existingSecret }}
+            - secretRef:
+                name: {{ .Values.temporal.existingSecret }}
+            {{- end }}
+            {{- if and .Values.temporal.auth (or .Values.temporal.auth.existingSecret .Values.temporal.auth.clientSecretName) }}
+            - secretRef:
+                name: {{ .Values.temporal.auth.existingSecret | default .Values.temporal.auth.clientSecretName }}
+            {{- end }}
+            {{- if .Values.database.existingSecret }}
+            - secretRef:
+                name: {{ .Values.database.existingSecret }}
+            {{- end }}
+            {{- if and .Values.database.passwordSecretName (ne .Values.database.passwordSecretName .Values.database.existingSecret) }}
+            - secretRef:
+                name: {{ .Values.database.passwordSecretName }}
+            {{- end }}
+            {{- with .Values.api.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.api.livenessProbe | nindent 12 }}
           readinessProbe:

@@ -30,7 +30,56 @@ public static class TemporalServiceCollectionExtensions
             return services;
         }
 
-        services.Configure<TemporalOptions>(configuration.GetSection(TemporalOptions.SectionName));
+        // Fall back to common environment variables if not bound via section
+        if (string.IsNullOrWhiteSpace(options.Auth.ClientSecret))
+        {
+            options.Auth.ClientSecret = configuration["Temporal__Auth__ClientSecret"]
+                ?? configuration["client-secret"]
+                ?? configuration["clientSecret"]
+                ?? configuration["client_secret"]
+                ?? configuration["temporal-client-secret"]
+                ?? configuration["TEMPORAL_CLIENT_SECRET"]
+                ?? configuration["TEMPORAL_AUTH_CLIENT_SECRET"]
+                ?? configuration["secret"]
+                ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Auth.ClientId))
+        {
+            options.Auth.ClientId = configuration["Temporal__Auth__ClientId"]
+                ?? configuration["client-id"]
+                ?? configuration["clientId"]
+                ?? configuration["temporal-client-id"]
+                ?? configuration["TEMPORAL_CLIENT_ID"]
+                ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Auth.TokenUrl))
+        {
+            options.Auth.TokenUrl = configuration["Temporal__Auth__TokenUrl"]
+                ?? configuration["token-url"]
+                ?? configuration["tokenUrl"]
+                ?? configuration["temporal-token-url"]
+                ?? configuration["TEMPORAL_TOKEN_URL"]
+                ?? string.Empty;
+        }
+
+        services.Configure<TemporalOptions>(opts =>
+        {
+            configuration.GetSection(TemporalOptions.SectionName).Bind(opts);
+            if (string.IsNullOrWhiteSpace(opts.Auth.ClientSecret))
+            {
+                opts.Auth.ClientSecret = options.Auth.ClientSecret;
+            }
+            if (string.IsNullOrWhiteSpace(opts.Auth.ClientId))
+            {
+                opts.Auth.ClientId = options.Auth.ClientId;
+            }
+            if (string.IsNullOrWhiteSpace(opts.Auth.TokenUrl))
+            {
+                opts.Auth.TokenUrl = options.Auth.TokenUrl;
+            }
+        });
 
         var targetHost = options.Endpoint;
         if (string.IsNullOrWhiteSpace(targetHost))

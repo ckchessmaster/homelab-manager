@@ -8,6 +8,10 @@ data:
   ASPNETCORE_ENVIRONMENT: "Production"
   ASPNETCORE_HTTP_PORTS: "8080"
   ENABLE_MCP_SERVER: {{ .Values.mcp.enabled | quote }}
+  Database__Host: {{ .Values.database.host | quote }}
+  Database__Port: {{ .Values.database.port | quote }}
+  Database__Database: {{ .Values.database.database | quote }}
+  Database__Username: {{ .Values.database.username | quote }}
   Temporal__Enabled: {{ .Values.temporal.enabled | quote }}
   Temporal__Address: {{ .Values.temporal.address | default .Values.temporal.serverUrl | quote }}
   Temporal__ServerUrl: {{ .Values.temporal.serverUrl | default .Values.temporal.address | quote }}

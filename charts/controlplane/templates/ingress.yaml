@@ -36,9 +36,9 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ if eq .service "api" }}{{ $apiServiceName }}{{ else }}{{ $frontendServiceName }}{{ end }}
+                name: {{ if .serviceName }}{{ .serviceName }}{{ else if eq .service "api" }}{{ $apiServiceName }}{{ else if eq .service "temporal-ui" }}{{ .temporalUiServiceName | default "temporal-ui" }}{{ else }}{{ $frontendServiceName }}{{ end }}
                 port:
-                  number: {{ if eq .service "api" }}8080{{ else }}80{{ end }}
+                  number: {{ if .port }}{{ .port }}{{ else if eq .service "api" }}8080{{ else if eq .service "temporal-ui" }}8233{{ else }}80{{ end }}
           {{- end }}
     {{- end }}
 {{- end }}

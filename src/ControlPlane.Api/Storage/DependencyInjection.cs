@@ -34,8 +34,55 @@ public static class DependencyInjection
             else
             {
                 var connectionString = config.GetConnectionString("ControlPlaneDatabase")
-                    ?? config.GetConnectionString("PostgresDatabase")
-                    ?? throw new InvalidOperationException("Connection string 'ControlPlaneDatabase' or 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:ControlPlaneDatabase.");
+                    ?? config.GetConnectionString("PostgresDatabase");
+
+                var uri = config["uri"] ?? config["URI"] ?? config["DATABASE_URL"] ?? config["POSTGRES_URL"];
+                if (!string.IsNullOrWhiteSpace(uri))
+                {
+                    connectionString = uri;
+                }
+                else
+                {
+                    var host = config["Database__Host"] ?? config["DB_HOST"] ?? config["POSTGRES_HOST"] ?? "controlplane-postgres";
+                    var port = config["Database__Port"] ?? config["DB_PORT"] ?? config["POSTGRES_PORT"] ?? "5432";
+                    var db = config["Database__Database"] ?? config["Database__Name"] ?? config["DB_NAME"] ?? config["POSTGRES_DB"] ?? "controlplane";
+                    var user = config["Database__Username"] ?? config["Database__User"] ?? config["DB_USER"] ?? config["POSTGRES_USER"] ?? "controlplane";
+                    var pass = config["Database__Password"]
+                        ?? config["DB_PASSWORD"]
+                        ?? config["POSTGRES_PASSWORD"]
+                        ?? config["password"]
+                        ?? config["postgres-password"]
+                        ?? config["db-password"];
+
+                    if (string.IsNullOrWhiteSpace(connectionString) || connectionString.Contains("Password=;") || connectionString.EndsWith("Password="))
+                    {
+                        if (!string.IsNullOrWhiteSpace(pass))
+                        {
+                            connectionString = $"Host={host};Port={port};Database={db};Username={user};Password={pass}";
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(pass))
+                    {
+                        try
+                        {
+                            var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+                            if (string.IsNullOrWhiteSpace(builder.Password))
+                            {
+                                builder.Password = pass;
+                                connectionString = builder.ConnectionString;
+                            }
+                        }
+                        catch
+                        {
+                            // Keep connectionString as-is if parsing fails
+                        }
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    throw new InvalidOperationException("Connection string 'ControlPlaneDatabase' or 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:ControlPlaneDatabase.");
+                }
 
                 options.UseNpgsql(connectionString, npgsql =>
                 {

@@ -123,6 +123,8 @@ database:
   password: "controlplane_prod_secret"
   # If specified, secrets are loaded from this existing Secret instead of chart-managed secret
   existingSecret: ""
+  # Or reference a specific secret name containing the database password/credentials (e.g. from CloudNativePG)
+  passwordSecretName: ""
 
 temporal:
   enabled: true
@@ -130,11 +132,19 @@ temporal:
   serverUrl: "controlplane-temporal:7233"
   namespace: "homelab-manager"
   taskQueue: "homelab-manager-tasks"
+  # Option: Load secrets from an existing Kubernetes Secret (e.g. existingSecret: temporal-db-secret)
+  existingSecret: ""
   auth:
     enabled: false
     tokenUrl: "https://auth.chriskingdon.com/oauth/v2/token"
     clientId: ""
+    # Provide clientSecret directly (stored in chart-managed Secret):
     clientSecret: ""
+    # Or reference an existing Kubernetes Secret containing the client secret:
+    existingSecret: ""
+    secretRef:
+      name: ""
+      key: "clientSecret"
     scopes: "openid urn:zitadel:iam:org:projects:roles"
 
 zitadel:
@@ -145,9 +155,23 @@ zitadel:
 
 auth:
   apiKey: "cp_prod_sample_secret_key_change_in_production"
+  # Or reference an existing Secret for apiKey:
+  apiKeySecretRef:
+    name: ""
+    key: "apiKey"
+
   # 256-bit Base64 master key for secret encryption (generate with: openssl rand -base64 32)
   masterKey: "uW51nK3F+sJmB1VjWqY1h9F9T7dM3XkC4b2L6r9p8E8="
+  # Or reference an existing Secret for masterKey:
+  masterKeySecretRef:
+    name: ""
+    key: "masterKey"
+
+  # If specified, all credentials are loaded from this single existing Secret instead of chart-managed Secret
   existingSecret: ""
+
+# Root-level existing secret mounted to the API deployment (e.g. existingSecret: temporal-db-secret)
+existingSecret: ""
 
 mcp:
   enabled: true
