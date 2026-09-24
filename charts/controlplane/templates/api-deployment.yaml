@@ -30,7 +30,8 @@ spec:
         - name: api
           securityContext:
             {{- toYaml .Values.api.securityContext | nindent 12 }}
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{ end }}{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          {{- $defaultTag := printf "v%s" (.Chart.AppVersion | trimPrefix "v") }}
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{ end }}{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default $defaultTag }}"
           imagePullPolicy: {{ .Values.api.image.pullPolicy }}
           ports:
             - name: http

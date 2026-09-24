@@ -5,6 +5,25 @@ public class HelmCatalogService : IHelmCatalogService
     public static readonly List<HelmCatalogItemDto> CuratedCatalog = new()
     {
         new(
+            Id: "controlplane",
+            Name: "ControlPlane",
+            Category: "Management",
+            Description: "Asynchronous, resilient homelab orchestration platform and management plane.",
+            RepoUrl: "oci://ghcr.io/ckchessmaster/charts/controlplane",
+            ChartName: "controlplane",
+            DefaultNamespace: "homelab-manager",
+            DefaultValuesYaml: """
+            api:
+              replicaCount: 1
+            frontend:
+              replicaCount: 1
+            ingress:
+              enabled: true
+            """,
+            Icon: "Cpu",
+            OfficialUrl: "https://github.com/ckchessmaster/homelab-manager"
+        ),
+        new(
             Id: "ingress-nginx",
             Name: "Ingress NGINX",
             Category: "Networking",

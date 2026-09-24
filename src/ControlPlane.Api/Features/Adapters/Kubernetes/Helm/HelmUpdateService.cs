@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -130,11 +132,19 @@ public class HelmUpdateService : IHelmUpdateService
             _logger.LogDebug(ex, "Failed to get Artifact Hub versions for chart {Chart}", clean);
         }
 
-        // 2. If still empty, try index.yaml
+        // 2. If still empty, try index.yaml or OCI tags
         if (versions.Count == 0 && !string.IsNullOrWhiteSpace(effectiveRepo))
         {
-            var (_, _, yamlVersions) = await QueryIndexYamlAsync(clean, effectiveRepo, ct);
-            versions.AddRange(yamlVersions);
+            if (effectiveRepo.StartsWith("oci://", StringComparison.OrdinalIgnoreCase))
+            {
+                var (_, _, ociVersions) = await QueryOciTagsAsync(clean, effectiveRepo, ct);
+                versions.AddRange(ociVersions);
+            }
+            else
+            {
+                var (_, _, yamlVersions) = await QueryIndexYamlAsync(clean, effectiveRepo, ct);
+                versions.AddRange(yamlVersions);
+            }
         }
 
         var sorted = versions
@@ -266,18 +276,39 @@ public class HelmUpdateService : IHelmUpdateService
             string? candidateAppVersion = hubAppVersion;
             var resolvedRepoUrl = hubRepoUrl ?? effectiveRepoUrl;
 
-            // Step 2: Fallback to direct index.yaml ONLY if Artifact Hub yielded nothing and repoUrl is known (and not OCI)
-            if (string.IsNullOrWhiteSpace(candidateVersion) && !string.IsNullOrWhiteSpace(resolvedRepoUrl) && !resolvedRepoUrl.StartsWith("oci://", StringComparison.OrdinalIgnoreCase))
+            var availableVersionsCacheKey = $"helm-versions:{cleanChart.ToLowerInvariant()}:{resolvedRepoUrl ?? ""}";
+
+            // Step 2: Fallback to direct index.yaml or OCI tags ONLY if Artifact Hub yielded nothing and repoUrl is known
+            if (string.IsNullOrWhiteSpace(candidateVersion) && !string.IsNullOrWhiteSpace(resolvedRepoUrl))
             {
-                var (yamlVersion, yamlAppVersion, _) = await QueryIndexYamlAsync(cleanChart, resolvedRepoUrl, ct);
-                if (!string.IsNullOrWhiteSpace(yamlVersion))
+                if (resolvedRepoUrl.StartsWith("oci://", StringComparison.OrdinalIgnoreCase))
                 {
-                    candidateVersion = yamlVersion;
-                    candidateAppVersion = yamlAppVersion;
+                    var (ociVersion, ociAppVersion, ociVersions) = await QueryOciTagsAsync(cleanChart, resolvedRepoUrl, ct);
+                    if (!string.IsNullOrWhiteSpace(ociVersion))
+                    {
+                        candidateVersion = ociVersion;
+                        candidateAppVersion = ociAppVersion;
+                    }
+                    if (ociVersions.Count > 0)
+                    {
+                        _cache.Set(availableVersionsCacheKey, ociVersions, CacheDuration);
+                    }
+                }
+                else
+                {
+                    var (yamlVersion, yamlAppVersion, yamlVersions) = await QueryIndexYamlAsync(cleanChart, resolvedRepoUrl, ct);
+                    if (!string.IsNullOrWhiteSpace(yamlVersion))
+                    {
+                        candidateVersion = yamlVersion;
+                        candidateAppVersion = yamlAppVersion;
+                    }
+                    if (yamlVersions.Count > 0)
+                    {
+                        _cache.Set(availableVersionsCacheKey, yamlVersions, CacheDuration);
+                    }
                 }
             }
 
-            var availableVersionsCacheKey = $"helm-versions:{cleanChart.ToLowerInvariant()}:{resolvedRepoUrl ?? ""}";
             List<string> availableVersions;
             if (_cache.TryGetValue<List<string>>(availableVersionsCacheKey, out var cv) && cv != null && cv.Count > 0)
             {
@@ -603,6 +634,140 @@ public class HelmUpdateService : IHelmUpdateService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to query index.yaml from {RepoUrl} for chart {Chart}", repoUrl, chartName);
+            return (null, null, versions);
+        }
+    }
+
+    private async Task<(string? Version, string? AppVersion, List<string> Versions)> QueryOciTagsAsync(
+        string chartName,
+        string ociUrl,
+        CancellationToken ct)
+    {
+        var versions = new List<string>();
+        try
+        {
+            var raw = ociUrl;
+            if (raw.StartsWith("oci://", StringComparison.OrdinalIgnoreCase))
+            {
+                raw = raw.Substring("oci://".Length);
+            }
+            raw = raw.TrimEnd('/');
+
+            if (!raw.EndsWith($"/{chartName}", StringComparison.OrdinalIgnoreCase))
+            {
+                raw = $"{raw}/{chartName}";
+            }
+
+            var firstSlash = raw.IndexOf('/');
+            if (firstSlash <= 0) return (null, null, versions);
+
+            var registry = raw.Substring(0, firstSlash);
+            var repository = raw.Substring(firstSlash + 1);
+
+            var client = _httpClientFactory.CreateClient(HttpClientName);
+            client.Timeout = RequestTimeout;
+
+            var tagsUrl = $"https://{registry}/v2/{repository}/tags/list";
+            using var req = new HttpRequestMessage(HttpMethod.Get, tagsUrl);
+            req.Headers.UserAgent.ParseAdd("ControlPlane-HomelabManager/1.0");
+
+            using var resp = await client.SendAsync(req, ct);
+
+            string tagsJson;
+            if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var authHeader = resp.Headers.WwwAuthenticate.FirstOrDefault();
+                string? token = null;
+
+                if (authHeader != null && authHeader.Scheme.Equals("Bearer", StringComparison.OrdinalIgnoreCase))
+                {
+                    var param = authHeader.Parameter ?? "";
+                    var realmMatch = Regex.Match(param, @"realm=""([^""]+)""", RegexOptions.IgnoreCase);
+                    var serviceMatch = Regex.Match(param, @"service=""([^""]+)""", RegexOptions.IgnoreCase);
+                    var scopeMatch = Regex.Match(param, @"scope=""([^""]+)""", RegexOptions.IgnoreCase);
+
+                    if (realmMatch.Success)
+                    {
+                        var realm = realmMatch.Groups[1].Value;
+                        var tokenUrlBuilder = new StringBuilder(realm);
+                        var queryParams = new List<string>();
+                        if (serviceMatch.Success) queryParams.Add($"service={Uri.EscapeDataString(serviceMatch.Groups[1].Value)}");
+                        if (scopeMatch.Success) queryParams.Add($"scope={Uri.EscapeDataString(scopeMatch.Groups[1].Value)}");
+                        else queryParams.Add($"scope=repository:{repository}:pull");
+
+                        if (queryParams.Count > 0)
+                        {
+                            tokenUrlBuilder.Append(realm.Contains('?') ? "&" : "?");
+                            tokenUrlBuilder.Append(string.Join("&", queryParams));
+                        }
+
+                        using var tokenReq = new HttpRequestMessage(HttpMethod.Get, tokenUrlBuilder.ToString());
+                        tokenReq.Headers.UserAgent.ParseAdd("ControlPlane-HomelabManager/1.0");
+                        using var tokenResp = await client.SendAsync(tokenReq, ct);
+                        if (tokenResp.IsSuccessStatusCode)
+                        {
+                            var tokenBody = await tokenResp.Content.ReadAsStringAsync(ct);
+                            using var tokenDoc = JsonDocument.Parse(tokenBody);
+                            if (tokenDoc.RootElement.TryGetProperty("token", out var tProp) ||
+                                tokenDoc.RootElement.TryGetProperty("access_token", out tProp))
+                            {
+                                token = tProp.GetString();
+                            }
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    using var authReq = new HttpRequestMessage(HttpMethod.Get, tagsUrl);
+                    authReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    authReq.Headers.UserAgent.ParseAdd("ControlPlane-HomelabManager/1.0");
+                    using var authResp = await client.SendAsync(authReq, ct);
+                    if (!authResp.IsSuccessStatusCode) return (null, null, versions);
+                    tagsJson = await authResp.Content.ReadAsStringAsync(ct);
+                }
+                else
+                {
+                    return (null, null, versions);
+                }
+            }
+            else if (!resp.IsSuccessStatusCode)
+            {
+                return (null, null, versions);
+            }
+            else
+            {
+                tagsJson = await resp.Content.ReadAsStringAsync(ct);
+            }
+
+            using var doc = JsonDocument.Parse(tagsJson);
+            if (doc.RootElement.TryGetProperty("tags", out var tagsProp) && tagsProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var tagElem in tagsProp.EnumerateArray())
+                {
+                    var tagStr = tagElem.GetString();
+                    if (!string.IsNullOrWhiteSpace(tagStr) && SemVerRegex.IsMatch(tagStr))
+                    {
+                        versions.Add(tagStr.Trim());
+                    }
+                }
+            }
+
+            var sorted = versions
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(v =>
+                {
+                    var m = SemVerRegex.Match(v);
+                    return m.Success ? ParseSemVer(m) : (-1, -1, -1, -1);
+                })
+                .ToList();
+
+            string? candidateVersion = sorted.FirstOrDefault();
+            return (candidateVersion, candidateVersion, sorted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to query OCI tags from {RepoUrl} for chart {Chart}", ociUrl, chartName);
             return (null, null, versions);
         }
     }

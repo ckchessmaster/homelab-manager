@@ -279,4 +279,129 @@ public class HelmUpdateServiceTests
         Assert.NotNull(cached);
         Assert.Equal("2.30.0", cached.LatestVersion);
     }
+
+    [Fact]
+    public async Task CheckChartUpdateAsync_DetectsOciChartUpdate_FromOciRegistryTags()
+    {
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            var uri = req.RequestUri?.AbsoluteUri ?? "";
+
+            // 1. Artifact Hub returns empty
+            if (uri.Contains("artifacthub.io"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"packages\":[]}", Encoding.UTF8, "application/json")
+                };
+            }
+
+            // 2. Token request
+            if (uri.Contains("ghcr.io/token"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"token\":\"fake-oci-token\"}", Encoding.UTF8, "application/json")
+                };
+            }
+
+            // 3. Tags list without auth -> 401 challenge
+            if (uri.Contains("tags/list") && req.Headers.Authorization == null)
+            {
+                var unauthorized = new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                unauthorized.Headers.Add("Www-Authenticate", "Bearer realm=\"https://ghcr.io/token\",service=\"ghcr.io\",scope=\"repository:ckchessmaster/charts/controlplane:pull\"");
+                return unauthorized;
+            }
+
+            // 4. Tags list with Bearer auth -> return tag list
+            if (uri.Contains("tags/list") && req.Headers.Authorization?.Parameter == "fake-oci-token")
+            {
+                var tagsJson = JsonSerializer.Serialize(new
+                {
+                    name = "ckchessmaster/charts/controlplane",
+                    tags = new[] { "1.0.0", "1.2.0", "1.2.3" }
+                });
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(tagsJson, Encoding.UTF8, "application/json")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var factory = new FakeHttpClientFactory(handler);
+        var service = new HelmUpdateService(factory, cache, NullLogger<HelmUpdateService>.Instance);
+
+        var result = await service.CheckChartUpdateAsync(
+            "controlplane",
+            "1.2.0",
+            "1.2.0",
+            "oci://ghcr.io/ckchessmaster/charts/controlplane");
+
+        Assert.True(result.IsOutdated);
+        Assert.Equal("1.2.3", result.LatestVersion);
+        Assert.Equal("patch", result.UpdateType);
+        Assert.Contains("Patch update available: 1.2.0 -> 1.2.3", result.Message);
+        Assert.NotNull(result.AvailableVersions);
+        Assert.Contains("1.2.3", result.AvailableVersions!);
+    }
+
+    [Fact]
+    public async Task CheckChartUpdateAsync_ResolvesControlPlaneFromCuratedCatalog_WhenRepoUrlIsNull()
+    {
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            var uri = req.RequestUri?.AbsoluteUri ?? "";
+            if (uri.Contains("artifacthub.io"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"packages\":[]}", Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (uri.Contains("ghcr.io/token"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"token\":\"fake-oci-token\"}", Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (uri.Contains("tags/list") && req.Headers.Authorization == null)
+            {
+                var unauthorized = new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                unauthorized.Headers.Add("Www-Authenticate", "Bearer realm=\"https://ghcr.io/token\",service=\"ghcr.io\",scope=\"repository:ckchessmaster/charts/controlplane:pull\"");
+                return unauthorized;
+            }
+
+            if (uri.Contains("tags/list") && req.Headers.Authorization?.Parameter == "fake-oci-token")
+            {
+                var tagsJson = JsonSerializer.Serialize(new
+                {
+                    name = "ckchessmaster/charts/controlplane",
+                    tags = new[] { "1.0.0", "1.2.0", "1.2.3" }
+                });
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(tagsJson, Encoding.UTF8, "application/json")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var factory = new FakeHttpClientFactory(handler);
+        var service = new HelmUpdateService(factory, cache, NullLogger<HelmUpdateService>.Instance);
+
+        // repoUrl is null, but "controlplane" is in CuratedCatalog with oci://ghcr.io/ckchessmaster/charts/controlplane
+        var result = await service.CheckChartUpdateAsync("controlplane", "1.2.0", "1.2.0", repoUrl: null);
+
+        Assert.True(result.IsOutdated);
+        Assert.Equal("1.2.3", result.LatestVersion);
+        Assert.Equal("oci://ghcr.io/ckchessmaster/charts/controlplane", result.RepoUrl);
+    }
 }

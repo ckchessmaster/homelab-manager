@@ -10,7 +10,8 @@ api:
   image:
     repository: ghcr.io/ckchessmaster/controlplane-api
     pullPolicy: IfNotPresent
-    tag: "latest"
+    # Overrides the image tag whose default is "v" + Chart.appVersion.
+    tag: ""
 
   service:
     type: ClusterIP
@@ -64,7 +65,8 @@ frontend:
   image:
     repository: ghcr.io/ckchessmaster/controlplane-frontend
     pullPolicy: IfNotPresent
-    tag: "latest"
+    # Overrides the image tag whose default is "v" + Chart.appVersion.
+    tag: ""
 
   service:
     type: ClusterIP
