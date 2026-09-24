@@ -41,7 +41,7 @@ ControlPlane replaces brittle push-and-wait configuration management (e.g. Ansib
 
 ## 🚀 Kubernetes Deployment with Helm
 
-ControlPlane provides a production-ready Helm chart located in `charts/controlplane` and published as an OCI artifact to GitHub Container Registry (`oci://ghcr.io/ckingdon/charts/controlplane`).
+ControlPlane provides a production-ready Helm chart located in `charts/controlplane` and published as an OCI artifact to GitHub Container Registry (`oci://ghcr.io/ckchessmaster/charts/controlplane`).
 
 ### Quickstart Installation
 
@@ -55,7 +55,7 @@ helm upgrade --install controlplane ./charts/controlplane \
   --values values.yaml
 
 # Or deploy directly from the GHCR OCI registry:
-helm upgrade --install controlplane oci://ghcr.io/ckingdon/charts/controlplane \
+helm upgrade --install controlplane oci://ghcr.io/ckchessmaster/charts/controlplane \
   --namespace controlplane \
   --values values.yaml
 ```
