@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Initial General Availability (GA) Release
 
-ControlPlane v1.0.0 is the foundational release of the resilient homelab orchestration platform. It replaces brittle push-and-wait configuration management (Ansible) and solves the chicken-and-egg upgrade dilemma through a hybrid agent/agentless topology, durable Temporal workflows, unified infrastructure adapters, and built-in Model Context Protocol (MCP) integration.
+ControlPlane v1.2.0 is the foundational release of the resilient homelab orchestration platform. It replaces brittle push-and-wait configuration management (Ansible) and solves the chicken-and-egg upgrade dilemma through a hybrid agent/agentless topology, durable Temporal workflows, unified infrastructure adapters, and built-in Model Context Protocol (MCP) integration.
 
 ---
 
