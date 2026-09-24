@@ -32,6 +32,15 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # Allow in-cluster egress (PostgreSQL, Temporal, Kubernetes API server, etc.)
+    - to:
+        - namespaceSelector: {}
+    # Allow outbound HTTPS/HTTP for external services (Zitadel OIDC, OCI Helm registries, Webhooks)
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
     # Allow communication to designated homelab infrastructure subnets (Proxmox, iDRAC, UniFi, OPNsense)
     {{- range .Values.networkPolicy.allowedEgressSubnets }}
     - to:

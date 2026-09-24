@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.2.4
+
+### Fixed
+* **Database Connection Configuration**: Made explicit `Database__Host`, `Database__Database`, `Database__Username`, and `Database__Port` always take precedence over stale connection strings (e.g. from chart defaults or prior installs) in `DependencyInjection.cs`.
+* **CloudNativePG Secret Resolution**: Supported external password secrets (e.g. `passwordSecretName`) mounted by CloudNativePG, checking keys `password`, `PASSWORD`, `DB_PASSWORD`, and preventing namespace-local short URI hostnames from breaking cross-namespace DNS.
+* **Helm Deployment Rolling Updates**: Added dynamic checksum annotations (`checksum/config` and `checksum/secret`) to `api-deployment.yaml` and `frontend-deployment.yaml` so `helm upgrade` triggers a rolling restart when configuration values change.
+* **NetworkPolicy In-Cluster & Egress Rules**: Permitted cross-namespace in-cluster egress (PostgreSQL in `cnpg-services`, Temporal in `temporal`, Kubernetes API) and outbound HTTPS/HTTP (port 443 for Zitadel IdP and OCI registries) in `networkpolicy.yaml`.
+* **Temporal Server URL Default**: Defaulted `temporal.serverUrl` to empty string in `values.yaml` so custom `temporal.address` values populate both `Temporal__Address` and `Temporal__ServerUrl`.
+
+---
+
 ## v1.2.3
 
 ### Added

@@ -37,22 +37,82 @@ public static class DependencyInjection
                     ?? config.GetConnectionString("PostgresDatabase");
 
                 var uri = config["uri"] ?? config["URI"] ?? config["DATABASE_URL"] ?? config["POSTGRES_URL"];
-                if (!string.IsNullOrWhiteSpace(uri))
+
+                var explicitHost = config["Database__Host"] ?? config["DB_HOST"] ?? config["POSTGRES_HOST"];
+                var explicitPort = config["Database__Port"] ?? config["DB_PORT"] ?? config["POSTGRES_PORT"];
+                var explicitDb = config["Database__Database"] ?? config["Database__Name"] ?? config["DB_NAME"] ?? config["POSTGRES_DB"];
+                var explicitUser = config["Database__Username"] ?? config["Database__User"] ?? config["DB_USER"] ?? config["POSTGRES_USER"];
+                var pass = config["Database__Password"]
+                    ?? config["DB_PASSWORD"]
+                    ?? config["POSTGRES_PASSWORD"]
+                    ?? config["password"]
+                    ?? config["PASSWORD"]
+                    ?? config["postgres-password"]
+                    ?? config["db-password"];
+
+                if (!string.IsNullOrWhiteSpace(uri) && string.IsNullOrWhiteSpace(explicitHost))
                 {
                     connectionString = uri;
                 }
+                else if (!string.IsNullOrWhiteSpace(explicitHost))
+                {
+                    // An explicit host was provided (e.g. from ConfigMap or environment).
+                    // Even if an existing connection string was found (e.g. from a default secret),
+                    // the explicit configuration must take precedence.
+                    Npgsql.NpgsqlConnectionStringBuilder builder;
+                    try
+                    {
+                        builder = !string.IsNullOrWhiteSpace(connectionString)
+                            ? new Npgsql.NpgsqlConnectionStringBuilder(connectionString)
+                            : new Npgsql.NpgsqlConnectionStringBuilder();
+                    }
+                    catch
+                    {
+                        builder = new Npgsql.NpgsqlConnectionStringBuilder();
+                    }
+
+                    builder.Host = explicitHost;
+                    if (!string.IsNullOrWhiteSpace(explicitPort) && int.TryParse(explicitPort, out var p))
+                    {
+                        builder.Port = p;
+                    }
+                    else if (builder.Port <= 0)
+                    {
+                        builder.Port = 5432;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(explicitDb))
+                    {
+                        builder.Database = explicitDb;
+                    }
+                    else if (string.IsNullOrWhiteSpace(builder.Database))
+                    {
+                        builder.Database = "controlplane";
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(explicitUser))
+                    {
+                        builder.Username = explicitUser;
+                    }
+                    else if (string.IsNullOrWhiteSpace(builder.Username))
+                    {
+                        builder.Username = "controlplane";
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(pass))
+                    {
+                        builder.Password = pass;
+                    }
+
+                    connectionString = builder.ConnectionString;
+                }
                 else
                 {
-                    var host = config["Database__Host"] ?? config["DB_HOST"] ?? config["POSTGRES_HOST"] ?? "controlplane-postgres";
-                    var port = config["Database__Port"] ?? config["DB_PORT"] ?? config["POSTGRES_PORT"] ?? "5432";
-                    var db = config["Database__Database"] ?? config["Database__Name"] ?? config["DB_NAME"] ?? config["POSTGRES_DB"] ?? "controlplane";
-                    var user = config["Database__Username"] ?? config["Database__User"] ?? config["DB_USER"] ?? config["POSTGRES_USER"] ?? "controlplane";
-                    var pass = config["Database__Password"]
-                        ?? config["DB_PASSWORD"]
-                        ?? config["POSTGRES_PASSWORD"]
-                        ?? config["password"]
-                        ?? config["postgres-password"]
-                        ?? config["db-password"];
+                    // No explicit host provided, fallback to defaults or existing connection string
+                    var host = "controlplane-postgres";
+                    var port = "5432";
+                    var db = "controlplane";
+                    var user = "controlplane";
 
                     if (string.IsNullOrWhiteSpace(connectionString) || connectionString.Contains("Password=;") || connectionString.EndsWith("Password="))
                     {

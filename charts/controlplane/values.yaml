@@ -131,7 +131,7 @@ database:
 temporal:
   enabled: true
   address: "controlplane-temporal:7233"
-  serverUrl: "controlplane-temporal:7233"
+  serverUrl: ""
   namespace: "homelab-manager"
   taskQueue: "homelab-manager-tasks"
   # Option: Load secrets from an existing Kubernetes Secret (e.g. existingSecret: temporal-db-secret)
