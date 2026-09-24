@@ -164,9 +164,9 @@ jobs:
         run: helm template test-release charts/controlplane
 
   # =========================================================================
-  # 2. Release Artifacts: Containers, Node Agent Binaries, and Helm Chart
+  # 2. Build & Package Artifacts: Containers, Node Agent Binaries, and Helm Chart
   # =========================================================================
-  publish-containers:
+  build-and-push-containers:
     name: Build & Publish OCI Images (GHCR)
     runs-on: ubuntu-latest
     needs: [metadata, test-backend, test-agent, test-frontend, test-helm]
@@ -206,7 +206,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:${{ needs.metadata.outputs.release_tag }}
             ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}:latest
 
-  release-agent-binaries:
+  package-agent-binaries:
     name: Build & Package Agent Binaries
     runs-on: ubuntu-latest
     needs: [metadata, test-backend, test-agent, test-frontend, test-helm]
@@ -243,43 +243,16 @@ jobs:
         run: |
           sha256sum controlplane-agent_* > checksums.txt
 
-      - name: Upload Agent Artifacts (Always available in Workflow Run)
+      - name: Upload Agent Artifacts (Available in Workflow Run)
         uses: actions/upload-artifact@v4
         with:
-          name: controlplane-agent-binaries-${{ needs.metadata.outputs.release_tag }}
+          name: controlplane-agent-binaries
           path: |
             dist/controlplane-agent_*
             dist/checksums.txt
           retention-days: 7
 
-      - name: Build Release Notes
-        if: needs.metadata.outputs.should_publish == 'true'
-        run: |
-          TAG="${{ needs.metadata.outputs.release_tag }}"
-          CHANGELOG_PATH="CHANGELOG.md"
-          
-          if [ -f "$CHANGELOG_PATH" ]; then
-            python3 -c "import re, sys; c = open('$CHANGELOG_PATH').read(); m = re.search(r'(?ms)^##\s+' + re.escape('$TAG') + r'\b.*?(?=^##\s+|\Z)', c); open('release-notes.md', 'w').write(m.group(0).strip() + '\n') if m else sys.exit(1)" || echo "ControlPlane Release $TAG" > release-notes.md
-          else
-            echo "ControlPlane Release $TAG" > release-notes.md
-          fi
-
-      - name: Publish GitHub Release
-        if: needs.metadata.outputs.should_publish == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ needs.metadata.outputs.release_tag }}"
-          
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md
-          else
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ControlPlane $TAG" --notes-file release-notes.md
-          fi
-          
-          gh release upload "$TAG" dist/controlplane-agent_* dist/checksums.txt --repo "$GITHUB_REPOSITORY" --clobber
-
-  publish-helm-chart:
+  package-and-push-helm-chart:
     name: Package & Publish Helm Chart (GHCR)
     runs-on: ubuntu-latest
     needs: [metadata, test-backend, test-agent, test-frontend, test-helm]
@@ -298,10 +271,10 @@ jobs:
           VERSION="${{ needs.metadata.outputs.version }}"
           helm package charts/controlplane --version "$VERSION" --app-version "$VERSION" --destination dist/charts
 
-      - name: Upload Helm Chart Artifact (Always available in Workflow Run)
+      - name: Upload Helm Chart Artifact (Available in Workflow Run)
         uses: actions/upload-artifact@v4
         with:
-          name: controlplane-helm-chart-${{ needs.metadata.outputs.release_tag }}
+          name: controlplane-helm-chart
           path: dist/charts/*.tgz
           retention-days: 7
 
@@ -312,3 +285,64 @@ jobs:
           OWNER_LOWER="${{ github.repository_owner }}"
           VERSION="${{ needs.metadata.outputs.version }}"
           helm push "dist/charts/controlplane-${VERSION}.tgz" "oci://ghcr.io/${OWNER_LOWER,,}/charts"
+
+  # =========================================================================
+  # 3. Final Step: Publish GitHub Release (Only after ALL artifacts succeed)
+  # =========================================================================
+  publish-github-release:
+    name: Publish Official GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - metadata
+      - test-backend
+      - test-agent
+      - test-frontend
+      - test-helm
+      - build-and-push-containers
+      - package-agent-binaries
+      - package-and-push-helm-chart
+    if: needs.metadata.outputs.should_publish == 'true'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create Unified Assets Directory
+        run: mkdir -p release-assets
+
+      - name: Download Agent Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: controlplane-agent-binaries
+          path: release-assets
+
+      - name: Download Helm Chart Package
+        uses: actions/download-artifact@v4
+        with:
+          name: controlplane-helm-chart
+          path: release-assets
+
+      - name: Build Release Notes from CHANGELOG
+        run: |
+          TAG="${{ needs.metadata.outputs.release_tag }}"
+          CHANGELOG_PATH="CHANGELOG.md"
+          
+          if [ -f "$CHANGELOG_PATH" ]; then
+            python3 -c "import re, sys; c = open('$CHANGELOG_PATH').read(); m = re.search(r'(?ms)^##\s+' + re.escape('$TAG') + r'\b.*?(?=^##\s+|\Z)', c); open('release-notes.md', 'w').write(m.group(0).strip() + '\n') if m else sys.exit(1)" || echo "ControlPlane Release $TAG" > release-notes.md
+          else
+            echo "ControlPlane Release $TAG" > release-notes.md
+          fi
+
+      - name: Publish GitHub Release with All Attached Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.metadata.outputs.release_tag }}"
+          
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ControlPlane $TAG" --notes-file release-notes.md
+          fi
+          
+          # Upload all agent binaries, checksums, and the Helm chart .tgz together
+          gh release upload "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
