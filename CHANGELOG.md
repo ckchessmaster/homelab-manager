@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.2.5
+
+### Fixed
+* **ASP.NET Core Environment Configuration Mapping**: Supported both hierarchical colon-delimited (`Database:Host`) and double-underscore (`Database__Host`) configuration keys, ensuring environment variables injected via Kubernetes `ConfigMap` and `Secret` are correctly bound.
+* **Database Secret Sanitization**: Updated `charts/controlplane/templates/secret.yaml` to store database password under `Database__Password` instead of generating a hardcoded `ConnectionStrings__ControlPlaneDatabase`, eliminating stale default host references.
+* **Migration Target Diagnostics**: Enhanced `InitializeDatabaseAsync` startup logs to explicitly output the resolved target PostgreSQL host and database name (`DataSource/Database`).
+
+---
+
 ## v1.2.4
 
 ### Fixed

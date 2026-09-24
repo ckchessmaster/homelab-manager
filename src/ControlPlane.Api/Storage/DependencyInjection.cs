@@ -38,17 +38,66 @@ public static class DependencyInjection
 
                 var uri = config["uri"] ?? config["URI"] ?? config["DATABASE_URL"] ?? config["POSTGRES_URL"];
 
-                var explicitHost = config["Database__Host"] ?? config["DB_HOST"] ?? config["POSTGRES_HOST"];
-                var explicitPort = config["Database__Port"] ?? config["DB_PORT"] ?? config["POSTGRES_PORT"];
-                var explicitDb = config["Database__Database"] ?? config["Database__Name"] ?? config["DB_NAME"] ?? config["POSTGRES_DB"];
-                var explicitUser = config["Database__Username"] ?? config["Database__User"] ?? config["DB_USER"] ?? config["POSTGRES_USER"];
-                var pass = config["Database__Password"]
+                var explicitHost = config["Database:Host"]
+                    ?? config["Database__Host"]
+                    ?? config["Database:Server"]
+                    ?? config["Database__Server"]
+                    ?? config["DB_HOST"]
+                    ?? config["POSTGRES_HOST"]
+                    ?? config["host"]
+                    ?? config["HOST"];
+
+                var explicitPort = config["Database:Port"]
+                    ?? config["Database__Port"]
+                    ?? config["DB_PORT"]
+                    ?? config["POSTGRES_PORT"]
+                    ?? config["port"]
+                    ?? config["PORT"];
+
+                var explicitDb = config["Database:Database"]
+                    ?? config["Database__Database"]
+                    ?? config["Database:Name"]
+                    ?? config["Database__Name"]
+                    ?? config["DB_NAME"]
+                    ?? config["POSTGRES_DB"]
+                    ?? config["dbname"]
+                    ?? config["DBNAME"]
+                    ?? config["database"]
+                    ?? config["DATABASE"];
+
+                var explicitUser = config["Database:Username"]
+                    ?? config["Database__Username"]
+                    ?? config["Database:User"]
+                    ?? config["Database__User"]
+                    ?? config["DB_USER"]
+                    ?? config["POSTGRES_USER"]
+                    ?? config["username"]
+                    ?? config["USERNAME"]
+                    ?? config["user"]
+                    ?? config["USER"];
+
+                var pass = config["Database:Password"]
+                    ?? config["Database__Password"]
                     ?? config["DB_PASSWORD"]
                     ?? config["POSTGRES_PASSWORD"]
                     ?? config["password"]
                     ?? config["PASSWORD"]
                     ?? config["postgres-password"]
                     ?? config["db-password"];
+
+                // If password was not found directly, attempt extraction from uri if available
+                if (string.IsNullOrWhiteSpace(pass) && !string.IsNullOrWhiteSpace(uri))
+                {
+                    try
+                    {
+                        var uriBuilder = new Npgsql.NpgsqlConnectionStringBuilder(uri);
+                        if (!string.IsNullOrWhiteSpace(uriBuilder.Password))
+                        {
+                            pass = uriBuilder.Password;
+                        }
+                    }
+                    catch { }
+                }
 
                 if (!string.IsNullOrWhiteSpace(uri) && string.IsNullOrWhiteSpace(explicitHost))
                 {
@@ -196,7 +245,9 @@ public static class DependencyInjection
         }
         else
         {
-            logger.LogInformation("Cluster mode active: ensuring 'controlplane' schema and applying PostgreSQL migrations.");
+            var dbConn = context.Database.GetDbConnection();
+            logger.LogInformation("Cluster mode active: connecting to PostgreSQL '{DataSource}/{Database}', ensuring 'controlplane' schema and applying migrations.",
+                dbConn.DataSource, dbConn.Database);
             await context.Database.ExecuteSqlRawAsync("CREATE SCHEMA IF NOT EXISTS controlplane;", cancellationToken);
             await context.Database.MigrateAsync(cancellationToken);
             logger.LogInformation("PostgreSQL migrations applied successfully.");
