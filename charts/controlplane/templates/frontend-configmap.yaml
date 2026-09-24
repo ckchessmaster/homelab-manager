@@ -1,3 +1,22 @@
+{{- $connectSources := list "'self'" "ws:" "wss:" -}}
+{{- $frameSources := list "'self'" -}}
+{{- if and .Values.zitadel.enabled .Values.zitadel.authority -}}
+  {{- $connectSources = append $connectSources .Values.zitadel.authority -}}
+  {{- $frameSources = append $frameSources .Values.zitadel.authority -}}
+{{- end -}}
+{{- with .Values.frontend.csp -}}
+  {{- range .extraConnectSrc }}
+    {{- if . }}
+      {{- $connectSources = append $connectSources . }}
+    {{- end }}
+  {{- end }}
+  {{- range .extraFrameSrc }}
+    {{- if . }}
+      {{- $frameSources = append $frameSources . }}
+    {{- end }}
+  {{- end }}
+{{- end -}}
+{{- $computedCsp := printf "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src %s; frame-src %s; frame-ancestors 'self';" (join " " (uniq $connectSources)) (join " " (uniq $frameSources)) -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -66,7 +85,7 @@ data:
             add_header X-Content-Type-Options "nosniff" always;
             add_header X-XSS-Protection "1; mode=block" always;
             add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-            add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'self';" always;
+            add_header Content-Security-Policy {{ .Values.frontend.contentSecurityPolicy | default $computedCsp | quote }} always;
 
             # SPA Routing: Fall back to index.html for client-side routing
             location / {

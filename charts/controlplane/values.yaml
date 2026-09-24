@@ -68,6 +68,17 @@ frontend:
     # Overrides the image tag whose default is "v" + Chart.appVersion.
     tag: ""
 
+  # Content Security Policy (CSP) scoping.
+  # When zitadel.enabled is true, zitadel.authority is automatically included in connect-src and frame-src.
+  csp:
+    # Additional origins allowed in connect-src (e.g. Sentry, external metrics, custom APIs)
+    extraConnectSrc: []
+    # Additional origins allowed in frame-src (e.g. iframe auth providers)
+    extraFrameSrc: []
+
+  # Full CSP header override (if non-empty, this string overrides the automatically generated policy above)
+  contentSecurityPolicy: ""
+
   service:
     type: ClusterIP
     port: 80

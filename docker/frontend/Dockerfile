@@ -19,6 +19,7 @@ FROM nginxinc/nginx-unprivileged:alpine AS runtime
 
 # Copy custom Nginx configuration with reverse proxy & WebSocket support
 COPY docker/frontend/nginx.conf /etc/nginx/nginx.conf
+COPY docker/frontend/40-configure-csp.sh /docker-entrypoint.d/40-configure-csp.sh
 
 # Copy compiled static distribution into Nginx document root
 COPY --from=build /app/dist /usr/share/nginx/html
