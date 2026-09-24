@@ -163,10 +163,10 @@ temporal:
 zitadel:
   enabled: false
   authority: "http://localhost:8085"
-  # SPA Client ID used by the UI for PKCE authentication
-  clientId: "controlplane"
+  # SPA Client ID used by the UI for PKCE authentication (defaults to audience if empty)
+  clientId: ""
   # JWT token audience validation (can match clientId or project ID)
-  audience: "controlplane"
+  audience: ""
   requireHttpsMetadata: true
   # Custom Role Mapping: Map raw IdP roles or groups to ControlPlane canonical roles
   roles:

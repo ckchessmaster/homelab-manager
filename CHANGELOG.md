@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * **Frontend Content Security Policy (CSP) OIDC Scoping**: Dynamically scoped `connect-src` and `frame-src` in the frontend Nginx reverse proxy to include `.Values.zitadel.authority`, allowing the React SPA to query OIDC metadata (`/.well-known/openid-configuration`), fetch JWKS, exchange authorization codes, and perform silent token renewal without violating CSP.
 * **Granular CSP Domain Configuration**: Added `frontend.csp.extraConnectSrc` and `frontend.csp.extraFrameSrc` options in `values.yaml` and `frontend-configmap.yaml` to allow administrators to whitelist additional specific domains while maintaining strict least-privilege security without wildcards.
 * **Standalone Container CSP Entrypoint Hook**: Added `/docker-entrypoint.d/40-configure-csp.sh` to dynamically configure Nginx CSP headers from environment variables (`ZITADEL_AUTHORITY`, `CSP_CONNECT_SRC`, `CSP_FRAME_SRC`) in standalone Docker and Docker Compose deployments.
+* **Zitadel Client ID Default Fallback**: Fixed `Zitadel__ClientId` falling back to chart default `"controlplane"` instead of `.Values.zitadel.audience` when `zitadel.clientId` is omitted in `values.yaml`, resolving `Errors.App.NotFound` from Zitadel during OIDC authorization.
 
 ---
 
