@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 
+using Microsoft.Extensions.Options;
+
 namespace ControlPlane.Api.Security;
 
 /// <summary>
@@ -12,10 +14,14 @@ namespace ControlPlane.Api.Security;
 public class ZitadelRoleClaimsTransformation : IClaimsTransformation
 {
     private readonly ILogger<ZitadelRoleClaimsTransformation> _logger;
+    private readonly ZitadelJwtOptions _options;
 
-    public ZitadelRoleClaimsTransformation(ILogger<ZitadelRoleClaimsTransformation> logger)
+    public ZitadelRoleClaimsTransformation(
+        ILogger<ZitadelRoleClaimsTransformation> logger,
+        IOptions<ZitadelJwtOptions>? options = null)
     {
         _logger = logger;
+        _options = options?.Value ?? new ZitadelJwtOptions();
     }
 
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
@@ -133,14 +139,27 @@ public class ZitadelRoleClaimsTransformation : IClaimsTransformation
         }
     }
 
-    private static string NormalizeRoleName(string role)
+    private string NormalizeRoleName(string role)
     {
-        if (string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+        var mapping = _options.Roles;
+
+        if (mapping.Admin.Any(r => string.Equals(r, role, StringComparison.OrdinalIgnoreCase)) ||
+            string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+        {
             return AuthConstants.RoleAdmin;
-        if (string.Equals(role, "operator", StringComparison.OrdinalIgnoreCase))
+        }
+
+        if (mapping.Operator.Any(r => string.Equals(r, role, StringComparison.OrdinalIgnoreCase)) ||
+            string.Equals(role, "operator", StringComparison.OrdinalIgnoreCase))
+        {
             return AuthConstants.RoleOperator;
-        if (string.Equals(role, "viewer", StringComparison.OrdinalIgnoreCase))
+        }
+
+        if (mapping.Viewer.Any(r => string.Equals(r, role, StringComparison.OrdinalIgnoreCase)) ||
+            string.Equals(role, "viewer", StringComparison.OrdinalIgnoreCase))
+        {
             return AuthConstants.RoleViewer;
+        }
 
         if (role.Length > 1)
             return char.ToUpperInvariant(role[0]) + role[1..];

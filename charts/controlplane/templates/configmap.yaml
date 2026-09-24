@@ -25,6 +25,18 @@ data:
   {{- end }}
   {{- if .Values.zitadel.enabled }}
   Zitadel__Authority: {{ .Values.zitadel.authority | quote }}
-  Zitadel__Audience: {{ .Values.zitadel.audience | quote }}
+  Zitadel__ClientId: {{ .Values.zitadel.clientId | default .Values.zitadel.audience | quote }}
+  Zitadel__Audience: {{ .Values.zitadel.audience | default .Values.zitadel.clientId | quote }}
   Zitadel__RequireHttpsMetadata: {{ .Values.zitadel.requireHttpsMetadata | quote }}
+  {{- if .Values.zitadel.roles }}
+  {{- range $i, $role := .Values.zitadel.roles.admin }}
+  Zitadel__Roles__Admin__{{ $i }}: {{ $role | quote }}
+  {{- end }}
+  {{- range $i, $role := .Values.zitadel.roles.operator }}
+  Zitadel__Roles__Operator__{{ $i }}: {{ $role | quote }}
+  {{- end }}
+  {{- range $i, $role := .Values.zitadel.roles.viewer }}
+  Zitadel__Roles__Viewer__{{ $i }}: {{ $role | quote }}
+  {{- end }}
+  {{- end }}
   {{- end }}

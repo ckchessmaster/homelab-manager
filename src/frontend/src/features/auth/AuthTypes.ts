@@ -2,6 +2,22 @@ import type { AuthMode } from './authConfig'
 
 export type UserRole = 'Admin' | 'Operator' | 'Viewer'
 
+export interface RoleMappingConfig {
+  admin?: string[]
+  operator?: string[]
+  viewer?: string[]
+}
+
+export interface ServerAuthConfig {
+  authMode?: AuthMode
+  zitadel?: {
+    enabled?: boolean
+    authority?: string
+    clientId?: string
+    roles?: RoleMappingConfig
+  }
+}
+
 export interface UserProfile {
   id: string
   name: string

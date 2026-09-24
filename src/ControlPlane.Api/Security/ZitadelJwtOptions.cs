@@ -38,7 +38,27 @@ public class ZitadelJwtOptions
     public string? MetadataAddress { get; set; }
 
     /// <summary>
+    /// Explicit SPA Client ID if different from Audience.
+    /// </summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>
+    /// Role name mappings for mapping custom IdP roles/groups to ControlPlane canonical roles.
+    /// </summary>
+    public ZitadelRoleMappingOptions Roles { get; set; } = new();
+
+    /// <summary>
     /// Indicates whether Zitadel JWT authentication is configured and enabled.
     /// </summary>
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Authority);
+}
+
+/// <summary>
+/// Configurable lists of role names mapped to canonical ControlPlane roles (Admin, Operator, Viewer).
+/// </summary>
+public class ZitadelRoleMappingOptions
+{
+    public List<string> Admin { get; set; } = ["admin"];
+    public List<string> Operator { get; set; } = ["operator"];
+    public List<string> Viewer { get; set; } = ["viewer"];
 }

@@ -219,4 +219,50 @@ public class ZitadelAuthAndRbacTests
         var response = await client.GetAsync("/api/v1/admin/ping");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    [Fact]
+    public async Task GetAuthConfig_ReturnsZitadelConfigurationAndCustomRoleMappings()
+    {
+        using var factory = new RbacTestAppFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/auth/config");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.True(json.TryGetProperty("zitadel", out var zitadel));
+        Assert.True(zitadel.TryGetProperty("roles", out var roles));
+        Assert.True(roles.TryGetProperty("admin", out var adminRoles));
+        Assert.Contains("admin", adminRoles.EnumerateArray().Select(e => e.GetString()));
+    }
+
+    [Fact]
+    public async Task CustomRoleMapping_AllowsCustomRoleNames()
+    {
+        var options = new ZitadelJwtOptions
+        {
+            Roles = new ZitadelRoleMappingOptions
+            {
+                Admin = ["homelab-admins", "superadmin"],
+                Operator = ["devops-team"],
+                Viewer = ["family-members"]
+            }
+        };
+
+        var transform = new ZitadelRoleClaimsTransformation(
+            NullLogger<ZitadelRoleClaimsTransformation>.Instance,
+            Microsoft.Extensions.Options.Options.Create(options)
+        );
+
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim(AuthConstants.ZitadelRolesClaimType, "[\"homelab-admins\"]"));
+        var principal = new ClaimsPrincipal(identity);
+
+        var transformed = await transform.TransformAsync(principal);
+        var roleClaims = transformed.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+
+        Assert.Contains(AuthConstants.RoleAdmin, roleClaims);
+        Assert.Contains(AuthConstants.RoleOperator, roleClaims); // Admin hierarchy implies Operator
+        Assert.Contains(AuthConstants.RoleViewer, roleClaims);   // Admin hierarchy implies Viewer
+    }
 }

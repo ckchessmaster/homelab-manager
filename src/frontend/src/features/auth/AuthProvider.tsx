@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AuthProvider as OidcAuthProvider, useAuth as useOidcAuth } from 'react-oidc-context'
 import { AuthContext } from './AuthContext'
-import { getAuthConfig, createOidcSettings, setActiveAuthMode } from './authConfig'
-import type { AuthState, UserProfile, UserRole } from './AuthTypes'
+import {
+  getAuthConfig,
+  createOidcSettings,
+  setActiveAuthMode,
+  fetchServerAuthConfig,
+  getServerAuthConfig,
+} from './authConfig'
+import type { AuthState, ServerAuthConfig, UserProfile, UserRole } from './AuthTypes'
 import { ROLE_HIERARCHY, parseZitadelRoles, hasRequiredRole, getHighestRole } from './roleUtils'
 import { getApiKey, setApiKey, setAuthTokenProvider } from '../../api/client'
 
@@ -110,7 +116,13 @@ function BypassAuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
 
-function OidcBridge({ children }: { children: ReactNode }) {
+function OidcBridge({
+  children,
+  serverConfig,
+}: {
+  children: ReactNode
+  serverConfig?: ServerAuthConfig | null
+}) {
   const auth = useOidcAuth()
 
   useEffect(() => {
@@ -123,8 +135,11 @@ function OidcBridge({ children }: { children: ReactNode }) {
 
   const effectiveRoles = useMemo(() => {
     if (!auth.isAuthenticated || !auth.user) return []
-    return parseZitadelRoles(auth.user.profile as Record<string, unknown>)
-  }, [auth.isAuthenticated, auth.user])
+    return parseZitadelRoles(
+      auth.user.profile as Record<string, unknown>,
+      serverConfig?.zitadel?.roles
+    )
+  }, [auth.isAuthenticated, auth.user, serverConfig?.zitadel?.roles])
 
   const activeRole = useMemo(() => {
     return getHighestRole(effectiveRoles)
@@ -170,7 +185,31 @@ function OidcBridge({ children }: { children: ReactNode }) {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const config = useMemo(() => getAuthConfig(), [])
+  const [serverConfig, setServerConfig] = useState<ServerAuthConfig | null>(() => getServerAuthConfig())
+  const [isLoadingConfig, setIsLoadingConfig] = useState(() => !getServerAuthConfig())
+
+  useEffect(() => {
+    let isMounted = true
+    fetchServerAuthConfig().then((cfg) => {
+      if (isMounted) {
+        setServerConfig(cfg)
+        setIsLoadingConfig(false)
+      }
+    })
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const config = useMemo(() => getAuthConfig(serverConfig), [serverConfig])
+
+  if (isLoadingConfig) {
+    return (
+      <div className="min-h-screen w-full bg-zinc-950 flex items-center justify-center">
+        <div className="h-6 w-6 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   if (config.mode === 'api_key') {
     return <ApiKeyAuthProvider>{children}</ApiKeyAuthProvider>
@@ -180,7 +219,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return <BypassAuthProvider>{children}</BypassAuthProvider>
   }
 
-  const oidcSettings = createOidcSettings()
+  const oidcSettings = createOidcSettings(serverConfig)
 
   return (
     <OidcAuthProvider
@@ -189,7 +228,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         window.history.replaceState({}, document.title, window.location.pathname)
       }}
     >
-      <OidcBridge>{children}</OidcBridge>
+      <OidcBridge serverConfig={serverConfig}>{children}</OidcBridge>
     </OidcAuthProvider>
   )
 }

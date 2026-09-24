@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useAuthUser } from './useAuthUser'
+import { getAuthConfig } from './authConfig'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import {
@@ -178,6 +179,13 @@ export const AuthGatePage: React.FC = () => {
                   </>
                 )}
               </Button>
+
+              <div className="text-center pt-1">
+                <span className="text-[11px] text-zinc-500 font-mono">
+                  Identity Provider:{' '}
+                  <span className="text-zinc-400 font-medium">{getAuthConfig().authority}</span>
+                </span>
+              </div>
             </div>
           )}
 

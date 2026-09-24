@@ -1,4 +1,4 @@
-import type { UserRole } from './AuthTypes'
+import type { RoleMappingConfig, UserRole } from './AuthTypes'
 
 export const ROLE_HIERARCHY: Record<UserRole, UserRole[]> = {
   Admin: ['Admin', 'Operator', 'Viewer'],
@@ -6,7 +6,10 @@ export const ROLE_HIERARCHY: Record<UserRole, UserRole[]> = {
   Viewer: ['Viewer'],
 }
 
-export function parseZitadelRoles(profile?: Record<string, unknown>): UserRole[] {
+export function parseZitadelRoles(
+  profile?: Record<string, unknown>,
+  roleMapping?: RoleMappingConfig
+): UserRole[] {
   if (!profile) return []
 
   const directRoles = profile['roles'] as string[] | undefined
@@ -28,13 +31,27 @@ export function parseZitadelRoles(profile?: Record<string, unknown>): UserRole[]
     directRoles.forEach((r) => typeof r === 'string' && found.add(r.toLowerCase()))
   }
 
-  if (found.has('admin')) {
+  const adminMatch = roleMapping?.admin?.length
+    ? roleMapping.admin.some((r) => found.has(r.toLowerCase()))
+    : found.has('admin')
+
+  if (adminMatch || found.has('admin')) {
     return ROLE_HIERARCHY.Admin
   }
-  if (found.has('operator')) {
+
+  const operatorMatch = roleMapping?.operator?.length
+    ? roleMapping.operator.some((r) => found.has(r.toLowerCase()))
+    : found.has('operator')
+
+  if (operatorMatch || found.has('operator')) {
     return ROLE_HIERARCHY.Operator
   }
-  if (found.has('viewer')) {
+
+  const viewerMatch = roleMapping?.viewer?.length
+    ? roleMapping.viewer.some((r) => found.has(r.toLowerCase()))
+    : found.has('viewer')
+
+  if (viewerMatch || found.has('viewer')) {
     return ROLE_HIERARCHY.Viewer
   }
 
