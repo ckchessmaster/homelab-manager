@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.2.1
+
+### Fixed
+* Fixed image repository references in default `values.yaml` to point to `ghcr.io/ckchessmaster/controlplane-api` and `ghcr.io/ckchessmaster/controlplane-frontend`.
+* Added native OCI registry support in `HelmClient` and `InstallHelmModal` without passing the unsupported `--repo` flag.
+
+---
+
 ## v1.2.0
 
 ### Initial General Availability (GA) Release
