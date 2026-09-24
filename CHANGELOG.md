@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.2.3
+
+### Added
+* **Dynamic Frontend OIDC Bootstrap**: Added unauthenticated `GET /api/v1/auth/config` endpoint in the API to serve active auth mode, Zitadel authority, client ID, and role mappings to the React SPA at runtime, eliminating hardcoded build-time URLs.
+* **Configurable Custom Role Mapping**: Supported mapping custom IdP roles, groups, or claims (e.g. `homelab-admins`, `devops`, `family`) to ControlPlane canonical roles (`Admin`, `Operator`, `Viewer`) in both backend JWT claims transformation and frontend permissions evaluation.
+* **Helm Role Configuration**: Added `zitadel.clientId` and `zitadel.roles` (with `admin`, `operator`, and `viewer` lists) to `values.yaml` and mapped them into `configmap.yaml`.
+* **Dynamic Nginx Reverse Proxy Template**: Added `frontend-configmap.yaml` Helm template that dynamically sets Nginx's `upstream api_upstream` to match the exact release-specific API service name (`{{ include "controlplane.fullname" . }}-api`), preventing upstream resolution crashes regardless of the Helm release name.
+* **Identity Provider Display**: Displayed active Zitadel authority URL on the login page when OIDC mode is active.
+
+### Fixed
+* Fixed frontend Nginx crash (`host not found in upstream "controlplane-api:8080"`) when installing the Helm chart with custom release names (e.g. `homelab-manager`).
+* Added runtime configuration fallbacks (`localStorage` and `window.__CONTROLPLANE_CONFIG__`) for local development and offline environments.
+
+---
+
 ## v1.2.1
 
 ### Fixed
