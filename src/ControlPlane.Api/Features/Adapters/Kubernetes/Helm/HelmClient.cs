@@ -83,9 +83,36 @@ public class HelmClient : IHelmClient
     public static string BuildInstallArguments(InstallHelmReleaseRequestDto request, string? tempKubeconfig = null, string? tempValuesFile = null)
     {
         var args = new StringBuilder();
-        args.Append($"upgrade --install \"{request.ReleaseName}\" \"{request.ChartName}\"");
 
-        if (!string.IsNullOrWhiteSpace(request.RepoUrl))
+        var isOciRepo = !string.IsNullOrWhiteSpace(request.RepoUrl) && request.RepoUrl.StartsWith("oci://", StringComparison.OrdinalIgnoreCase);
+        var isOciChart = !string.IsNullOrWhiteSpace(request.ChartName) && request.ChartName.StartsWith("oci://", StringComparison.OrdinalIgnoreCase);
+
+        string effectiveChart;
+        if (isOciChart)
+        {
+            effectiveChart = request.ChartName;
+        }
+        else if (isOciRepo)
+        {
+            var cleanRepo = request.RepoUrl!.TrimEnd('/');
+            if (cleanRepo.EndsWith($"/{request.ChartName}", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(request.ChartName))
+            {
+                effectiveChart = cleanRepo;
+            }
+            else
+            {
+                effectiveChart = $"{cleanRepo}/{request.ChartName}";
+            }
+        }
+        else
+        {
+            effectiveChart = request.ChartName;
+        }
+
+        args.Append($"upgrade --install \"{request.ReleaseName}\" \"{effectiveChart}\"");
+
+        // Helm does NOT accept --repo for OCI registries; the OCI URL is the chart reference itself
+        if (!isOciRepo && !isOciChart && !string.IsNullOrWhiteSpace(request.RepoUrl))
         {
             args.Append($" --repo \"{request.RepoUrl}\"");
         }

@@ -266,8 +266,8 @@ public class HelmUpdateService : IHelmUpdateService
             string? candidateAppVersion = hubAppVersion;
             var resolvedRepoUrl = hubRepoUrl ?? effectiveRepoUrl;
 
-            // Step 2: Fallback to direct index.yaml ONLY if Artifact Hub yielded nothing and repoUrl is known
-            if (string.IsNullOrWhiteSpace(candidateVersion) && !string.IsNullOrWhiteSpace(resolvedRepoUrl))
+            // Step 2: Fallback to direct index.yaml ONLY if Artifact Hub yielded nothing and repoUrl is known (and not OCI)
+            if (string.IsNullOrWhiteSpace(candidateVersion) && !string.IsNullOrWhiteSpace(resolvedRepoUrl) && !resolvedRepoUrl.StartsWith("oci://", StringComparison.OrdinalIgnoreCase))
             {
                 var (yamlVersion, yamlAppVersion, _) = await QueryIndexYamlAsync(cleanChart, resolvedRepoUrl, ct);
                 if (!string.IsNullOrWhiteSpace(yamlVersion))

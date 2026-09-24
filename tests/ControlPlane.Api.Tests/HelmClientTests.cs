@@ -87,4 +87,55 @@ public class HelmClientTests
 
         Assert.Contains("--values \"/tmp/helm-vals-123.yaml\"", args);
     }
+
+    [Fact]
+    public void BuildInstallArguments_HandlesOciRepoUrl_WithoutRepoFlag()
+    {
+        var request = new InstallHelmReleaseRequestDto(
+            ReleaseName: "controlplane",
+            Namespace: "controlplane",
+            ChartName: "controlplane",
+            RepoUrl: "oci://ghcr.io/ckchessmaster/charts/controlplane",
+            Version: "1.2.0"
+        );
+
+        var args = HelmClient.BuildInstallArguments(request);
+
+        Assert.Contains("upgrade --install \"controlplane\" \"oci://ghcr.io/ckchessmaster/charts/controlplane\"", args);
+        Assert.DoesNotContain("--repo", args);
+        Assert.Contains("--version \"1.2.0\"", args);
+    }
+
+    [Fact]
+    public void BuildInstallArguments_HandlesOciBaseRepoUrl_AppendsChartName()
+    {
+        var request = new InstallHelmReleaseRequestDto(
+            ReleaseName: "controlplane",
+            Namespace: "controlplane",
+            ChartName: "controlplane",
+            RepoUrl: "oci://ghcr.io/ckchessmaster/charts",
+            Version: "1.2.0"
+        );
+
+        var args = HelmClient.BuildInstallArguments(request);
+
+        Assert.Contains("upgrade --install \"controlplane\" \"oci://ghcr.io/ckchessmaster/charts/controlplane\"", args);
+        Assert.DoesNotContain("--repo", args);
+    }
+
+    [Fact]
+    public void BuildInstallArguments_HandlesDirectOciChartName_WithoutRepoFlag()
+    {
+        var request = new InstallHelmReleaseRequestDto(
+            ReleaseName: "controlplane",
+            Namespace: "controlplane",
+            ChartName: "oci://ghcr.io/ckchessmaster/charts/controlplane",
+            Version: "1.2.0"
+        );
+
+        var args = HelmClient.BuildInstallArguments(request);
+
+        Assert.Contains("upgrade --install \"controlplane\" \"oci://ghcr.io/ckchessmaster/charts/controlplane\"", args);
+        Assert.DoesNotContain("--repo", args);
+    }
 }
