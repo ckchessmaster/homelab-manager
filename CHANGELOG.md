@@ -7,65 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## v1.2.7
+## v1.2.8
 
 ### Added
+* **Embedded Static Agent Binaries for Node Adoption**: Multi-stage Docker build packaging precompiled static Go node agents (`controlplane-agent-linux-amd64`, `controlplane-agent-linux-arm64`, `controlplane-agent-windows-amd64.exe`) directly into `/app/agent-dist` within the `controlplane-api` image, enabling one-click SSH bootstrap adoption in Kubernetes without missing binary errors.
+* **Configurable Agent Distribution Directory**: Added `AGENT_DIST_DIR` environment variable and `ControlPlane:AgentDistDir` configuration support in `NodeAdoptionService` to support custom or volume-mounted binary locations.
 * **CiliumNetworkPolicy Support**: Added optional `CiliumNetworkPolicy` resource (`charts/controlplane/templates/cilium-networkpolicy.yaml`) enabled via `networkPolicy.cilium.enabled` (default `false`) to permit ControlPlane API egress to the Kubernetes API server (`kube-apiserver`) in Cilium CNI clusters.
-
-### Fixed
-* **Zitadel Client ID Default Fallback**: Fixed `Zitadel__ClientId` falling back to chart default `"controlplane"` instead of `.Values.zitadel.audience` when `zitadel.clientId` is omitted in `values.yaml`, resolving `Errors.App.NotFound` from Zitadel during OIDC authorization.
-
----
-
-## v1.2.6
-
-### Fixed
-* **Frontend Content Security Policy (CSP) OIDC Scoping**: Dynamically scoped `connect-src` and `frame-src` in the frontend Nginx reverse proxy to include `.Values.zitadel.authority`, allowing the React SPA to query OIDC metadata (`/.well-known/openid-configuration`), fetch JWKS, exchange authorization codes, and perform silent token renewal without violating CSP.
-* **Granular CSP Domain Configuration**: Added `frontend.csp.extraConnectSrc` and `frontend.csp.extraFrameSrc` options in `values.yaml` and `frontend-configmap.yaml` to allow administrators to whitelist additional specific domains while maintaining strict least-privilege security without wildcards.
-* **Standalone Container CSP Entrypoint Hook**: Added `/docker-entrypoint.d/40-configure-csp.sh` to dynamically configure Nginx CSP headers from environment variables (`ZITADEL_AUTHORITY`, `CSP_CONNECT_SRC`, `CSP_FRAME_SRC`) in standalone Docker and Docker Compose deployments.
-
----
-
-## v1.2.5
-
-### Fixed
-* **ASP.NET Core Environment Configuration Mapping**: Supported both hierarchical colon-delimited (`Database:Host`) and double-underscore (`Database__Host`) configuration keys, ensuring environment variables injected via Kubernetes `ConfigMap` and `Secret` are correctly bound.
-* **Database Secret Sanitization**: Updated `charts/controlplane/templates/secret.yaml` to store database password under `Database__Password` instead of generating a hardcoded `ConnectionStrings__ControlPlaneDatabase`, eliminating stale default host references.
-* **Migration Target Diagnostics**: Enhanced `InitializeDatabaseAsync` startup logs to explicitly output the resolved target PostgreSQL host and database name (`DataSource/Database`).
-
----
-
-## v1.2.4
-
-### Fixed
-* **Database Connection Configuration**: Made explicit `Database__Host`, `Database__Database`, `Database__Username`, and `Database__Port` always take precedence over stale connection strings (e.g. from chart defaults or prior installs) in `DependencyInjection.cs`.
-* **CloudNativePG Secret Resolution**: Supported external password secrets (e.g. `passwordSecretName`) mounted by CloudNativePG, checking keys `password`, `PASSWORD`, `DB_PASSWORD`, and preventing namespace-local short URI hostnames from breaking cross-namespace DNS.
-* **Helm Deployment Rolling Updates**: Added dynamic checksum annotations (`checksum/config` and `checksum/secret`) to `api-deployment.yaml` and `frontend-deployment.yaml` so `helm upgrade` triggers a rolling restart when configuration values change.
-* **NetworkPolicy In-Cluster & Egress Rules**: Permitted cross-namespace in-cluster egress (PostgreSQL in `cnpg-services`, Temporal in `temporal`, Kubernetes API) and outbound HTTPS/HTTP (port 443 for Zitadel IdP and OCI registries) in `networkpolicy.yaml`.
-* **Temporal Server URL Default**: Defaulted `temporal.serverUrl` to empty string in `values.yaml` so custom `temporal.address` values populate both `Temporal__Address` and `Temporal__ServerUrl`.
-
----
-
-## v1.2.3
-
-### Added
 * **Dynamic Frontend OIDC Bootstrap**: Added unauthenticated `GET /api/v1/auth/config` endpoint in the API to serve active auth mode, Zitadel authority, client ID, and role mappings to the React SPA at runtime, eliminating hardcoded build-time URLs.
 * **Configurable Custom Role Mapping**: Supported mapping custom IdP roles, groups, or claims (e.g. `homelab-admins`, `devops`, `family`) to ControlPlane canonical roles (`Admin`, `Operator`, `Viewer`) in both backend JWT claims transformation and frontend permissions evaluation.
 * **Helm Role Configuration**: Added `zitadel.clientId` and `zitadel.roles` (with `admin`, `operator`, and `viewer` lists) to `values.yaml` and mapped them into `configmap.yaml`.
 * **Dynamic Nginx Reverse Proxy Template**: Added `frontend-configmap.yaml` Helm template that dynamically sets Nginx's `upstream api_upstream` to match the exact release-specific API service name (`{{ include "controlplane.fullname" . }}-api`), preventing upstream resolution crashes regardless of the Helm release name.
+* **Granular CSP Domain Configuration**: Added `frontend.csp.extraConnectSrc` and `frontend.csp.extraFrameSrc` options in `values.yaml` and `frontend-configmap.yaml` to allow administrators to whitelist additional specific domains while maintaining strict least-privilege security without wildcards.
+* **Standalone Container CSP Entrypoint Hook**: Added `/docker-entrypoint.d/40-configure-csp.sh` to dynamically configure Nginx CSP headers from environment variables (`ZITADEL_AUTHORITY`, `CSP_CONNECT_SRC`, `CSP_FRAME_SRC`) in standalone Docker and Docker Compose deployments.
+* **Native OCI Helm Registry Support**: Added native OCI registry support in `HelmClient` and `InstallHelmModal` without passing the unsupported `--repo` flag.
 * **Identity Provider Display**: Displayed active Zitadel authority URL on the login page when OIDC mode is active.
 
 ### Fixed
-* Fixed frontend Nginx crash (`host not found in upstream "controlplane-api:8080"`) when installing the Helm chart with custom release names (e.g. `homelab-manager`).
-* Added runtime configuration fallbacks (`localStorage` and `window.__CONTROLPLANE_CONFIG__`) for local development and offline environments.
-
----
-
-## v1.2.1
-
-### Fixed
-* Fixed image repository references in default `values.yaml` to point to `ghcr.io/ckchessmaster/controlplane-api` and `ghcr.io/ckchessmaster/controlplane-frontend`.
-* Added native OCI registry support in `HelmClient` and `InstallHelmModal` without passing the unsupported `--repo` flag.
+* **Zitadel Client ID Default Fallback**: Fixed `Zitadel__ClientId` falling back to chart default `"controlplane"` instead of `.Values.zitadel.audience` when `zitadel.clientId` is omitted in `values.yaml`, resolving `Errors.App.NotFound` from Zitadel during OIDC authorization.
+* **Frontend Content Security Policy (CSP) OIDC Scoping**: Dynamically scoped `connect-src` and `frame-src` in the frontend Nginx reverse proxy to include `.Values.zitadel.authority`, allowing the React SPA to query OIDC metadata (`/.well-known/openid-configuration`), fetch JWKS, exchange authorization codes, and perform silent token renewal without violating CSP.
+* **Database Connection Configuration**: Made explicit `Database__Host`, `Database__Database`, `Database__Username`, and `Database__Port` always take precedence over stale connection strings (e.g. from chart defaults or prior installs) in `DependencyInjection.cs`.
+* **ASP.NET Core Environment Configuration Mapping**: Supported both hierarchical colon-delimited (`Database:Host`) and double-underscore (`Database__Host`) configuration keys, ensuring environment variables injected via Kubernetes `ConfigMap` and `Secret` are correctly bound.
+* **CloudNativePG Secret Resolution**: Supported external password secrets (e.g. `passwordSecretName`) mounted by CloudNativePG, checking keys `password`, `PASSWORD`, `DB_PASSWORD`, and preventing namespace-local short URI hostnames from breaking cross-namespace DNS.
+* **Helm Deployment Rolling Updates**: Added dynamic checksum annotations (`checksum/config` and `checksum/secret`) to `api-deployment.yaml` and `frontend-deployment.yaml` so `helm upgrade` triggers a rolling restart when configuration values change.
+* **NetworkPolicy In-Cluster & Egress Rules**: Permitted cross-namespace in-cluster egress (PostgreSQL in `cnpg-services`, Temporal in `temporal`, Kubernetes API) and outbound HTTPS/HTTP (port 443 for Zitadel IdP and OCI registries) in `networkpolicy.yaml`.
+* **Temporal Server URL Default**: Defaulted `temporal.serverUrl` to empty string in `values.yaml` so custom `temporal.address` values populate both `Temporal__Address` and `Temporal__ServerUrl`.
+* **Database Secret Sanitization**: Updated `charts/controlplane/templates/secret.yaml` to store database password under `Database__Password` instead of generating a hardcoded `ConnectionStrings__ControlPlaneDatabase`, eliminating stale default host references.
+* **Migration Target Diagnostics**: Enhanced `InitializeDatabaseAsync` startup logs to explicitly output the resolved target PostgreSQL host and database name (`DataSource/Database`).
+* **Frontend Nginx Upstream Resolution**: Fixed frontend Nginx crash (`host not found in upstream "controlplane-api:8080"`) when installing the Helm chart with custom release names (e.g. `homelab-manager`).
+* **Default Image Repository References**: Fixed image repository references in default `values.yaml` to point to `ghcr.io/ckchessmaster/controlplane-api` and `ghcr.io/ckchessmaster/controlplane-frontend`.
+* **Runtime Config Fallbacks**: Added runtime configuration fallbacks (`localStorage` and `window.__CONTROLPLANE_CONFIG__`) for local development and offline environments.
 
 ---
 
