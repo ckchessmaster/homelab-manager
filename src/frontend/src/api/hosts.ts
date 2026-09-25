@@ -260,6 +260,7 @@ export interface AdoptNodePayload {
   password?: string | null
   privateKey?: string | null
   hubUrl?: string | null
+  insecure?: boolean
 }
 
 export interface NodeAdoptionResponse {
@@ -282,6 +283,7 @@ export interface BatchAdoptNodesPayload {
   password?: string | null
   privateKey?: string | null
   hubUrl?: string | null
+  insecure?: boolean
 }
 
 export interface BatchAdoptItemResult {

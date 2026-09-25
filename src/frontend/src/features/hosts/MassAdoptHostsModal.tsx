@@ -27,15 +27,30 @@ export const MassAdoptHostsModal: React.FC<MassAdoptHostsModalProps> = ({
 
   const getInitialHubUrl = () => {
     if (typeof window !== 'undefined') {
-      const hostname = window.location.hostname
+      const { protocol, hostname, host, port } = window.location
+      const wsProto = protocol === 'https:' ? 'wss:' : 'ws:'
+
+      // In Vite local development (port 5173), API runs on 5029
+      if (port === '5173') {
+        const devHost = hostname && hostname !== 'localhost' && hostname !== '127.0.0.1' ? hostname : 'localhost'
+        return `${wsProto}//${devHost}:5029/agent-hub`
+      }
+
+      // In cluster / production (Ingress, reverse proxy, Docker, etc.)
       if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-        return `ws://${hostname}:5029/agent-hub`
+        return `${wsProto}//${host}/agent-hub`
       }
     }
-    return 'ws://192.168.20.159:5029/agent-hub'
+    return 'ws://localhost:5029/agent-hub'
   }
 
   const [hubUrl, setHubUrl] = useState(getInitialHubUrl)
+  const [insecure, setInsecure] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.protocol === 'https:'
+    }
+    return false
+  })
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [results, setResults] = useState<{
     succeededCount: number
@@ -74,6 +89,7 @@ export const MassAdoptHostsModal: React.FC<MassAdoptHostsModalProps> = ({
         password: authType === 'password' ? password || null : null,
         privateKey: authType === 'key' ? privateKey || null : null,
         hubUrl: hubUrl.trim() || null,
+        insecure,
       })
 
       setResults({
@@ -301,11 +317,26 @@ export const MassAdoptHostsModal: React.FC<MassAdoptHostsModalProps> = ({
                 <Input
                   value={hubUrl}
                   onChange={(e) => setHubUrl(e.target.value)}
-                  placeholder="ws://192.168.20.159:5029/agent-hub"
+                  placeholder="ws://localhost:5029/agent-hub"
                   className="font-mono text-xs"
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">
                   The address that the daemon on each target host will dial outbound to connect with ControlPlane.
+                </p>
+              </div>
+
+              <div className="pt-1">
+                <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={insecure}
+                    onChange={(e) => setInsecure(e.target.checked)}
+                    className="w-4 h-4 rounded border-zinc-700 bg-zinc-950 text-sky-500 focus:ring-sky-500"
+                  />
+                  <span>Allow insecure / self-signed TLS certificates (<code className="text-zinc-400">--insecure</code>)</span>
+                </label>
+                <p className="text-[11px] text-zinc-500 mt-0.5 ml-6">
+                  Recommended if your cluster uses self-signed certificates or internal CA over HTTPS/WSS.
                 </p>
               </div>
             </div>

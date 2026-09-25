@@ -8,7 +8,8 @@ public record AdoptNodeRequest(
     string Username = "root",
     string? Password = null,
     string? PrivateKey = null,
-    string? HubUrl = null
+    string? HubUrl = null,
+    bool Insecure = false
 );
 
 public enum AdoptionStepStatus
@@ -46,7 +47,8 @@ public record BatchAdoptNodesRequest(
     string Username = "root",
     string? Password = null,
     string? PrivateKey = null,
-    string? HubUrl = null
+    string? HubUrl = null,
+    bool Insecure = false
 );
 
 public record BatchAdoptItemResult(

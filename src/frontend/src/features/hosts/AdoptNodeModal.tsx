@@ -35,12 +35,21 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
 
   const getInitialHubUrl = () => {
     if (typeof window !== 'undefined') {
-      const hostname = window.location.hostname
+      const { protocol, hostname, host, port } = window.location
+      const wsProto = protocol === 'https:' ? 'wss:' : 'ws:'
+
+      // In Vite local development (port 5173), API runs on 5029
+      if (port === '5173') {
+        const devHost = hostname && hostname !== 'localhost' && hostname !== '127.0.0.1' ? hostname : 'localhost'
+        return `${wsProto}//${devHost}:5029/agent-hub`
+      }
+
+      // In cluster / production (Ingress, reverse proxy, Docker, etc.)
       if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-        return `ws://${hostname}:5029/agent-hub`
+        return `${wsProto}//${host}/agent-hub`
       }
     }
-    return 'ws://192.168.20.159:5029/agent-hub'
+    return 'ws://localhost:5029/agent-hub'
   }
 
   const getHttpBaseUrlFromHubUrl = (currentHubUrl: string) => {
@@ -49,11 +58,20 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
       const protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
       return `${protocol}//${url.host}`
     } catch {
-      return 'http://192.168.20.159:5029'
+      if (typeof window !== 'undefined') {
+        return `${window.location.protocol}//${window.location.host}`
+      }
+      return 'http://localhost:5029'
     }
   }
 
   const [hubUrl, setHubUrl] = useState(getInitialHubUrl)
+  const [insecure, setInsecure] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.protocol === 'https:'
+    }
+    return false
+  })
   const [adoptionResponse, setAdoptionResponse] = useState<NodeAdoptionResponse | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -110,6 +128,7 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
         password: password || null,
         privateKey: authType === 'key' ? privateKey : null,
         hubUrl: hubUrl.trim() || null,
+        insecure,
       })
 
       setAdoptionResponse(res)
@@ -148,7 +167,7 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
 
   const httpBaseUrl = getHttpBaseUrlFromHubUrl(hubUrl)
   const powerShellCommand = effectiveHost
-    ? `& ([scriptblock]::Create((iwr -UseBasicParsing '${httpBaseUrl}/api/v1/agents/install.ps1').Content)) -HubUrl '${hubUrl}' -Token '${effectiveHost.id}' -NodeId '${effectiveHost.id}'`
+    ? `& ([scriptblock]::Create((iwr -UseBasicParsing '${httpBaseUrl}/api/v1/agents/install.ps1').Content)) -HubUrl '${hubUrl}' -Token '${effectiveHost.id}' -NodeId '${effectiveHost.id}'${insecure ? ' -Insecure' : ''}`
     : ''
 
   const handleCopyCommand = () => {
@@ -341,9 +360,21 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                           type="text"
                           value={hubUrl}
                           onChange={(e) => setHubUrl(e.target.value)}
-                          placeholder="ws://192.168.20.159:5029/agent-hub"
+                          placeholder="ws://localhost:5029/agent-hub"
                           className="w-full px-3 py-1.5 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500"
                         />
+                      </div>
+
+                      <div className="pt-1">
+                        <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={insecure}
+                            onChange={(e) => setInsecure(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded border-zinc-700 bg-zinc-950 text-sky-500 focus:ring-sky-500"
+                          />
+                          <span>Allow insecure / self-signed TLS certificates (<code className="text-zinc-400">-Insecure</code>)</span>
+                        </label>
                       </div>
 
                       <div>
@@ -636,6 +667,21 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">
                   Must be reachable from the target host (use this server&apos;s LAN IP or DNS name, never localhost).
+                </p>
+              </div>
+
+              <div className="pt-1">
+                <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={insecure}
+                    onChange={(e) => setInsecure(e.target.checked)}
+                    className="w-4 h-4 rounded border-zinc-700 bg-zinc-950 text-sky-500 focus:ring-sky-500"
+                  />
+                  <span>Allow insecure / self-signed TLS certificates (<code className="text-zinc-400">--insecure</code>)</span>
+                </label>
+                <p className="text-[11px] text-zinc-500 mt-0.5 ml-6">
+                  Recommended if your cluster or hub uses self-signed certificates or internal CA over HTTPS/WSS.
                 </p>
               </div>
             </form>

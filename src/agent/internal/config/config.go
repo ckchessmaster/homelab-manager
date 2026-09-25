@@ -16,6 +16,7 @@ type Config struct {
 	HeartbeatInterval time.Duration
 	TestMetrics       bool
 	Version           string
+	Insecure          bool
 }
 
 func LoadConfig(version string) (*Config, error) {
@@ -30,6 +31,7 @@ func LoadConfig(version string) (*Config, error) {
 	flag.StringVar(&cfg.NodeID, "node-id", getEnv("CONTROLPLANE_NODE_ID", ""), "Persistent Node ID (UUID)")
 	flag.IntVar(&intervalSec, "heartbeat-interval", 10, "Heartbeat interval in seconds")
 	flag.BoolVar(&cfg.TestMetrics, "test-metrics", false, "Test mode: gather and output metrics to stdout, then exit")
+	flag.BoolVar(&cfg.Insecure, "insecure", getEnvBool("CONTROLPLANE_INSECURE", false), "Allow insecure/self-signed TLS certificates for hub connection")
 
 	flag.Parse()
 
@@ -85,6 +87,14 @@ func SaveNodeID(nodeID string) error {
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if val := os.Getenv(key); val != "" {
+		lower := strings.ToLower(strings.TrimSpace(val))
+		return lower == "true" || lower == "1" || lower == "yes"
 	}
 	return fallback
 }

@@ -195,10 +195,18 @@ auth:
   existingSecret: ""
 
 # Root-level existing secret mounted to the API deployment (e.g. existingSecret: temporal-db-secret)
-existingSecret: ""
+# Hub WebSocket URL for agents to dial into (e.g. wss://controlplane.homelab.local/agent-hub)
+# If omitted, will be derived dynamically or from ingress host
+hubUrl: ""
 
 mcp:
-  enabled: true
+  # Model Context Protocol (MCP) Streamable HTTP Server for AI pair programmers
+  # Disabled by default for production security
+  enabled: false
+  ingress:
+    # If ingress is enabled, route /mcp to the API pod
+    enabled: false
+    path: /mcp
 
 ingress:
   enabled: true

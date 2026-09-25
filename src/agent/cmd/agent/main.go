@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -25,7 +26,7 @@ import (
 )
 
 var (
-	Version = "1.1.1"
+	Version = "1.3.0"
 )
 
 type HeartbeatPayload struct {
@@ -238,7 +239,15 @@ func runAgentSession(
 	headers.Set("X-ControlPlane-Hostname", hostname)
 
 	log.Printf("[Agent] Dialing hub at %s...", u.String())
-	dialer := websocket.DefaultDialer
+	dialer := &websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 45 * time.Second,
+	}
+	if cfg.Insecure {
+		dialer.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
 	conn, resp, err := dialer.DialContext(ctx, u.String(), headers)
 	if err != nil {
 		if resp != nil {

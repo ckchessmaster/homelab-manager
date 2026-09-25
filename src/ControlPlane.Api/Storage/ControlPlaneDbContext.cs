@@ -21,6 +21,8 @@ public class ControlPlaneDbContext : DbContext
 
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
+    public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);

@@ -216,6 +216,9 @@ public static class DependencyInjection
             await context.Database.ExecuteSqlRawAsync(
                 "CREATE TABLE IF NOT EXISTS system_settings (key TEXT NOT NULL PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);",
                 cancellationToken);
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE TABLE IF NOT EXISTS api_tokens (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL, token_prefix TEXT NOT NULL, role TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT, last_used_at TEXT, is_revoked INTEGER NOT NULL);",
+                cancellationToken);
             try
             {
                 await context.Database.ExecuteSqlRawAsync("ALTER TABLE hosts ADD COLUMN proxmox_instance_id TEXT;", cancellationToken);

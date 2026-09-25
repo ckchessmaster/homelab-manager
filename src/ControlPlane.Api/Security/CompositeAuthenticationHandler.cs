@@ -49,10 +49,36 @@ public class CompositeAuthenticationHandler : AuthenticationHandler<Authenticati
         var hasAccessTokenQuery = Request.Query.ContainsKey("access_token") &&
                                   Request.Path.StartsWithSegments("/hubs");
 
+        if (hasBearerHeader)
+        {
+            var bearerToken = authHeader.Substring("Bearer ".Length).Trim();
+            if (bearerToken.StartsWith("cp_pat_", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Personal Access Token detected in Bearer header. Delegating to ApiKey scheme.");
+                return await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
+            }
+        }
+
         if (hasBearerHeader || hasAccessTokenQuery)
         {
             _logger.LogDebug("Bearer credentials detected. Delegating to JwtBearer scheme.");
-            return await Context.AuthenticateAsync(AuthConstants.JwtBearerScheme);
+            var jwtResult = await Context.AuthenticateAsync(AuthConstants.JwtBearerScheme);
+            if (jwtResult.Succeeded)
+            {
+                return jwtResult;
+            }
+
+            // Fallback to ApiKey scheme in case the Bearer token was a PAT or API key
+            if (hasBearerHeader)
+            {
+                var apiKeyResult = await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
+                if (apiKeyResult.Succeeded)
+                {
+                    return apiKeyResult;
+                }
+            }
+
+            return jwtResult;
         }
 
         // 3. Check for API key header

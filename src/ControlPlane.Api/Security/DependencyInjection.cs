@@ -17,6 +17,7 @@ public static class DependencyInjection
 
         services.Configure<ZitadelJwtOptions>(configuration.GetSection(ZitadelJwtOptions.SectionName));
         services.AddTransient<IClaimsTransformation, ZitadelRoleClaimsTransformation>();
+        services.AddScoped<Features.Security.Tokens.ApiTokenService>();
 
         var zitadelOptions = configuration.GetSection(ZitadelJwtOptions.SectionName).Get<ZitadelJwtOptions>() ?? new ZitadelJwtOptions();
 

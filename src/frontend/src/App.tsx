@@ -20,6 +20,7 @@ import { getApiKey } from './api/client'
 import { CallbackPage } from './features/auth/CallbackPage'
 import { AuthGatePage } from './features/auth/AuthGatePage'
 import { useAuthUser } from './features/auth/useAuthUser'
+import { PersonalAccessTokensCard } from './features/auth/PersonalAccessTokensCard'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AuthenticatedApp() {
@@ -137,6 +138,8 @@ function AuthenticatedApp() {
               </div>
             )}
           </div>
+
+          <PersonalAccessTokensCard />
 
           <div className="p-6 bg-zinc-900/60 border border-zinc-800 rounded-xl space-y-4">
             <h3 className="text-base font-semibold text-zinc-100 flex items-center gap-2">

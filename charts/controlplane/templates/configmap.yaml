@@ -8,6 +8,13 @@ data:
   ASPNETCORE_ENVIRONMENT: "Production"
   ASPNETCORE_HTTP_PORTS: "8080"
   ENABLE_MCP_SERVER: {{ .Values.mcp.enabled | quote }}
+  {{- if .Values.hubUrl }}
+  ControlPlane__HubUrl: {{ .Values.hubUrl | quote }}
+  {{- else if and .Values.ingress.enabled .Values.ingress.hosts }}
+  {{- $firstHost := index .Values.ingress.hosts 0 }}
+  {{- $proto := ternary "wss" "ws" (not (empty .Values.ingress.tls)) }}
+  ControlPlane__HubUrl: {{ printf "%s://%s/agent-hub" $proto $firstHost.host | quote }}
+  {{- end }}
   Database__Host: {{ .Values.database.host | quote }}
   Database__Port: {{ .Values.database.port | quote }}
   Database__Database: {{ .Values.database.database | quote }}

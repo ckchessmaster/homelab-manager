@@ -154,6 +154,70 @@ public class NodeAdoptionTests
     }
 
     [Fact]
+    public async Task AdoptNodeAsync_WithInsecure_PassesInsecureFlagToService()
+    {
+        var tempDb = Path.Combine(Path.GetTempPath(), $"cp-test-adopt-insecure-{Guid.NewGuid():N}.db");
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddDbContext<ControlPlaneDbContext>(opt =>
+                opt.UseSqlite($"Data Source={tempDb}").UseSnakeCaseNamingConvention());
+            var serviceProvider = services.BuildServiceProvider();
+
+            using (var initScope = serviceProvider.CreateScope())
+            {
+                var db = initScope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            var connectionManager = new AgentConnectionManager(NullLogger<AgentConnectionManager>.Instance);
+            var fakeBootstrapper = new FakeSshBootstrapper();
+
+            var hostId = Guid.NewGuid();
+            fakeBootstrapper.OnBinaryUploaded = () =>
+            {
+                connectionManager.Register(hostId, "10.0.0.99", new DummyWebSocket());
+            };
+
+            var apiKeyOptions = Options.Create(new ApiKeyAuthenticationOptions { ApiKey = "test-token" });
+            var mockOptionsMonitor = new TestOptionsMonitor<ApiKeyAuthenticationOptions>(apiKeyOptions.Value);
+            var inMemoryConfig = new ConfigurationBuilder().AddInMemoryCollection().Build();
+
+            var service = new NodeAdoptionService(
+                fakeBootstrapper,
+                connectionManager,
+                serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                mockOptionsMonitor,
+                inMemoryConfig,
+                NullLogger<NodeAdoptionService>.Instance
+            );
+
+            var request = new AdoptNodeRequest(
+                HostId: hostId,
+                Hostname: "srv-insecure",
+                TargetHost: "10.0.0.99",
+                Port: 22,
+                Username: "root",
+                Password: "secret-password",
+                HubUrl: "wss://mycluster.local/agent-hub",
+                Insecure: true
+            );
+
+            var response = await service.AdoptNodeAsync(request);
+
+            Assert.True(response.Success);
+            Assert.Contains(fakeBootstrapper.UploadedTexts, t => t.Content.Contains("--insecure") && t.Content.Contains("--hub-url wss://mycluster.local/agent-hub"));
+        }
+        finally
+        {
+            if (File.Exists(tempDb))
+            {
+                try { File.Delete(tempDb); } catch { }
+            }
+        }
+    }
+
+    [Fact]
     public async Task AdoptNodeAsync_SshFailure_ReturnsFailureResponse()
     {
         var tempDb = Path.Combine(Path.GetTempPath(), $"cp-test-adopt-fail-{Guid.NewGuid():N}.db");

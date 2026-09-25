@@ -152,12 +152,10 @@ public class NodeAdoptionService
             Emit("SERVICE_STARTING", "Configuring and starting Windows Service", AdoptionStepStatus.Running);
             try
             {
-                var hubUrl = !string.IsNullOrWhiteSpace(request.HubUrl)
-                    ? request.HubUrl
-                    : _configuration["ControlPlane:HubUrl"] ?? "ws://192.168.1.159:5029/agent-hub";
-
+                var hubUrl = ResolveHubUrl(request.HubUrl);
                 var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
-                var binPath = $"\"\\\"C:\\Program Files\\ControlPlaneAgent\\controlplane-agent.exe\\\" --hub-url \\\"{hubUrl}\\\" --token \\\"{token}\\\" --node-id \\\"{hostId}\\\"\"";
+                var insecureFlag = request.Insecure ? " --insecure" : "";
+                var binPath = $"\"\\\"C:\\Program Files\\ControlPlaneAgent\\controlplane-agent.exe\\\" --hub-url \\\"{hubUrl}\\\"{insecureFlag} --token \\\"{token}\\\" --node-id \\\"{hostId}\\\"\"";
 
                 await _bootstrapper.ExecuteRemoteCommandAsync(
                     request,
@@ -204,11 +202,9 @@ public class NodeAdoptionService
             Emit("SERVICE_STARTING", "Configuring and starting systemd service", AdoptionStepStatus.Running);
             try
             {
-                var hubUrl = !string.IsNullOrWhiteSpace(request.HubUrl)
-                    ? request.HubUrl
-                    : _configuration["ControlPlane:HubUrl"] ?? "ws://192.168.1.159:5029/agent-hub";
-
+                var hubUrl = ResolveHubUrl(request.HubUrl);
                 var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
+                var insecureFlag = request.Insecure ? " --insecure" : "";
 
                 var serviceUnitContent = $"""
                 [Unit]
@@ -218,7 +214,7 @@ public class NodeAdoptionService
 
                 [Service]
                 Type=simple
-                ExecStart=/usr/local/bin/controlplane-agent --hub-url {hubUrl} --token {token} --node-id {hostId}
+                ExecStart=/usr/local/bin/controlplane-agent --hub-url {hubUrl}{insecureFlag} --token {token} --node-id {hostId}
                 Restart=always
                 RestartSec=5
                 KillMode=process
@@ -246,7 +242,7 @@ public class NodeAdoptionService
 
         // Step 5: Await WebSocket handshake
         Emit("HANDSHAKE_VERIFIED", "Awaiting outbound agent WebSocket handshake", AdoptionStepStatus.Running);
-        var handshakeDeadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        var handshakeDeadline = DateTimeOffset.UtcNow.AddSeconds(45);
         var verified = false;
 
         while (DateTimeOffset.UtcNow < handshakeDeadline && !cancellationToken.IsCancellationRequested)
@@ -272,10 +268,55 @@ public class NodeAdoptionService
         }
         else
         {
-            var msg = "Timed out waiting for agent outbound WebSocket connection.";
+            var hubUrl = ResolveHubUrl(request.HubUrl);
+            string? agentLogs = null;
+            try
+            {
+                if (isWindows)
+                {
+                    agentLogs = await _bootstrapper.ExecuteRemoteCommandAsync(
+                        request,
+                        "powershell.exe -NoProfile -Command \"Get-EventLog -LogName Application -Source ControlPlaneAgent -Newest 5 2>$null | Format-List Message\"",
+                        CancellationToken.None
+                    );
+                }
+                else
+                {
+                    agentLogs = await _bootstrapper.ExecutePrivilegedCommandAsync(
+                        request,
+                        "journalctl -u controlplane-agent -n 15 --no-pager 2>&1 || systemctl status controlplane-agent --no-pager 2>&1",
+                        CancellationToken.None
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to retrieve remote agent logs after handshake timeout for host {Host}", request.TargetHost);
+            }
+
+            var msg = !string.IsNullOrWhiteSpace(agentLogs)
+                ? $"Timed out waiting for agent outbound WebSocket connection to {hubUrl}. Remote service log:\n{agentLogs.Trim()}"
+                : $"Timed out waiting for agent outbound WebSocket connection to {hubUrl}.";
+
             Emit("HANDSHAKE_VERIFIED", "Handshake timeout", AdoptionStepStatus.Failed, msg);
             return new NodeAdoptionResponse(hostId, false, msg, steps);
         }
+    }
+
+    private string ResolveHubUrl(string? requestedHubUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedHubUrl))
+        {
+            return requestedHubUrl;
+        }
+
+        var configured = _configuration["ControlPlane:HubUrl"];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        return MassAgentUpdateService.ResolveLanAddress("ws://localhost:5029/agent-hub", _configuration);
     }
 
     private string? FindAgentBinary(string filename)

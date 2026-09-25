@@ -59,7 +59,8 @@ public static class NodeAdoptionEndpoints
                     Username: request.Username,
                     Password: request.Password,
                     PrivateKey: request.PrivateKey,
-                    HubUrl: request.HubUrl
+                    HubUrl: request.HubUrl,
+                    Insecure: request.Insecure
                 );
 
                 try

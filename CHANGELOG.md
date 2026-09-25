@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.3.0
+
+### Added
+* **Personal Access Tokens (PAT) & Machine Keys Engine**:
+  * Implemented scoped, revocable API tokens (`cp_pat_...`) with SHA-256 cryptographic hashing, prefix tracking, fine-grained RBAC roles (`Admin`, `Operator`, `Viewer`), and custom expiration policies (30d, 90d, 1y, or non-expiring).
+  * Dual-topology storage support for both PostgreSQL (`api_tokens` table via EF Core migration) and Standby Runner SQLite.
+  * Added `GET /api/v1/tokens`, `POST /api/v1/tokens`, and `DELETE /api/v1/tokens/{id}` REST endpoints.
+  * Extended `ApiKeyAuthenticationHandler` and `CompositeAuthenticationHandler` to automatically authenticate PAT tokens via either `X-ControlPlane-Key` header or `Authorization: Bearer cp_pat_...`.
+* **Personal Access Tokens UI in Settings**:
+  * Added interactive PAT management card in the Settings tab, allowing administrators to generate scoped tokens, view expiration/last-used metadata, and revoke tokens immediately.
+  * Added modal displaying newly generated raw tokens with one-click copy and pre-formatted Model Context Protocol (MCP) JSON client configurations for Cursor, Claude Desktop, and Antigravity.
+* **Configurable Model Context Protocol (MCP) Server in Helm**:
+  * Disabled the embedded MCP server (`/mcp`) by default in `charts/controlplane/values.yaml` (`mcp.enabled: false`).
+  * Added configurable Helm values for MCP ingress routing (`mcp.ingress.enabled` and `mcp.ingress.path: /mcp`), allowing administrators to safely expose MCP over custom ingress hosts or keep it internal.
+  * Added MCP streaming proxy configuration in both frontend Nginx and `frontend-configmap.yaml` with SSE buffering disabled (`proxy_buffering off`, `proxy_cache off`).
+* **Node Agent Insecure TLS Flag**:
+  * Added `--insecure` CLI flag and `CONTROLPLANE_INSECURE=true` environment variable to `controlplane-agent` (Go) daemon to bypass TLS verification (`InsecureSkipVerify: true`) when connecting to homelab servers with self-signed certificates.
+  * Exposed `--insecure` checkbox in single-node and mass-adoption frontend modals.
+
+### Fixed
+* **Agent Adoption Port & Scheme Resolution**:
+  * Fixed frontend agent adoption modals (`AdoptNodeModal.tsx` and `MassAdoptHostsModal.tsx`) hardcoding `:5029` and `ws://` in `getInitialHubUrl()`. In cluster mode, ingress operates on port 80/443 without port 5029 exposed; the frontend now dynamically derives the hub URL from `window.location.host` and matching WebSocket protocols (`wss://` / `ws://`).
+  * Added `ResolveHubUrl` in backend `NodeAdoptionService` to automatically replace `localhost` or loopback addresses with the backend host or configured `ControlPlane:HubUrl`.
+* **Remote Adoption Diagnostic Capture**:
+  * Added automatic capture of remote `journalctl -u controlplane-agent -n 15` output upon handshake timeout, outputting the exact daemon failure or TLS refusal directly in adoption step 5.
+* **Database Query Portability**:
+  * Resolved SQLite `DateTimeOffset` in-memory sorting compatibility in `ApiTokenService` to maintain strict dual-topology invariants across PostgreSQL and Standby SQLite modes.
+
+---
+
 ## v1.2.8
 
 ### Added
