@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Stage 1: Build Static Node Agent Binaries
-FROM golang:1.22-alpine AS agent-build
+FROM golang:1.26-alpine AS agent-build
 WORKDIR /source/agent
 COPY src/agent/go.mod src/agent/go.sum* ./
 RUN go mod download
