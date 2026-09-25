@@ -280,6 +280,13 @@ public class NodeAdoptionService
 
     private string? FindAgentBinary(string filename)
     {
+        var configuredDir = _configuration["ControlPlane:AgentDistDir"] ?? Environment.GetEnvironmentVariable("AGENT_DIST_DIR");
+        if (!string.IsNullOrWhiteSpace(configuredDir))
+        {
+            var customPath = Path.Combine(configuredDir, filename);
+            if (File.Exists(customPath)) return customPath;
+        }
+
         var candidates = new[]
         {
             Path.Combine(AppContext.BaseDirectory, "agent-dist", filename),
