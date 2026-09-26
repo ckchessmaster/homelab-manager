@@ -121,8 +121,9 @@ homelab-manager/
 * **Design System Governance:** Strictly follow `/DESIGN_SYSTEM.md`. Use `zinc-950` canvas base, `zinc-900` surfaces, `zinc-800` borders, `sky-500` brand accent, and semantic-only health colors. Never use pure black (`#000000`) or card grids for lists exceeding 6 items. Use `<MetricStrip />`, `<TableToolbar />`, and `<InspectorSheet />`.
 * **Visual Excellence:** The UI must look modern, sleek, and high-quality. Use Tailwind CSS with dark mode support, subtle glassmorphism, clean badge states, and responsive layouts.
 * **Authentication:** Use `react-oidc-context` with Zitadel PKCE. Gate privileged UI components behind `<RequireRole role="Operator">` or `<RequireRole role="Admin">`.
-* **Server State:** Use TanStack Query (`@tanstack/react-query`) for all remote data fetching, mutation, and cache invalidation.
 * **Terminal Streaming:** Encapsulate `xterm.js` inside a dedicated React component with ResizeObserver, auto-scroll toggle, and ANSI color theme matching the application theme.
+* **Mobile-First Responsiveness & Touch Ergonomics:** All views, drawers, toolbars, and components MUST support mobile viewports (<768px). Use bottom navigation (`<MobileBottomNav />`) on mobile with "More" drawer; split DataTables (`>=768px`) into compact list cards (`<768px`); enforce minimum 44×44px touch targets on interactive elements; respect safe-area insets (`env(safe-area-inset-bottom)`).
+* **Automated Frontend Testing:** Co-locate unit/component tests (`*.test.tsx`) using Vitest and `@testing-library/react` with mock coverage. End-to-end user flows must be tested in Playwright across desktop and mobile device profiles (`Pixel 7`, `iPhone 14`).
 
 ---
 
@@ -168,5 +169,10 @@ When acting as an AI pair programmer or autonomous agent with access to ControlP
    * For out-of-band power operations, inspect temperature and fan sensors via `get_hardware_sensors` before issuing power commands.
 3. **Monotonic Log Streaming:**
    * When tracking jobs, query `query_job_logs` with monotonic sequence IDs (`fromSequenceId`) to avoid duplicate log processing.
-4. **Plan-Driven Workflows:** Follow the iterative planning sequence in `docs/plans/roadmap.md`. After completing any task, run `dotnet test` (all 330+ tests must pass).
+4. **Plan-Driven Workflows & Quality Verification:** Follow the iterative planning sequence in `docs/plans/roadmap.md`. After completing any task, execute verification:
+   * **Backend / Agents:** Run `dotnet test` (all 330+ tests must pass).
+   * **Frontend:** When touching any frontend files (`src/frontend/**`), run and pass:
+     1. `npm test` (100% of Vitest unit and component tests must pass).
+     2. `npm run lint` (`oxlint` must pass with zero errors).
+     3. `npm run test:e2e` (Playwright tests covering Desktop Chrome, Mobile Chrome, and Mobile iOS must pass).
 

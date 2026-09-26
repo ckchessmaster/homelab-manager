@@ -31,21 +31,22 @@ export function TableToolbarSearch({
   className = '',
 }: TableToolbarSearchProps) {
   return (
-    <div className={`relative flex-1 min-w-[200px] max-w-sm ${className}`}>
+    <div className={`relative w-full md:w-auto flex-1 max-w-full md:max-w-sm ${className}`}>
       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500 pointer-events-none" />
       <Input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-9 pl-8.5 pr-7 bg-zinc-950/80 border-zinc-800 text-xs text-zinc-100 placeholder:text-zinc-500 rounded-lg focus:border-sky-500/80 focus:ring-1 focus:ring-sky-500/30 transition-all"
+        className="h-9 pl-8.5 pr-8 bg-zinc-950/80 border-zinc-800 text-xs text-zinc-100 placeholder:text-zinc-500 rounded-lg focus:border-sky-500/80 focus:ring-1 focus:ring-sky-500/30 transition-all w-full"
       />
       {value && (
         <button
           type="button"
           onClick={() => onChange('')}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-zinc-500 hover:text-zinc-300 rounded cursor-pointer transition-colors"
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 text-zinc-500 hover:text-zinc-300 rounded cursor-pointer transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
           title="Clear search"
+          aria-label="Clear search"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -101,7 +102,7 @@ export function TableToolbarSegment<T extends string>({
 }: TableToolbarSegmentProps<T>) {
   return (
     <div
-      className={`h-9 flex items-center p-0.5 bg-zinc-950/80 border border-zinc-800 rounded-lg text-xs ${className}`}
+      className={`h-9 flex items-center p-0.5 bg-zinc-950/80 border border-zinc-800 rounded-lg text-xs overflow-x-auto scrollbar-none max-w-full ${className}`}
     >
       {options.map((opt) => {
         const Icon = opt.icon
@@ -112,7 +113,7 @@ export function TableToolbarSegment<T extends string>({
             key={opt.id}
             type="button"
             onClick={() => onChange(opt.id)}
-            className={`h-7.5 px-2.5 rounded-md font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`h-7.5 px-2.5 rounded-md font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 min-h-[30px] ${
               isSelected
                 ? 'bg-zinc-800 text-zinc-100 shadow-xs border border-zinc-700/60'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'

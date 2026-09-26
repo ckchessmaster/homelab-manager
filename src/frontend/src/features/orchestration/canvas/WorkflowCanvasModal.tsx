@@ -12,11 +12,13 @@ import {
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { WorkflowDagCanvas } from './WorkflowDagCanvas'
+import { MobileDagTimeline } from './MobileDagTimeline'
 import { useTemporalWorkflow } from './hooks/useTemporalWorkflow'
 import { cancelJob, type JobSummary } from '../../../api/jobs'
 import type { Host } from '../../../api/hosts'
 import type { WorkflowStateLike } from './layout/dagLayout'
 import { Button } from '../../../components/ui/button'
+import { useIsMobile } from '../../../hooks/useMediaQuery'
 
 export interface WorkflowCanvasModalProps {
   isOpen: boolean
@@ -33,6 +35,7 @@ export const WorkflowCanvasModal: React.FC<WorkflowCanvasModalProps> = ({
   host,
   onOpenTerminal,
 }) => {
+  const isMobile = useIsMobile()
   const workflowId = useMemo(() => {
     if (!job) return null
     // If job id starts with host-upgrade-, use directly, otherwise standard format
@@ -408,19 +411,38 @@ export const WorkflowCanvasModal: React.FC<WorkflowCanvasModalProps> = ({
 
         {/* Canvas Body */}
         <div className="flex-1 w-full h-full relative overflow-hidden bg-zinc-950">
-          <WorkflowDagCanvas
-            workflowId={workflowId || job.id}
-            state={effectiveState}
-            pipelineId={job.pipelineId}
-            onApprove={handleApprove}
-            onReject={handleReject}
-            isSubmittingApproval={isApproving || isRejecting}
-            isProxmoxHost={isProxmoxHost}
-            isK8sHost={isK8sHost}
-            requireApproval={Boolean(isAwaitingApproval || effectiveState.rebootApproved)}
-            height="100%"
-            className="h-full border-none rounded-none"
-          />
+          {isMobile ? (
+            /* Mobile Vertical Step Timeline (<md) */
+            <div className="block md:hidden h-full">
+              <MobileDagTimeline
+                state={effectiveState}
+                pipelineId={job.pipelineId}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                isSubmittingApproval={isApproving || isRejecting}
+                isProxmoxHost={isProxmoxHost}
+                isK8sHost={isK8sHost}
+                onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(job) : undefined}
+              />
+            </div>
+          ) : (
+            /* Desktop 2D Graph Canvas (>=md) */
+            <div className="hidden md:block h-full">
+              <WorkflowDagCanvas
+                workflowId={workflowId || job.id}
+                state={effectiveState}
+                pipelineId={job.pipelineId}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                isSubmittingApproval={isApproving || isRejecting}
+                isProxmoxHost={isProxmoxHost}
+                isK8sHost={isK8sHost}
+                requireApproval={Boolean(isAwaitingApproval || effectiveState.rebootApproved)}
+                height="100%"
+                className="h-full border-none rounded-none"
+              />
+            </div>
+          )}
         </div>
 
         {/* Footer / Legend */}

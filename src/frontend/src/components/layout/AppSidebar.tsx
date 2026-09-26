@@ -76,7 +76,7 @@ export function AppSidebar({
   ]
 
   return (
-    <aside className="w-64 bg-zinc-950/90 border-r border-zinc-800 flex flex-col shrink-0 h-screen sticky top-0">
+    <aside className="hidden md:flex w-64 bg-zinc-950/90 border-r border-zinc-800 flex-col shrink-0 h-screen sticky top-0">
       {/* Brand Header */}
       <div className="p-5 border-b border-zinc-800/80 flex items-center justify-between">
         <div className="flex items-center gap-2.5">

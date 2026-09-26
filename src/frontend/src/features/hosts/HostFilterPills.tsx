@@ -133,7 +133,7 @@ export function HostFilterPills({
       {/* Platform & Health Facets */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Platform Segmented Group */}
-        <div className="flex items-center gap-1.5 p-1 bg-zinc-950/60 border border-zinc-800/80 rounded-lg">
+        <div className="flex items-center gap-1.5 p-1 bg-zinc-950/60 border border-zinc-800/80 rounded-lg overflow-x-auto max-w-full scrollbar-none">
           {platformChips.map((chip) => {
             const Icon = chip.icon
             const isSelected = selectedPlatform === chip.id
@@ -165,7 +165,7 @@ export function HostFilterPills({
         </div>
 
         {/* Health Segmented Group */}
-        <div className="flex items-center gap-1.5 p-1 bg-zinc-950/60 border border-zinc-800/80 rounded-lg">
+        <div className="flex items-center gap-1.5 p-1 bg-zinc-950/60 border border-zinc-800/80 rounded-lg overflow-x-auto max-w-full scrollbar-none">
           {healthChips.map((chip) => {
             const Icon = chip.icon
             const isSelected = selectedHealth === chip.id

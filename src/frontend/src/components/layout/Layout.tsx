@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { AppSidebar, type NavTab } from './AppSidebar'
 import { AppHeader } from './AppHeader'
+import { MobileBottomNav } from './MobileBottomNav'
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Button } from '../ui/button'
@@ -51,10 +52,19 @@ export function Layout({
           rebootPendingCount={rebootPendingCount}
         />
 
-        <main className="flex-1 p-6 overflow-y-auto overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-4 md:p-6 pb-20 md:pb-6 overflow-y-auto overflow-x-hidden">
           {children}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar (<md) */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onSelectTab={onSelectTab}
+        totalHosts={totalHosts}
+        rebootPendingCount={rebootPendingCount}
+        onOpenSettings={() => setApiKeyModalOpen(true)}
+      />
 
       {/* API Key Modal */}
       <Dialog open={apiKeyModalOpen} onClose={() => setApiKeyModalOpen(false)}>

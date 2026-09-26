@@ -308,6 +308,27 @@ export async function setupMockApi(page: Page, options?: {
     }
   })
 
+  // 8b. GET /api/v1/hosts/:id/vitals
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/hosts\/[a-zA-Z0-9-]+\/vitals$/, async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          cpuUsagePct: 18.5,
+          memoryUsagePct: 45.2,
+          diskFreePct: 62.1,
+          powerWatts: 145,
+          temperatureCelsius: 38.5,
+          uptimeSeconds: 86400 * 4 + 3600 * 5,
+          source: 'mock-agent',
+        }),
+      })
+    } else {
+      await route.continue()
+    }
+  })
+
   // 9. DELETE /api/v1/hosts/:id
   await page.route(/^https?:\/\/[^/]+\/api\/v1\/hosts\/[a-zA-Z0-9-]+$/, async (route) => {
     if (route.request().method() === 'DELETE') {
@@ -651,6 +672,15 @@ export async function setupMockApi(page: Page, options?: {
     })
   })
 
+  // 13b. Adapters: iDRAC Instances
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/adapters\/idrac\/instances/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
   // 14. Adapters: Kubernetes Clusters
   await page.route(/^https?:\/\/[^/]+\/api\/v1\/adapters\/k8s\/clusters/, async (route) => {
     await route.fulfill({
@@ -834,7 +864,7 @@ export async function setupMockApi(page: Page, options?: {
     const payload = route.request().postDataJSON()
     const match = route.request().url().match(/workloads\/([^/]+)\/([^/]+)\/([^/]+)\/scale/)
     if (match) {
-      const [, clusterId, namespace, name] = match
+      const [, _clusterId, _namespace, name] = match
       const found = mockWorkloads.find((w) => w.name === name)
       if (found) {
         found.desiredReplicas = payload.replicas
@@ -896,7 +926,7 @@ export async function setupMockApi(page: Page, options?: {
   })
 
   // Kubernetes Networking & Services
-  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/services/, async (route) => {
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/(network\/)?services/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -904,7 +934,7 @@ export async function setupMockApi(page: Page, options?: {
     })
   })
 
-  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/ingresses/, async (route) => {
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/(network\/)?ingresses/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -912,7 +942,7 @@ export async function setupMockApi(page: Page, options?: {
     })
   })
 
-  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/certificates/, async (route) => {
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/kubernetes\/[^/]+\/(network\/)?certificates/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

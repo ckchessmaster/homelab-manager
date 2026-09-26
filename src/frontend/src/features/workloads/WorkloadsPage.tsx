@@ -385,7 +385,7 @@ export function WorkloadsPage() {
         </div>
 
         {isOperator && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"

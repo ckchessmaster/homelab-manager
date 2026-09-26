@@ -37,5 +37,16 @@
 ## 3. Data Density & Tabular Hierarchy
 - **Dense DataTables over Cards:**
   - Workloads, TLS certificates, and Host inventory must be rendered in structured, virtualized DataTables.
-  - Card grids are strictly forbidden for lists exceeding 6 items.
+  - Card grids are strictly forbidden for lists exceeding 6 items on desktop screens.
   - Raw command strings, long image tags, and hashes must be truncated into mono chips with click-to-copy; never dump full multiline strings directly into table cells.
+
+## 4. Mobile & Touch Ergonomics Invariants (< 768px)
+- **Responsive Layout Shell (`<MobileBottomNav />`):**
+  - On viewports < 768px, hide the fixed desktop sidebar (`hidden md:flex`) and render a sleek bottom navigation bar fixed to the viewport with safe-area bottom padding (`env(safe-area-inset-bottom)`).
+  - Secondary views (Adapters, Settings) must open in a slide-up "More" drawer.
+- **Table / List Card Responsive Split:**
+  - The "Dense DataTables over Cards" rule applies to desktop screens (`>= 768px`). On mobile screens (`< 768px`), tabular data must transform into touch-friendly list cards with kebab menus, status dots, and tap-to-inspect gestures.
+- **Touch Target Dimensions:**
+  - All interactive triggers, buttons, and dropdown kebabs must maintain a minimum touch target area of 44×44px.
+- **Mobile DAG Presentation (`<MobileDagTimeline />`):**
+  - Complex 2D node graphs must render as a vertical step timeline on small viewports with inline approval gates and expandable log drawers to eliminate gesture conflicts.

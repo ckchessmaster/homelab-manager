@@ -26,6 +26,8 @@ import { HostVitalsBadge } from './HostVitalsBadge'
 import { HostDetailsModal } from './HostDetailsModal'
 import { EditHostModal } from './EditHostModal'
 import { HostTerminalDrawer } from './HostTerminalDrawer'
+import { HostMobileCardList } from './HostMobileCardList'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { AdoptNodeModal } from './AdoptNodeModal'
 import { MassAgentUpdateModal } from './MassAgentUpdateModal'
 import { MassAdoptHostsModal } from './MassAdoptHostsModal'
@@ -102,6 +104,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const { data: agentVersionInfo } = useAgentVersionInfo()
   const { isAdmin, isOperator } = useAuthUser()
   const activeJobsByHost = useActiveJobsByHost()
+  const isMobile = useIsMobile()
 
   // Selection & Reboot state
   const [selectedHostIds, setSelectedHostIds] = useState<Set<string>>(new Set())
@@ -588,8 +591,37 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
         />
       ) : (
         <div className="space-y-3">
-          <Table containerClassName="min-h-[340px]">
-          <TableHeader>
+          {isMobile ? (
+            /* Mobile Card List (<md) */
+            <HostMobileCardList
+              hosts={paginatedHosts}
+              selectedHostIds={selectedHostIds}
+              onToggleSelect={toggleSelectHost}
+              onInspect={(h) => setInspectHost(h)}
+              onEdit={(h) => setHostToEdit(h)}
+              onDelete={(h) => handleDeleteClick(h)}
+              onReboot={(h) => setRebootModalHost(h)}
+              onOpenTerminal={(h) => setTerminalHost(h)}
+              onTriggerUpdate={(h) => handleTriggerUpdate(h)}
+              onOpenSnapshots={(h) => {
+                setSnapshotModalHost(h)
+                setIsSnapshotModalOpen(true)
+              }}
+              onViewDag={(job) => {
+                setCanvasJob(job)
+                setIsCanvasModalOpen(true)
+              }}
+              activeJobsByHost={activeJobsByHost}
+              copiedIp={copiedIp}
+              onCopyIp={(ip, e) => handleCopyIp(ip, e)}
+              isAdmin={isAdmin}
+              isOperator={isOperator}
+            />
+          ) : (
+            /* Desktop DataTable (>=md) */
+            <div className="hidden md:block">
+              <Table containerClassName="min-h-[340px]">
+            <TableHeader>
             <TableRow>
               <TableHead className="w-10 text-center">
                 <input
@@ -957,6 +989,8 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             )})}
           </TableBody>
         </Table>
+        </div>
+          )}
 
         {/* Pagination Controls */}
         {totalHosts > 0 && (

@@ -5,6 +5,11 @@ if (!process.env.LD_LIBRARY_PATH?.includes(libPath)) {
   process.env.LD_LIBRARY_PATH = `${libPath}:${process.env.LD_LIBRARY_PATH || ''}`
 }
 
+const nodeBinPath = '/home/ckingdon/.nvm/versions/node/v24.20.0/bin'
+if (!process.env.PATH?.includes(nodeBinPath)) {
+  process.env.PATH = `${nodeBinPath}:${process.env.PATH || ''}`
+}
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -24,8 +29,19 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
+      name: 'chromium-desktop',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['Pixel 7'] },
+    },
+    {
+      name: 'mobile-ios',
+      use: {
+        ...devices['iPhone 14'],
+        defaultBrowserType: 'chromium',
+      },
     },
   ],
   webServer: {

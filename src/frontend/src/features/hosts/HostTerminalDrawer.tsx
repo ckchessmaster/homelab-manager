@@ -161,12 +161,12 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
       <div
         className={`bg-zinc-950 border border-zinc-800 rounded-xl flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${
           isMaximized
-            ? 'w-[96vw] h-[94vh] max-w-none max-h-none'
-            : 'w-full max-w-5xl 2xl:max-w-6xl h-[85vh] max-h-[920px] min-h-[580px]'
+            ? 'w-[98vw] sm:w-[96vw] h-[96vh] sm:h-[94vh] max-w-none max-h-none'
+            : 'w-full max-w-5xl 2xl:max-w-6xl h-[92vh] sm:h-[85vh] max-h-[920px] min-h-[380px] sm:min-h-[580px]'
         }`}
       >
         {/* Header */}
@@ -214,8 +214,9 @@ export const HostTerminalDrawer: React.FC<HostTerminalDrawerProps> = ({
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="text-zinc-400 hover:text-zinc-100 h-8 w-8 p-0"
+              className="text-zinc-400 hover:text-zinc-100 min-h-[40px] min-w-[40px] p-0 flex items-center justify-center cursor-pointer"
               title="Close console"
+              aria-label="Close console"
             >
               <X className="w-5 h-5" />
             </Button>

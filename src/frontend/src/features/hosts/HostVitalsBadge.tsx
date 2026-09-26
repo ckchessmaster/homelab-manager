@@ -38,11 +38,11 @@ export function HostVitalsBadge({
 }: HostVitalsBadgeProps) {
   if (!vitals) return null
 
-  const hasCpu = vitals.cpuUsagePct != null
-  const hasMem = vitals.memoryUsagePct != null
-  const hasDisk = vitals.diskFreePct != null
-  const hasPower = vitals.powerWatts != null
-  const hasTemp = vitals.temperatureCelsius != null
+  const hasCpu = vitals.cpuUsagePct != null && !isNaN(vitals.cpuUsagePct)
+  const hasMem = vitals.memoryUsagePct != null && !isNaN(vitals.memoryUsagePct)
+  const hasDisk = vitals.diskFreePct != null && !isNaN(vitals.diskFreePct)
+  const hasPower = vitals.powerWatts != null && !isNaN(vitals.powerWatts)
+  const hasTemp = vitals.temperatureCelsius != null && !isNaN(vitals.temperatureCelsius)
 
   // If no metric data is present, render nothing to keep the view clean
   if (!hasCpu && !hasMem && !hasDisk && !hasPower && !hasTemp) {
@@ -50,7 +50,7 @@ export function HostVitalsBadge({
   }
 
   if (mode === 'compact') {
-    const diskUsedPct = hasDisk ? Math.max(0, Math.min(100, 100 - (vitals.diskFreePct ?? 0))) : null
+    const diskUsedPct = hasDisk && !isNaN(vitals.diskFreePct!) ? Math.max(0, Math.min(100, 100 - vitals.diskFreePct!)) : null
 
     const tooltipParts: string[] = []
     if (hasCpu) tooltipParts.push(`CPU: ${vitals.cpuUsagePct?.toFixed(1)}%`)
@@ -109,7 +109,7 @@ export function HostVitalsBadge({
   }
 
   // Detailed view for Inspector Drawer (<HostDetailsModal />)
-  const diskUsedPct = hasDisk ? Math.max(0, Math.min(100, 100 - (vitals.diskFreePct ?? 0))) : null
+  const diskUsedPct = hasDisk && !isNaN(vitals.diskFreePct!) ? Math.max(0, Math.min(100, 100 - vitals.diskFreePct!)) : null
 
   return (
     <div className={`p-3.5 bg-zinc-950/60 border border-zinc-800 rounded-xl space-y-3 ${className}`}>

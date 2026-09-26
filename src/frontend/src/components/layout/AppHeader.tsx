@@ -4,6 +4,7 @@ import {
   Database,
   AlertTriangle,
   Server,
+  Layers,
 } from 'lucide-react'
 import type { NavTab } from './AppSidebar'
 import { useAuthUser } from '../../features/auth/useAuthUser'
@@ -72,10 +73,15 @@ export function AppHeader({
     : 'Database Online'
 
   return (
-    <header className="h-16 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-20">
-      <div>
-        <h2 className="text-sm font-semibold text-zinc-100">{currentTab.title}</h2>
-        <p className="text-[11px] text-zinc-400 hidden sm:block">{currentTab.desc}</p>
+    <header className="h-14 sm:h-16 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between sticky top-0 z-20">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="md:hidden h-7 w-7 rounded-lg bg-gradient-to-br from-sky-500 to-sky-700 flex items-center justify-center shrink-0 shadow-xs shadow-sky-950">
+          <Layers className="h-4 w-4 text-white" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-zinc-100 truncate">{currentTab.title}</h2>
+          <p className="text-[11px] text-zinc-400 hidden sm:block truncate">{currentTab.desc}</p>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">

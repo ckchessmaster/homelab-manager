@@ -162,7 +162,7 @@ export function AgentStatusBadge({
   )
 }
 
-export function RebootBadge({ pending }: { pending: boolean }) {
+export function RebootBadge({ pending }: { pending?: boolean | null }) {
   if (!pending) return null
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-600/60 shadow-xs shadow-amber-900/40">
@@ -172,8 +172,8 @@ export function RebootBadge({ pending }: { pending: boolean }) {
   )
 }
 
-export function UpdatesBadge({ count }: { count: number }) {
-  if (count <= 0) return null
+export function UpdatesBadge({ count }: { count?: number | null }) {
+  if (count == null || isNaN(count) || count <= 0) return null
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-300 bg-sky-950/60 px-2 py-0.5 rounded-full border border-sky-700/50">
       <ArrowUpCircle className="h-3 w-3 text-sky-400 shrink-0" />

@@ -83,6 +83,10 @@ export function NetworkIngressView({
     isFetching: isCertFetching,
   } = useCertificates(clusterId, effectiveNamespace)
 
+  const safeServices = Array.isArray(services) ? services : []
+  const safeIngresses = Array.isArray(ingresses) ? ingresses : []
+  const safeCertificates = Array.isArray(certificates) ? certificates : []
+
   const [now] = useState(() => Date.now())
 
   const copyToClipboard = (text: string) => {
@@ -281,7 +285,7 @@ export function NetworkIngressView({
             >
               <span>All</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-900 border border-zinc-700/60 text-zinc-300">
-                {services.length + ingresses.length + certificates.length}
+                {safeServices.length + safeIngresses.length + safeCertificates.length}
               </span>
             </button>
 
@@ -297,7 +301,7 @@ export function NetworkIngressView({
               <Network className="h-3.5 w-3.5 text-sky-400" />
               <span>Services</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-900 border border-zinc-700/60 text-sky-300">
-                {services.length}
+                {safeServices.length}
               </span>
             </button>
 
@@ -313,7 +317,7 @@ export function NetworkIngressView({
               <Globe className="h-3.5 w-3.5 text-sky-400" />
               <span>Ingress</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-900 border border-zinc-700/60 text-sky-300">
-                {ingresses.length}
+                {safeIngresses.length}
               </span>
             </button>
 
@@ -329,7 +333,7 @@ export function NetworkIngressView({
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               <span>Certs</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-900 border border-zinc-700/60 text-emerald-300">
-                {certificates.length}
+                {safeCertificates.length}
               </span>
             </button>
           </div>

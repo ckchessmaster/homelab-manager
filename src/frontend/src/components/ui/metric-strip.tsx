@@ -22,9 +22,10 @@ export interface MetricStripProps {
 
 export function MetricStrip({ items, className = '' }: MetricStripProps) {
   return (
-    <div
-      className={`h-11 min-h-[44px] flex items-center bg-zinc-900/60 border border-zinc-800/80 rounded-xl px-2 backdrop-blur-md overflow-x-auto divide-x divide-zinc-800/80 shadow-xs ${className}`}
-    >
+    <div className="relative w-full overflow-hidden rounded-xl">
+      <div
+        className={`h-11 min-h-[44px] flex items-center bg-zinc-900/60 border border-zinc-800/80 rounded-xl px-2 backdrop-blur-md overflow-x-auto divide-x divide-zinc-800/80 shadow-xs scrollbar-none snap-x snap-mandatory ${className}`}
+      >
       {items.map((item) => {
         const Icon = item.icon
         const isClickable = Boolean(item.onClick)
@@ -34,7 +35,7 @@ export function MetricStrip({ items, className = '' }: MetricStripProps) {
             key={item.id}
             onClick={item.onClick}
             title={item.subtext}
-            className={`flex items-center gap-2.5 px-3 py-1 shrink-0 transition-colors ${
+            className={`flex items-center gap-2.5 px-3 py-1 shrink-0 snap-start transition-colors ${
               isClickable
                 ? 'cursor-pointer hover:bg-zinc-800/50 rounded-lg group'
                 : ''
@@ -53,7 +54,7 @@ export function MetricStrip({ items, className = '' }: MetricStripProps) {
                 {item.label}:
               </span>
               <span className="font-bold text-zinc-100 font-mono text-sm leading-none">
-                {item.value}
+                {typeof item.value === 'number' && isNaN(item.value) ? '—' : item.value}
               </span>
             </div>
 
@@ -63,12 +64,13 @@ export function MetricStrip({ items, className = '' }: MetricStripProps) {
                 dot={item.badgeDot}
                 className="text-[10px] px-1.5 py-0 h-4.5 font-mono ml-0.5"
               >
-                {item.badge}
+                {typeof item.badge === 'number' && isNaN(item.badge) ? '—' : item.badge}
               </Badge>
             )}
           </div>
         )
       })}
+      </div>
     </div>
   )
 }

@@ -80,12 +80,14 @@ export function HostDetailsModal({
 
   if (!host) return null
 
-  const linkedBmcInstance = idracInstances?.find(
-    (inst) =>
-      inst.hostId === host.id ||
-      (inst.hostnameOrIp &&
-        (inst.hostnameOrIp === host.ipAddress || inst.hostnameOrIp === host.hostname))
-  )
+  const linkedBmcInstance = Array.isArray(idracInstances)
+    ? idracInstances.find(
+        (inst) =>
+          inst.hostId === host.id ||
+          (inst.hostnameOrIp &&
+            (inst.hostnameOrIp === host.ipAddress || inst.hostnameOrIp === host.hostname))
+      )
+    : undefined
 
   const handleCopyIp = () => {
     navigator.clipboard.writeText(host.ipAddress)

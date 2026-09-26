@@ -81,10 +81,11 @@ export function SheetHeader({
         <button
           onClick={onClose}
           type="button"
-          className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 p-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+          className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 p-2 rounded-lg transition-colors cursor-pointer shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="Close (Esc)"
+          aria-label="Close dialog"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
       )}
     </div>
@@ -148,7 +149,7 @@ export function SheetFooter({
   return (
     <div
       className={cn(
-        'px-5 py-3.5 border-t border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex items-center justify-end gap-2.5 shrink-0 sticky bottom-0 z-10',
+        'px-5 py-3.5 border-t border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex items-center justify-end gap-2.5 shrink-0 sticky bottom-0 z-10 pb-[calc(env(safe-area-inset-bottom,0px)+0.875rem)]',
         className
       )}
     >
