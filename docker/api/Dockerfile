@@ -2,18 +2,7 @@
 # Multi-Stage Dockerfile: ControlPlane.Api (.NET 10 Web API)
 # ==============================================================================
 
-# Stage 1: Build Static Node Agent Binaries
-FROM golang:1.26-alpine AS agent-build
-WORKDIR /source/agent
-COPY src/agent/go.mod src/agent/go.sum* ./
-RUN go mod download
-COPY src/agent/ ./
-RUN mkdir -p /out && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /out/controlplane-agent-linux-amd64 ./cmd/agent && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o /out/controlplane-agent-linux-arm64 ./cmd/agent && \
-    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o /out/controlplane-agent-windows-amd64.exe ./cmd/agent
-
-# Stage 2: Build & Publish API (.NET 10)
+# Stage 1: Build & Publish API (.NET 10)
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 
@@ -34,7 +23,7 @@ RUN dotnet publish src/ControlPlane.Api/ControlPlane.Api.csproj \
     rm -rf /app/publish/runtimes/osx* /app/publish/runtimes/win* && \
     find /app/publish -name "*.pdb" -delete
 
-# Stage 3: Hardened Production Runtime
+# Stage 2: Hardened Production Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
@@ -46,9 +35,10 @@ RUN apt-get update && \
 
 # Copy published binaries from build stage
 COPY --from=build /app/publish .
+COPY src/agent/scripts/ /app/scripts/
 
-# Copy agent binaries for node adoption bootstrap
-COPY --from=agent-build /out /app/agent-dist
+# Create writable agent distribution directory for dynamic binary downloads
+RUN mkdir -p /app/agent-dist && chown -R app:app /app/agent-dist
 
 # Enforce execution under unprivileged non-root user (app, UID 1654)
 USER app

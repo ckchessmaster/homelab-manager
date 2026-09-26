@@ -1,7 +1,10 @@
 {
   "mcpServers": {
     "controlplane": {
-      "serverUrl": "http://localhost:5029/mcp"
+      "serverUrl": "https://manage.local.chriskingdon.com/mcp",
+      "headers": {
+        "X-ControlPlane-Key": "cp_pat_d5dec959638b402c87e7e2ba72e19777246fec465d4a741cd92255faf2a603d8"
+      }
     }
   }
 }

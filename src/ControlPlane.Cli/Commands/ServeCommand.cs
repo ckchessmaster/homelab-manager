@@ -203,7 +203,10 @@ public static class ServeCommand
         builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
         builder.Services.AddScoped<NodeAdoptionService>();
         builder.Services.AddScoped<HostService>();
+        builder.Services.Configure<ControlPlane.Api.Features.Agents.Models.AgentBinarySyncOptions>(builder.Configuration.GetSection(ControlPlane.Api.Features.Agents.Models.AgentBinarySyncOptions.SectionName));
         builder.Services.AddSingleton<AgentBinaryService>();
+        builder.Services.AddSingleton<IAgentBinarySyncService, AgentBinarySyncService>();
+        builder.Services.AddHostedService<AgentBinaryBackgroundService>();
         builder.Services.AddScoped<MassAgentUpdateService>();
         builder.Services.AddScoped<ProxmoxProbeService>();
 
@@ -230,6 +233,7 @@ public static class ServeCommand
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<IImageUpdateService, ImageUpdateService>();
         builder.Services.AddSingleton<IHelmUpdateService, HelmUpdateService>();
+        builder.Services.AddHttpClient(AgentBinarySyncService.HttpClientName);
         builder.Services.AddScoped<IKubernetesClientFactory, KubernetesClientFactory>();
         builder.Services.AddScoped<IWorkloadService, WorkloadService>();
         builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();

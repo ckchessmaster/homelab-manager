@@ -73,6 +73,8 @@ public class WindowsAgentManagementTests
         var scriptContent = await installResp.Content.ReadAsStringAsync();
         Assert.Contains("ControlPlaneAgent", scriptContent);
         Assert.Contains("ControlPlane Compute Node Agent", scriptContent);
+        Assert.Contains("switch]$Insecure", scriptContent);
+        Assert.Contains("--insecure", scriptContent);
 
         var bootstrapResp = await client.GetAsync("/api/v1/agents/bootstrap.ps1");
         Assert.Equal(HttpStatusCode.OK, bootstrapResp.StatusCode);

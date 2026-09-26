@@ -13,6 +13,7 @@ using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Features.Orchestration.Pipelines;
+using ControlPlane.Api.Features.SystemLogs;
 using ControlPlane.Api.Features.Workloads;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
@@ -43,6 +44,8 @@ public class ControlPlaneMcpTools
     private readonly IHostCorrelationService? _hostCorrelationService;
     private readonly IHomeAssistantClientFactory? _homeAssistantClientFactory;
     private readonly IHelmUpdateService? _helmUpdateService;
+    private readonly IAgentBinarySyncService? _agentBinarySyncService;
+    private readonly ISystemLogBuffer? _systemLogBuffer;
 
     public ControlPlaneMcpTools(
         ControlPlaneDbContext db,
@@ -60,7 +63,9 @@ public class ControlPlaneMcpTools
         IProxmoxClientFactory? proxmoxClientFactory = null,
         IHostCorrelationService? hostCorrelationService = null,
         IHomeAssistantClientFactory? homeAssistantClientFactory = null,
-        IHelmUpdateService? helmUpdateService = null)
+        IHelmUpdateService? helmUpdateService = null,
+        IAgentBinarySyncService? agentBinarySyncService = null,
+        ISystemLogBuffer? systemLogBuffer = null)
     {
         _db = db;
         _hostService = hostService;
@@ -78,6 +83,41 @@ public class ControlPlaneMcpTools
         _hostCorrelationService = hostCorrelationService;
         _homeAssistantClientFactory = homeAssistantClientFactory;
         _helmUpdateService = helmUpdateService;
+        _agentBinarySyncService = agentBinarySyncService;
+        _systemLogBuffer = systemLogBuffer;
+    }
+
+    [McpServerTool]
+    [Description("Query backend system application logs with optional level, category, and text search filters.")]
+    public Task<object> QuerySystemLogs(
+        [Description("Optional log level filter (e.g. 'Information', 'Warning', 'Error', 'Debug').")] string? level = null,
+        [Description("Optional minimum log level filter (e.g. 'Warning' to get Warning, Error, and Critical).")] string? minLevel = null,
+        [Description("Optional category substring filter (e.g. 'ControlPlane.Api.Features').")] string? category = null,
+        [Description("Optional search string matching message, category, or exception.")] string? search = null,
+        [Description("Optional sequence ID to only fetch logs generated after this ID.")] long? sinceId = null,
+        [Description("Maximum number of log entries to return (default 100, max 1000).")] int limit = 100,
+        CancellationToken ct = default)
+    {
+        if (_systemLogBuffer == null)
+        {
+            return Task.FromResult<object>(new { error = "System log buffer service is unavailable." });
+        }
+
+        var result = _systemLogBuffer.Query(level, minLevel, category, search, sinceId, limit, tail: true);
+        return Task.FromResult<object>(result);
+    }
+
+    [McpServerTool]
+    [Description("Clear in-memory backend system logs buffer.")]
+    public Task<object> ClearSystemLogs(CancellationToken ct = default)
+    {
+        if (_systemLogBuffer == null)
+        {
+            return Task.FromResult<object>(new { error = "System log buffer service is unavailable." });
+        }
+
+        _systemLogBuffer.Clear();
+        return Task.FromResult<object>(new { message = "System log buffer cleared successfully.", timestamp = DateTimeOffset.UtcNow });
     }
 
     [McpServerTool]
@@ -1518,6 +1558,28 @@ public class ControlPlaneMcpTools
         {
             return new { success = false, error = ex.Message };
         }
+    }
+
+    [McpServerTool]
+    [Description("Get status of compute node agent binaries across platforms (linux-amd64, linux-arm64, windows-amd64) and check auto-sync status.")]
+    public async Task<object> GetAgentBinaryStatus(CancellationToken ct = default)
+    {
+        if (_agentBinarySyncService == null)
+            return new { error = "Agent binary sync service is not available." };
+
+        return await _agentBinarySyncService.GetStatusAsync(ct);
+    }
+
+    [McpServerTool]
+    [Description("Trigger on-demand synchronization and download of the latest compute node agent binaries from GitHub releases.")]
+    public async Task<object> SyncAgentBinaries(
+        [Description("Force re-download even if current version is already downloaded and up to date.")] bool force = false,
+        CancellationToken ct = default)
+    {
+        if (_agentBinarySyncService == null)
+            return new { error = "Agent binary sync service is not available." };
+
+        return await _agentBinarySyncService.SyncBinariesAsync(force, ct);
     }
 }
 

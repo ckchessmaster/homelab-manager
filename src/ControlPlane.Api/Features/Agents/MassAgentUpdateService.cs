@@ -32,7 +32,7 @@ public class MassAgentUpdateService
 
     public async Task<AgentVersionInfoDto> GetVersionInfoAsync(CancellationToken ct = default)
     {
-        var targetVersion = AgentBinaryService.CurrentAgentVersion;
+        var targetVersion = _binaryService.GetTargetVersion();
         var hosts = await _db.Hosts.AsNoTracking().Where(h => h.Agent.Installed).ToListAsync(ct);
 
         var outdatedList = new List<OutdatedHostSummaryDto>();
@@ -72,7 +72,7 @@ public class MassAgentUpdateService
         string serverBaseUrl,
         CancellationToken ct = default)
     {
-        var targetVersion = AgentBinaryService.CurrentAgentVersion;
+        var targetVersion = _binaryService.GetTargetVersion();
         var batchId = Guid.NewGuid();
 
         _logger.LogInformation("Initiating mass agent update batch {BatchId} to version {TargetVersion}...", batchId, targetVersion);

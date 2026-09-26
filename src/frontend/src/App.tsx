@@ -10,23 +10,20 @@ import { WorkloadsPage } from './features/workloads/WorkloadsPage'
 import { useHosts } from './features/hosts/useHosts'
 import {
   Server,
-  Database,
   ShieldCheck,
   RotateCcw,
   Sparkles,
 } from 'lucide-react'
 import { MetricStrip } from './components/ui/metric-strip'
-import { getApiKey } from './api/client'
 import { CallbackPage } from './features/auth/CallbackPage'
 import { AuthGatePage } from './features/auth/AuthGatePage'
 import { useAuthUser } from './features/auth/useAuthUser'
-import { PersonalAccessTokensCard } from './features/auth/PersonalAccessTokensCard'
+import { SystemSettingsView } from './features/settings/SystemSettingsView'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AuthenticatedApp() {
   const [activeTab, setActiveTab] = useState<NavTab>('hosts')
   const [addHostOpen, setAddHostOpen] = useState(false)
-  const { authMode } = useAuthUser()
 
   const { data: allHosts } = useHosts()
   const totalHosts = allHosts?.length ?? 0
@@ -119,38 +116,9 @@ function AuthenticatedApp() {
       )}
 
       {activeTab === 'settings' && (
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800 rounded-xl space-y-4">
-            <h3 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-emerald-400" />
-              Authentication & Security Credentials
-            </h3>
-            <p className="text-xs text-zinc-400">
-              {authMode === 'api_key'
-                ? 'ControlPlane is running in API Key mode with full administrative access.'
-                : 'ControlPlane is running in OIDC (Single Sign-On) mode with role-based access control.'}
-            </p>
-
-            {authMode === 'api_key' && (
-              <div className="p-3.5 bg-zinc-950/80 border border-zinc-800 rounded-lg space-y-1 font-mono text-xs">
-                <div className="text-zinc-500">// Active Header Format</div>
-                <div className="text-emerald-400">X-ControlPlane-Key: {getApiKey()}</div>
-              </div>
-            )}
-          </div>
-
-          <PersonalAccessTokensCard />
-
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800 rounded-xl space-y-4">
-            <h3 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
-              <Database className="h-5 w-5 text-sky-400" />
-              Dual-Topology Storage Architecture
-            </h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              When operating inside Kubernetes, ControlPlane runs against PostgreSQL. During node reboot or maintenance windows, the autonomous <strong>Standby Runner</strong> takes over locally using SQLite and lease lock coordination (<code>GLOBAL_MAINTENANCE_LOCK</code>).
-            </p>
-          </div>
-        </div>
+        <ErrorBoundary fallbackTitle="System & Settings Encountered an Error">
+          <SystemSettingsView />
+        </ErrorBoundary>
       )}
     </Layout>
   )

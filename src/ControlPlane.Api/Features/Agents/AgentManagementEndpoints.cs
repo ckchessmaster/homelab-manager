@@ -1,3 +1,4 @@
+using ControlPlane.Api.Features.Agents.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
@@ -55,6 +56,39 @@ public static class AgentManagementEndpoints
                 : Results.NotFound(new { message = $"Mass update batch '{batchId}' not found." });
         });
 
+        group.MapGet("/binaries/status", async (IAgentBinarySyncService syncService, CancellationToken ct) =>
+        {
+            var status = await syncService.GetStatusAsync(ct);
+            return Results.Ok(status);
+        });
+
+        group.MapPost("/binaries/sync", async (
+            AgentBinarySyncRequest? request,
+            IAgentBinarySyncService syncService,
+            CancellationToken ct) =>
+        {
+            var result = await syncService.SyncBinariesAsync(request?.Force ?? false, ct);
+            return Results.Ok(result);
+        });
+
+        var settingsGroup = app.MapGroup("/api/v1/settings")
+            .RequireAuthorization();
+
+        settingsGroup.MapGet("/agent-binaries", async (IAgentBinarySyncService syncService, CancellationToken ct) =>
+        {
+            var status = await syncService.GetStatusAsync(ct);
+            return Results.Ok(status);
+        });
+
+        settingsGroup.MapPost("/agent-binaries/sync", async (
+            AgentBinarySyncRequest? request,
+            IAgentBinarySyncService syncService,
+            CancellationToken ct) =>
+        {
+            var result = await syncService.SyncBinariesAsync(request?.Force ?? false, ct);
+            return Results.Ok(result);
+        });
+
         return app;
     }
 
@@ -94,7 +128,8 @@ param (
     [Parameter(Mandatory = $true)][string]$NodeId,
     [Parameter(Mandatory = $false)][string]$BinaryUrl = """",
     [Parameter(Mandatory = $false)][string]$InstallDir = ""C:\Program Files\ControlPlaneAgent"",
-    [Parameter(Mandatory = $false)][string]$ServiceName = ""ControlPlaneAgent""
+    [Parameter(Mandatory = $false)][string]$ServiceName = ""ControlPlaneAgent"",
+    [Parameter(Mandatory = $false)][switch]$Insecure
 )
 $ErrorActionPreference = ""Stop""
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -102,6 +137,10 @@ $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Error ""ControlPlane Agent installation requires Administrator privileges. Please run from an elevated PowerShell prompt.""
     exit 1
+}
+if ($Insecure) {
+    Write-Host ""Insecure mode active: Bypassing SSL/TLS certificate verification."" -ForegroundColor Yellow
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 }
 if ([string]::IsNullOrWhiteSpace($BinaryUrl)) {
     $httpBase = $HubUrl
@@ -124,21 +163,37 @@ if ($existingSvc) {
 }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 $tempExe = Join-Path $InstallDir ""controlplane-agent.tmp.exe""
-Invoke-WebRequest -Uri $BinaryUrl -OutFile $tempExe -UseBasicParsing
+Write-Host ""Downloading agent binary from $BinaryUrl...""
+try {
+    Invoke-WebRequest -Uri $BinaryUrl -OutFile $tempExe -UseBasicParsing
+} catch {
+    Write-Error ""Failed to download agent binary from '$BinaryUrl': $($_.Exception.Message)""
+    exit 1
+}
 if (Test-Path $exePath) {
     $oldExe = Join-Path $InstallDir ""controlplane-agent.old.exe""
     Remove-Item $oldExe -Force -ErrorAction SilentlyContinue
     Rename-Item -Path $exePath -NewName ""controlplane-agent.old.exe"" -Force -ErrorAction SilentlyContinue
 }
 Move-Item -Path $tempExe -Destination $exePath -Force
-$fullCmdLine = ""\`""$exePath\`"" --hub-url \`""$HubUrl\`"" --token \`""$Token\`"" --node-id \`""$NodeId\`""""
+$fullCmdLine = '""{0}"" --hub-url ""{1}"" --token ""{2}"" --node-id ""{3}""' -f $exePath, $HubUrl, $Token, $NodeId
+if ($Insecure) {
+    $fullCmdLine += "" --insecure""
+}
 if (-not $existingSvc) {
-    New-Service -Name $ServiceName -BinaryPathName ""\`""$exePath\`"""" -StartupType Automatic -DisplayName ""ControlPlane Compute Node Agent"" | Out-Null
+    New-Service -Name $ServiceName -BinaryPathName ('""{0}""' -f $exePath) -StartupType Automatic -DisplayName ""ControlPlane Compute Node Agent"" | Out-Null
 }
 Set-ItemProperty -Path ""HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"" -Name ""ImagePath"" -Value $fullCmdLine -Type ExpandString -Force
+& sc.exe description $ServiceName ""ControlPlane outbound telemetry and management daemon"" | Out-Null
 & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/60000 | Out-Null
+Write-Host ""Starting $ServiceName service...""
 Start-Service -Name $ServiceName
 Start-Sleep -Seconds 2
-Write-Host ""ControlPlane Agent installed and running successfully! (NodeId: $NodeId)"" -ForegroundColor Green
+$finalStatus = (Get-Service -Name $ServiceName).Status
+if ($finalStatus -eq ""Running"") {
+    Write-Host ""ControlPlane Agent installed and running successfully! (NodeId: $NodeId)"" -ForegroundColor Green
+} else {
+    Write-Warning ""Service was started, but reports state '$finalStatus'. Check Event Viewer (Application log) for details.""
+}
 ";
 }

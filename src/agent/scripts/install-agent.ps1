@@ -43,7 +43,10 @@ param (
     [string]$InstallDir = "C:\Program Files\ControlPlaneAgent",
 
     [Parameter(Mandatory = $false)]
-    [string]$ServiceName = "ControlPlaneAgent"
+    [string]$ServiceName = "ControlPlaneAgent",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Insecure
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,6 +57,11 @@ $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Error "ControlPlane Agent installation requires Administrator privileges. Please run from an elevated PowerShell prompt."
     exit 1
+}
+
+if ($Insecure) {
+    Write-Host "Insecure mode active: Bypassing SSL/TLS certificate verification." -ForegroundColor Yellow
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 }
 
 Write-Host "=================================================" -ForegroundColor Cyan
@@ -115,11 +123,14 @@ if (Test-Path $exePath) {
 Move-Item -Path $tempExe -Destination $exePath -Force
 
 # 6. Configure Windows Service
-$fullCmdLine = "`"$exePath`" --hub-url `"$HubUrl`" --token `"$Token`" --node-id `"$NodeId`""
+$fullCmdLine = '"{0}" --hub-url "{1}" --token "{2}" --node-id "{3}"' -f $exePath, $HubUrl, $Token, $NodeId
+if ($Insecure) {
+    $fullCmdLine += " --insecure"
+}
 
 if (-not $existingSvc) {
     Write-Host "Registering '$ServiceName' as a Windows Service..."
-    New-Service -Name $ServiceName -BinaryPathName "`"$exePath`"" -StartupType Automatic -DisplayName "ControlPlane Compute Node Agent" | Out-Null
+    New-Service -Name $ServiceName -BinaryPathName ('"{0}"' -f $exePath) -StartupType Automatic -DisplayName "ControlPlane Compute Node Agent" | Out-Null
 }
 
 # Ensure exact command-line arguments are stored in registry ImagePath

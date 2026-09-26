@@ -23,6 +23,7 @@ using ControlPlane.Api.Features.Orchestration.Temporal;
 using ControlPlane.Api.Features.Orchestration.Temporal.Endpoints;
 using ControlPlane.Api.Features.Security;
 using ControlPlane.Api.Features.Security.Tokens;
+using ControlPlane.Api.Features.SystemLogs;
 using ControlPlane.Api.Features.Workloads;
 using ControlPlane.Api.Features.Workloads.ImageUpdates;
 using ControlPlane.Api.Hubs;
@@ -37,6 +38,10 @@ using Microsoft.OpenApi;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var systemLogBuffer = new SystemLogBuffer(capacity: 2500);
+builder.Services.AddSingleton<ISystemLogBuffer>(systemLogBuffer);
+builder.Logging.AddProvider(new SystemLogProvider(systemLogBuffer));
 
 builder.AddServiceDefaults();
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -58,7 +63,10 @@ builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
 builder.Services.AddScoped<NodeAdoptionService>();
 builder.Services.AddScoped<HostService>();
 builder.Services.AddScoped<IHostCorrelationService, HostCorrelationService>();
+builder.Services.Configure<AgentBinarySyncOptions>(builder.Configuration.GetSection(AgentBinarySyncOptions.SectionName));
 builder.Services.AddSingleton<AgentBinaryService>();
+builder.Services.AddSingleton<IAgentBinarySyncService, AgentBinarySyncService>();
+builder.Services.AddHostedService<AgentBinaryBackgroundService>();
 builder.Services.AddScoped<MassAgentUpdateService>();
 builder.Services.AddScoped<ProxmoxProbeService>();
 builder.Services.Configure<ProxmoxOptions>(builder.Configuration.GetSection(ProxmoxOptions.SectionName));
@@ -138,6 +146,7 @@ builder.Services.AddHttpClient(HomeAssistantClient.InsecureHttpClientName)
     });
 builder.Services.AddHttpClient(ImageUpdateService.HttpClientName);
 builder.Services.AddHttpClient(HelmUpdateService.HttpClientName);
+builder.Services.AddHttpClient(AgentBinarySyncService.HttpClientName);
 
 
 builder.Services.AddOpenApi(options =>
@@ -267,6 +276,7 @@ app.MapWorkloadEndpoints();
 app.MapDiscoveryEndpoints();
 app.MapSecurityEndpoints();
 app.MapApiTokenEndpoints();
+app.MapSystemEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
 app.MapTemporalWorkflowEndpoints();
 app.MapControlPlaneMcp(app.Configuration);

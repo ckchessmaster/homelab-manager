@@ -70,7 +70,7 @@ export function AppSidebar({
     },
     {
       id: 'settings',
-      label: 'Settings & Security',
+      label: 'System & Settings',
       icon: Settings,
     },
   ]
