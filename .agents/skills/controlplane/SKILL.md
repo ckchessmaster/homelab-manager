@@ -8,7 +8,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: ControlPlane
-  version: "1.0.0"
+  version: "1.3.1"
 ---
 
 # ControlPlane Operations & Architecture Skill
@@ -28,12 +28,13 @@ Use this skill when interacting with, maintaining, or extending the **Homelab Or
 * **Compute Nodes:** Static Go agent daemon (`controlplane-agent`) dials **outbound** via WebSocket (`wss://`). No listening ports!
 * **Appliances:** Managed **agentless** via HTTPS REST/API/Redfish using pooled HTTP clients and AES-256 encrypted credentials.
 * **Logs:** Real-time console logs use sequence IDs `(job_id, sequence_id, stream_type, log_line, timestamp)` streamed via SignalR to `xterm.js`.
+* **System Observability:** In-memory circular buffer captures backend logs for real-time querying (`query_system_logs`).
 
 ---
 
 ## 2. Model Context Protocol (MCP) Tool Workflows
 
-When pair-programming or operating as an AI agent, the ControlPlane MCP server (`http://localhost:5029/mcp`) provides 20 operational tools:
+When pair-programming or operating as an AI agent, the ControlPlane MCP server (`http://localhost:5029/mcp`) provides 40+ operational tools:
 
 ### Fleet Diagnosis Workflow
 1. **List Inventory:** Call `list_hosts` to inspect compute node online status, pending reboot flags, and upgradable package counts.
@@ -41,16 +42,21 @@ When pair-programming or operating as an AI agent, the ControlPlane MCP server (
 3. **Execute Debug Command:** Call `execute_debug_command(hostId: "...", command: "uptime", args: ["..."])` to run ad-hoc diagnostics over the outbound WebSocket.
 4. **Stream Output:** Call `query_job_logs(jobId: "...", fromSequenceId: 0)` to read console output.
 
-### Infrastructure Adapters Workflow
-1. **Summarize Adapters:** Call `list_adapters` to view all configured Proxmox, Kubernetes, UniFi, OPNsense, and iDRAC instances.
-2. **Test Connectivity:** Call `test_adapter_connection(adapterType: "proxmox" | "kubernetes" | "unifi" | "opnsense" | "idrac", instanceId: "...")` to verify latency and API status.
-3. **Inspect Network Ports & PoE:** Call `list_unifi_devices` to inspect switch port status and power consumption.
-4. **Inspect Hardware Sensors:** Call `get_hardware_sensors` to query BMC CPU/system temperatures, fan speeds, and power draw.
+### System & Backend Logging Workflow
+1. **Query Backend Logs:** Call `query_system_logs(level: "Error", search: "failed", limit: 50)` to inspect live server logs from the circular buffer.
+2. **Clear Log Buffer:** Call `clear_system_logs()` when resetting diagnostic state.
 
-### Kubernetes Workload Operations
-1. **Query Deployments:** Call `list_workloads(clusterId: "...", namespaceName: "...")` to check replica status, available replicas, and image tags.
+### Infrastructure Adapters & Smart Home Workflows
+1. **Summarize Adapters:** Call `list_adapters` to view all configured Proxmox, Kubernetes, UniFi, OPNsense, Redfish, and Home Assistant instances.
+2. **Test Connectivity:** Call `test_adapter_connection(adapterType: "...", instanceId: "...")` to verify latency and API status.
+3. **Inspect Hardware Sensors:** Call `get_hardware_sensors` to query BMC CPU/system temperatures, fan speeds, and power draw.
+4. **Inspect Home Assistant:** Call `get_home_assistant_overview(instanceId: "...")` to inspect entities, core configuration, and updates.
+
+### Kubernetes Workload & Helm Catalog Operations
+1. **Query Workloads:** Call `list_workloads(clusterId: "...", namespaceName: "...")` to check replica status, available replicas, and image tags.
 2. **Rolling Restart:** Call `restart_workload(clusterId: "...", namespaceName: "...", name: "...")` to dispatch rolling rollout restart.
 3. **Scale Replicas:** Call `scale_workload(clusterId: "...", namespaceName: "...", name: "...", replicas: N)` to resize capacity.
+4. **Helm Releases:** Call `list_helm_releases` and `check_helm_updates` to inspect and manage Helm chart deployments.
 
 ---
 
@@ -92,8 +98,8 @@ When performing maintenance on the node hosting the Kubernetes control plane or 
 # Build the entire backend
 dotnet build src/ControlPlane.Api/ControlPlane.Api.csproj
 
-# Run all automated tests (184+ passing)
-dotnet test
+# Run all automated tests (330+ passing)
+dotnet test --filter "FullyQualifiedName!~PostgresStorageTests"
 
 # Run MCP server tests specifically
 dotnet test --filter FullyQualifiedName~McpServerTests

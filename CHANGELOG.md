@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.3.1
+
+### Added
+* **Backend Application Logs UI & System Diagnostics**:
+  * Reorganized navigation: renamed **Settings & Security** to **System & Settings** in the primary navigation sidebar.
+  * Added segmented sub-navigation in the new System & Settings view:
+    * **Backend Logs**: Interactive console and diagnostics viewer.
+    * **Security & Tokens**: Authentication mode, active API headers, and Personal Access Tokens management.
+    * **Agent Binaries**: Compute node agent binary matrix and GitHub release synchronizer.
+    * **Storage & Runtime**: Dual-topology PostgreSQL/SQLite status, process uptime, memory footprint, and host diagnostics.
+  * Implemented `SystemLogsView` with:
+    * Compact top `<MetricStrip>` showing total buffered logs, errors (with critical alert badge), warnings, information events, and ring buffer capacity.
+    * Unified `<TableToolbar>` with live text search, log level filter (All Levels, Information+, Warning+, Errors Only), and category filter.
+    * Live tail toggle with real-time polling (2.5s interval) and pulsing status beacon.
+    * Auto-scroll toggle, download/export to `.log` file, and safe buffer clear with confirmation dialog.
+    * Right-sliding `<Sheet>` inspector drawer displaying full log message, exception stack trace with one-click copy, and raw JSON payload.
+  * Implemented high-performance, thread-safe in-memory circular buffer (`SystemLogBuffer`) with capacity of 2,500 entries.
+  * Wired `SystemLogProvider` into the ASP.NET Core `ILoggerFactory` pipeline to capture application logs across all subsystems.
+  * Added REST endpoints in `SystemEndpoints`: `GET /api/v1/system/logs`, `GET /api/v1/system/logs/stats`, `DELETE /api/v1/system/logs`, and `GET /api/v1/system/info`.
+  * Added `QuerySystemLogs` and `ClearSystemLogs` Model Context Protocol (MCP) tools to `ControlPlaneMcpTools` for AI assistant diagnostics.
+* **Agent Binary Auto-Sync Engine**:
+  * Implemented `IAgentBinarySyncService` and `AgentBinaryBackgroundService` to automatically synchronize static Go agent binaries from GitHub releases at startup and periodically.
+  * Added interactive binary distribution management card (`AgentBinariesCard`) with manual sync trigger and force re-download options.
+
+### Fixed
+* **Windows Compute Node Agent Service Installation (`install.ps1`)**:
+  * Fixed Windows Service failure (`Cannot start service ControlPlaneAgent on computer '.'`) caused by improper backslash escaping in Windows registry `ImagePath`.
+  * Added missing `[switch]$Insecure` parameter to both `install-agent.ps1` and `FallbackInstallScript` in `AgentManagementEndpoints.cs`.
+  * Enabled automatic SSL certificate validation bypass in PowerShell when `-Insecure` is specified to allow downloading agent binaries from self-signed HTTPS endpoints.
+  * Forwarded `--insecure` CLI flag to the Go agent daemon service command line when installed in insecure mode.
+  * Packaged `install-agent.ps1` into `/app/scripts/` inside the production Docker image.
+
+---
+
 ## v1.3.0
 
 ### Added

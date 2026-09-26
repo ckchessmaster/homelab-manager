@@ -32,8 +32,10 @@ Standards for writing client-side web code for the ControlPlane Single-Page Appl
 * `src/features/`: Feature-scoped components and hooks:
   * `auth/`: Zitadel OIDC integration, `useAuth()` hook, `<RequireRole role="...">` gate, user profile menu.
   * `hosts/`: Host inventory table, grouped inventory chips, adoption modal, host details drawer.
-  * `adapters/`: Unified Adapters Hub (Proxmox, Kubernetes, UniFi, OPNsense, iDRAC/Redfish instances, connection testing, credentials modals).
+  * `adapters/`: Unified Adapters Hub (Proxmox, Kubernetes, UniFi, OPNsense, iDRAC/Redfish, Home Assistant instances, connection testing, credentials modals).
   * `workloads/`: Multi-cluster Kubernetes applications and workloads view, deployment scaling dialog, rollout restart trigger.
+  * `helm/`: Helm catalog repositories, release management, and semantic upgrade modal.
+  * `system/`: System & Settings dashboard, in-memory backend log viewer with live tailing/filtering, agent binary sync, and storage runtime vitals.
   * `jobs/`: DAG execution visualizer, real-time xterm.js log stream, step progress.
 * `src/api/`: Typed API client methods with authenticated request interceptor and TanStack Query query/mutation hooks.
 * Environment variables: Use `import.meta.env.VITE_*` prefixes (`VITE_OIDC_AUTHORITY`, `VITE_OIDC_CLIENT_ID`, `VITE_AUTH_MODE=bypass`).

@@ -191,24 +191,24 @@ public class AgentBinarySyncTests : IDisposable
 
         var releaseResponse = new
         {
-            tag_name = "v1.3.1",
+            tag_name = "v2.0.0",
             assets = new[]
             {
                 new
                 {
-                    name = "controlplane-agent_v1.3.1_linux_amd64.tar.gz",
+                    name = "controlplane-agent_v2.0.0_linux_amd64.tar.gz",
                     browser_download_url = "https://github.com/mock/download/linux-amd64.tar.gz",
                     size = linuxAmd64Tar.Length
                 },
                 new
                 {
-                    name = "controlplane-agent_v1.3.1_linux_arm64.tar.gz",
+                    name = "controlplane-agent_v2.0.0_linux_arm64.tar.gz",
                     browser_download_url = "https://github.com/mock/download/linux-arm64.tar.gz",
                     size = linuxArm64Tar.Length
                 },
                 new
                 {
-                    name = "controlplane-agent_v1.3.1_windows_amd64.zip",
+                    name = "controlplane-agent_v2.0.0_windows_amd64.zip",
                     browser_download_url = "https://github.com/mock/download/windows-amd64.zip",
                     size = windowsZip.Length
                 }
@@ -262,7 +262,7 @@ public class AgentBinarySyncTests : IDisposable
         var result = await syncService.SyncBinariesAsync(force: false);
 
         Assert.True(result.Success);
-        Assert.Equal("v1.3.1", result.Version);
+        Assert.Equal("v2.0.0", result.Version);
         Assert.Equal(3, result.UpdatedBinaries.Count);
 
         // Verify extracted files exist in _tempDir
@@ -280,7 +280,7 @@ public class AgentBinarySyncTests : IDisposable
         // Verify version.json was created
         var versionJsonPath = Path.Combine(_tempDir, "version.json");
         Assert.True(File.Exists(versionJsonPath));
-        Assert.Contains("v1.3.1", File.ReadAllText(versionJsonPath));
+        Assert.Contains("v2.0.0", File.ReadAllText(versionJsonPath));
 
         // Verify subsequent sync without force returns up to date
         var secondResult = await syncService.SyncBinariesAsync(force: false);

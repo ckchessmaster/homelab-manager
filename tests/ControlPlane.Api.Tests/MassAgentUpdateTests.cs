@@ -19,12 +19,15 @@ public class MassAgentUpdateTests
     private class AgentUpdateAppFactory : WebApplicationFactory<Program>
     {
         private readonly string _tempDbFile = Path.Combine(Path.GetTempPath(), $"cp-test-agents-{Guid.NewGuid():N}.db");
+        private readonly string _tempDistDir = Path.Combine(Path.GetTempPath(), $"cp-test-dist-{Guid.NewGuid():N}");
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("STANDBY_MODE", "true");
             builder.UseSetting("ControlPlane:ApiKey", "dev-secret-key-123");
             builder.UseSetting("ConnectionStrings:PostgresDatabase", "");
+            builder.UseSetting("ControlPlane:AgentDistDir", _tempDistDir);
+            builder.UseSetting("ControlPlane:AgentBinarySync:Enabled", "false");
             builder.UseEnvironment("Development");
 
             builder.ConfigureServices(services =>
@@ -49,6 +52,10 @@ public class MassAgentUpdateTests
             if (File.Exists(_tempDbFile))
             {
                 try { File.Delete(_tempDbFile); } catch { }
+            }
+            if (Directory.Exists(_tempDistDir))
+            {
+                try { Directory.Delete(_tempDistDir, true); } catch { }
             }
         }
     }
