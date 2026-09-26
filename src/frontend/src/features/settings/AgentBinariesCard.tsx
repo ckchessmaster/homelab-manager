@@ -176,7 +176,7 @@ export function AgentBinariesCard() {
         <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-lg space-y-1">
           <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider block">Active Version</span>
           <div className="flex items-center gap-1.5 font-mono text-xs text-sky-400 font-semibold">
-            <span>{status?.currentInstalledVersion ? `v${status.currentInstalledVersion.replace(/^v/, '')}` : '1.3.1'}</span>
+            <span>{status?.currentInstalledVersion ? `v${status.currentInstalledVersion.replace(/^v/, '')}` : '1.4.0'}</span>
           </div>
         </div>
 

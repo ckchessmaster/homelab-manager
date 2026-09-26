@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.4.0
+
+### Added
+* **Mobile-First Responsive Navigation & Ergonomics**:
+  * Persistent `<MobileBottomNav />` with bottom thumb-reach navigation for primary tabs (**Hosts**, **Workloads**, **Discovery**, **Workflows**), pending reboot alert beacons, and safe-area insets (`env(safe-area-inset-bottom)`).
+  * Slide-up "More" drawer providing fast access to secondary views (**Adapters**, **System & Settings**, **Storage & Runtime**).
+  * Viewport-adaptive shell hiding the desktop sidebar and adapting header padding on viewports `<768px`.
+  * `useMediaQuery` and `useIsMobile` hooks for responsive layout management.
+* **Mobile Inventory & Candidate Card Views**:
+  * Added `<HostMobileCardList />` rendering touch-friendly cards with platform badges, IP links, status pills, and action menus.
+  * Added responsive mobile card view for discovered candidates in `<DiscoveryView />`.
+  * Viewport-conditional unmounting (`isMobile ? <MobileCardList /> : <Table />`) preventing horizontal overflow and DOM collisions.
+* **Mobile DAG Workflow Timeline**:
+  * Implemented `<MobileDagTimeline />` to degrade complex 2D ReactFlow canvas DAG graphs into an accessible, touch-friendly vertical execution timeline on mobile devices.
+* **Touch Primitives & Defensive UI Hardening**:
+  * Touch-optimized `<MetricStrip />` with snap-scrolling, minimum 44×44px interactive targets, and defensive guards against `NaN` metrics.
+  * Responsive `<TableToolbar />` with fluid full-width search and controls on mobile viewports.
+  * Safe-area padding and 44px dismiss controls in `<Sheet />` inspectors and modal dialogs.
+* **Frontend Testing & Verification Infrastructure**:
+  * Configured Vitest, `@testing-library/react`, `@testing-library/jest-dom`, and `jsdom` with co-located component test suites (`*.test.tsx`).
+  * Configured Playwright multi-project responsive test matrix covering Desktop Chrome, Mobile Chrome (`Pixel 7`), and Mobile Safari (`iPhone 14`).
+* **Agentic Mobile & Quality Governance**:
+  * Updated `AGENTS.md`, `.agents/rules/frontend-react.md`, and `DESIGN_SYSTEM.md` establishing mandatory verification gates (`npm test`, `npm run lint`, `npm run test:e2e`, and `dotnet test`) and mobile-first design invariants for all future coding agents.
+
+---
+
 ## v1.3.1
 
 ### Added

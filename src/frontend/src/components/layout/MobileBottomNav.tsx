@@ -222,7 +222,7 @@ export function MobileBottomNav({
           </div>
 
           <div className="pt-2 text-center">
-            <span className="text-[10px] font-mono text-zinc-400">ControlPlane v1.3.1</span>
+            <span className="text-[10px] font-mono text-zinc-400">ControlPlane v1.4.0</span>
           </div>
         </SheetBody>
       </Sheet>

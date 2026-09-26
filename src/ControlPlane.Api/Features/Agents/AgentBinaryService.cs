@@ -6,8 +6,8 @@ namespace ControlPlane.Api.Features.Agents;
 
 public class AgentBinaryService
 {
-    public const string CurrentAgentVersion = "1.3.1";
-    public const string DefaultAgentVersion = "1.3.1";
+    public const string CurrentAgentVersion = "1.4.0";
+    public const string DefaultAgentVersion = "1.4.0";
 
     private readonly IConfiguration? _configuration;
 

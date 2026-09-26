@@ -35,12 +35,12 @@ describe('HostStatusBadge Primitives', () => {
           pendingReboot: false,
           upgradablePackagesCount: 0,
         }}
-        targetVersion="1.3.1"
+        targetVersion="1.4.0"
       />
     )
 
     expect(screen.getByText(/Online/i)).toBeInTheDocument()
-    expect(screen.getByText(/v1\.3\.1 avail/i)).toBeInTheDocument()
+    expect(screen.getByText(/v1\.4\.0 avail/i)).toBeInTheDocument()
   })
 
   it('renders RebootBadge only when pending is true', () => {
