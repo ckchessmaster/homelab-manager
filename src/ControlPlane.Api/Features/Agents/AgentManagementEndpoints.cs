@@ -43,7 +43,16 @@ public static class AgentManagementEndpoints
             MassAgentUpdateService service,
             CancellationToken ct) =>
         {
-            var serverBaseUrl = $"{httpRequest.Scheme}://{httpRequest.Host}";
+            var forwardedProto = httpRequest.Headers["X-Forwarded-Proto"].FirstOrDefault()
+                ?? httpRequest.Headers["X-Forwarded-Scheme"].FirstOrDefault();
+            var scheme = !string.IsNullOrWhiteSpace(forwardedProto) ? forwardedProto : httpRequest.Scheme;
+            if (scheme.Equals("wss", StringComparison.OrdinalIgnoreCase)) scheme = "https";
+            else if (scheme.Equals("ws", StringComparison.OrdinalIgnoreCase)) scheme = "http";
+
+            var forwardedHost = httpRequest.Headers["X-Forwarded-Host"].FirstOrDefault();
+            var host = !string.IsNullOrWhiteSpace(forwardedHost) ? forwardedHost : httpRequest.Host.Value;
+
+            var serverBaseUrl = $"{scheme}://{host}";
             var result = await service.TriggerMassUpdateAsync(request, serverBaseUrl, ct);
             return Results.Accepted($"/api/v1/agents/mass-update/{result.BatchId}", result);
         });

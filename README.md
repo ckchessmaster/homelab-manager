@@ -1,6 +1,6 @@
 # Homelab Orchestration & Management Plane (ControlPlane)
 
-[![Release](https://img.shields.io/badge/release-v1.4.0-blue.svg)](https://github.com/ckchessmaster/homelab-manager/releases)
+[![Release](https://img.shields.io/badge/release-v1.4.1-blue.svg)](https://github.com/ckchessmaster/homelab-manager/releases)
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![React](https://img.shields.io/badge/React-19.0-61dafb.svg)](https://react.dev/)
 [![Aspire](https://img.shields.io/badge/Aspire-13.4-512bd4.svg)](https://learn.microsoft.com/dotnet/aspire/)
@@ -29,7 +29,7 @@ ControlPlane replaces brittle push-and-wait configuration management (e.g. Ansib
 
 ## 🔖 Release & Versioning Strategy
 
-ControlPlane adheres strictly to [Semantic Versioning (SemVer 2.0.0)](https://semver.org/): `MAJOR.MINOR.PATCH` (e.g. `v1.4.0`).
+ControlPlane adheres strictly to [Semantic Versioning (SemVer 2.0.0)](https://semver.org/): `MAJOR.MINOR.PATCH` (e.g. `v1.4.1`).
 
 * **MAJOR (`X.0.0`)**:
   * Breaking architectural shifts or protocol redesigns (such as breaking changes to the agent WebSocket communication protocol requiring a simultaneous fleet-wide reinstall).
@@ -40,7 +40,7 @@ ControlPlane adheres strictly to [Semantic Versioning (SemVer 2.0.0)](https://se
   * New infrastructure adapters (e.g. Home Assistant, TrueNAS, Mikrotik).
   * Non-breaking database schema expansions (new tables, columns with defaults).
   * Additions to the embedded Model Context Protocol (MCP) tool suite.
-* **PATCH (`1.3.X`)**:
+* **PATCH (`1.4.X`)**:
   * Targeted bug fixes, edge case resolutions, and runtime stability enhancements.
   * Agent platform installer fixes and compatibility tweaks (such as Windows Service string escaping or `-Insecure` SSL flags).
   * UI/UX refinements, CSS/theme adjustments, or minor performance optimizations.

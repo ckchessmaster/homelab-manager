@@ -16,16 +16,31 @@ public static class DependencyInjection
         {
             if (isStandby)
             {
-                var dbPath = config.GetValue<string>("STANDBY_DB_PATH")
-                    ?? Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                        ".controlplane",
-                        "standby-state.db"
-                    );
-                var directory = Path.GetDirectoryName(dbPath);
-                if (!string.IsNullOrEmpty(directory))
+                var dbPath = config.GetValue<string>("STANDBY_DB_PATH");
+                if (string.IsNullOrWhiteSpace(dbPath))
                 {
-                    Directory.CreateDirectory(directory);
+                    try
+                    {
+                        var defaultDir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                            ".controlplane");
+                        Directory.CreateDirectory(defaultDir);
+                        dbPath = Path.Combine(defaultDir, "standby-state.db");
+                    }
+                    catch
+                    {
+                        var fallbackDir = Path.Combine(Path.GetTempPath(), "controlplane");
+                        Directory.CreateDirectory(fallbackDir);
+                        dbPath = Path.Combine(fallbackDir, "standby-state.db");
+                    }
+                }
+                else
+                {
+                    var directory = Path.GetDirectoryName(dbPath);
+                    if (!string.IsNullOrEmpty(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
                 }
 
                 options.UseSqlite($"Data Source={dbPath}")

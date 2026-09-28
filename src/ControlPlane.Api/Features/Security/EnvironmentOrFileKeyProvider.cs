@@ -105,6 +105,25 @@ public class EnvironmentOrFileKeyProvider : ISecurityKeyProvider
             }
             catch (Exception ex)
             {
+                if (string.IsNullOrWhiteSpace(_options.KeyFilePath))
+                {
+                    try
+                    {
+                        var tempPath = Path.Combine(Path.GetTempPath(), "controlplane", "master.key");
+                        var tempDir = Path.GetDirectoryName(tempPath);
+                        if (!string.IsNullOrEmpty(tempDir) && !Directory.Exists(tempDir))
+                        {
+                            Directory.CreateDirectory(tempDir);
+                        }
+                        File.WriteAllText(tempPath, base64Key);
+                        _logger.LogWarning("Generated new 256-bit master encryption key and saved to fallback temp path {KeyPath}.", tempPath);
+                        return (generatedKey, "Generated", tempPath);
+                    }
+                    catch
+                    {
+                        // continue to throw original exception
+                    }
+                }
                 throw new CryptographicException($"Failed to write auto-generated master key to '{keyPath}'.", ex);
             }
         }

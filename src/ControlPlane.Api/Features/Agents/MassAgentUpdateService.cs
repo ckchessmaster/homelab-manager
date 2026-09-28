@@ -122,6 +122,18 @@ public class MassAgentUpdateService
             if (!string.IsNullOrWhiteSpace(session?.InboundHost))
             {
                 var scheme = !string.IsNullOrWhiteSpace(session.InboundScheme) ? session.InboundScheme : "http";
+                if (scheme.Equals("wss", StringComparison.OrdinalIgnoreCase)) scheme = "https";
+                else if (scheme.Equals("ws", StringComparison.OrdinalIgnoreCase)) scheme = "http";
+
+                var hubUrl = _configuration["ControlPlane:HubUrl"];
+                if (!string.IsNullOrWhiteSpace(hubUrl) && Uri.TryCreate(hubUrl, UriKind.Absolute, out var hubUri))
+                {
+                    if (hubUri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase) || hubUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+                    {
+                        scheme = "https";
+                    }
+                }
+
                 effectiveBaseUrl = $"{scheme}://{session.InboundHost}";
             }
             else

@@ -67,11 +67,25 @@ public class AgentHubMiddleware
 
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
         var nodeId = GetNodeId(context) ?? host.Id.ToString();
-        var inboundHost = context.Request.Host.Value;
-        var inboundScheme = context.Request.Scheme;
+
+        var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+        var inboundHost = !string.IsNullOrWhiteSpace(forwardedHost) ? forwardedHost : context.Request.Host.Value;
+
+        var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].FirstOrDefault()
+            ?? context.Request.Headers["X-Forwarded-Scheme"].FirstOrDefault();
+        var inboundScheme = !string.IsNullOrWhiteSpace(forwardedProto) ? forwardedProto : context.Request.Scheme;
+
+        if (string.Equals(inboundScheme, "wss", StringComparison.OrdinalIgnoreCase))
+        {
+            inboundScheme = "https";
+        }
+        else if (string.Equals(inboundScheme, "ws", StringComparison.OrdinalIgnoreCase))
+        {
+            inboundScheme = "http";
+        }
 
         _connectionManager.Register(host.Id, nodeId, webSocket, inboundHost, inboundScheme);
-        _logger.LogInformation("Agent connected for host {Hostname} ({HostId})", host.Hostname, host.Id);
+        _logger.LogInformation("Agent connected for host {Hostname} ({HostId}) via {Scheme}://{Host}", host.Hostname, host.Id, inboundScheme, inboundHost);
 
         try
         {
@@ -284,6 +298,28 @@ public class AgentHubMiddleware
                     jobId = jProp.GetString();
                 }
                 _connectionManager.NotifyRebootCommencing(hostId, jobId);
+            }
+            else if (string.Equals(type, "UPDATE_COMMENCING", StringComparison.OrdinalIgnoreCase))
+            {
+                var targetVersion = doc.RootElement.TryGetProperty("targetVersion", out var tvProp) ? tvProp.GetString() : "unknown";
+                var jobId = doc.RootElement.TryGetProperty("jobId", out var jProp) ? jProp.GetString() : "unknown";
+                _logger.LogInformation("Host {HostId} commencing agent self-update to version {TargetVersion} (Job {JobId})", hostId, targetVersion, jobId);
+            }
+            else if (string.Equals(type, "UPDATE_APPLIED", StringComparison.OrdinalIgnoreCase))
+            {
+                var success = doc.RootElement.TryGetProperty("success", out var sProp) && sProp.GetBoolean();
+                var targetVersion = doc.RootElement.TryGetProperty("targetVersion", out var tvProp) ? tvProp.GetString() : "unknown";
+                var jobId = doc.RootElement.TryGetProperty("jobId", out var jProp) ? jProp.GetString() : "unknown";
+                var err = doc.RootElement.TryGetProperty("error", out var eProp) ? eProp.GetString() : null;
+
+                if (success)
+                {
+                    _logger.LogInformation("Host {HostId} successfully applied agent update to version {TargetVersion} (Job {JobId})", hostId, targetVersion, jobId);
+                }
+                else
+                {
+                    _logger.LogError("Host {HostId} failed to apply agent update to version {TargetVersion} (Job {JobId}): {Error}", hostId, targetVersion, jobId, err);
+                }
             }
         }
         catch (Exception ex)

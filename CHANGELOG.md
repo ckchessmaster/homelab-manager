@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.4.1
+
+### Fixed
+* **Remote Agent Self-Update & Reverse Proxy URL Protocol**:
+  * Fixed an issue where clicking the agent update button in the web UI failed to update remote compute node agents behind reverse proxies or ingress controllers (e.g. Traefik, NGINX).
+  * Configured `ForwardedHeadersOptions` with `KnownIPNetworks.Clear()` and `KnownProxies.Clear()` in ASP.NET Core pipelines (`Program.cs` and `ServeCommand.cs`) to properly respect `X-Forwarded-Proto` and `X-Forwarded-Host` from ingress controllers in containerized environments.
+  * Corrected download URL synthesis across `AgentHubMiddleware`, `MassAgentUpdateService`, and `AgentManagementEndpoints` to automatically detect HTTPS reverse proxy termination and normalize WebSocket schemes (`wss://` $\to$ `https://`, `ws://` $\to$ `http://`), preventing agents from receiving insecure `http://` URLs that redirected or failed TLS validation.
+  * Added agent protocol tracking and acknowledgment for `UPDATE_COMMENCING` and `UPDATE_APPLIED` status messages during in-band binary upgrades.
+  * Enhanced Go compute node agent with optional insecure TLS skip (`--insecure`) during binary downloads for homelabs operating with custom or self-signed internal certificates.
+  * Hardened AES encryption master key provider fallback to use `/tmp` when `.controlplane` user directory is read-only.
+  * Added comprehensive unit tests in `MassAgentUpdateTests` verifying forwarded headers, scheme normalization, and secure download URL generation.
+
+---
+
 ## v1.4.0
 
 ### Added

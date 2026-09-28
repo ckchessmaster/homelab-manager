@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	Version = "1.4.0"
+	Version = "1.4.1"
 )
 
 type HeartbeatPayload struct {
@@ -371,7 +371,7 @@ func runAgentSession(
 					}
 					go func(envelope UpdateEnvelope) {
 						log.Printf("[Agent] Handling CMD_SELF_UPDATE for Job %s (Target: %s)", envelope.JobID, envelope.TargetVersion)
-						_ = lifecycle.PerformSelfUpdate(ctx, envelope.JobID, cfg.NodeID, envelope.DownloadURL, envelope.TargetVersion, cfg.Token, writeJSON)
+						_ = lifecycle.PerformSelfUpdate(ctx, envelope.JobID, cfg.NodeID, envelope.DownloadURL, envelope.TargetVersion, cfg.Token, cfg.Insecure, writeJSON)
 					}(updateEnv)
 				}
 			} else if base.Type == "EXECUTE_COMMAND" {

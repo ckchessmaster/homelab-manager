@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -42,6 +43,7 @@ func PerformSelfUpdate(
 	downloadURL string,
 	targetVersion string,
 	token string,
+	insecure bool,
 	writeJSON func(interface{}) error,
 ) error {
 	log.Printf("[Agent] Self-update initiated for Job %s (Target: %s, URL: %s)...", jobID, targetVersion, downloadURL)
@@ -68,7 +70,14 @@ func PerformSelfUpdate(
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	tr := &http.Transport{}
+	if insecure {
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   5 * time.Minute,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return failUpdate(writeJSON, nodeID, jobID, targetVersion, fmt.Errorf("download request failed: %w", err))

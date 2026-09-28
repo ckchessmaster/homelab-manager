@@ -9,6 +9,7 @@ using EFCore.NamingConventions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using HostEntity = ControlPlane.Api.Storage.Entities.Host;
 
@@ -202,5 +203,91 @@ public class MassAgentUpdateTests
         // Verify GET status endpoint
         var statusRes = await client.GetAsync($"/api/v1/agents/mass-update/{result.BatchId}");
         Assert.Equal(HttpStatusCode.OK, statusRes.StatusCode);
+    }
+
+    [Fact]
+    public void ResolveLanAddress_WithWssHubUrl_ResolvesToHttps()
+    {
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ControlPlane:HubUrl"] = "wss://manage.local.chriskingdon.com/agent-hub"
+            })
+            .Build();
+
+        var resolved = MassAgentUpdateService.ResolveLanAddress("http://127.0.0.1:5029", config);
+        Assert.Equal("https://manage.local.chriskingdon.com", resolved);
+    }
+
+    [Fact]
+    public async Task TriggerMassUpdate_WhenHubUrlUsesWss_EnforcesHttpsDownloadUrl()
+    {
+        using var factory = new AgentUpdateAppFactory();
+        var client = CreateAuthClient(factory);
+
+        var hostId = Guid.NewGuid();
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+        var connManager = scope.ServiceProvider.GetRequiredService<AgentConnectionManager>();
+        var binaryService = scope.ServiceProvider.GetRequiredService<AgentBinaryService>();
+        var logger = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MassAgentUpdateService>>();
+
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ControlPlane:HubUrl"] = "wss://manage.local.chriskingdon.com/agent-hub"
+            })
+            .Build();
+
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "online-agent-node",
+            IpAddress = "192.168.1.150",
+            Agent = new AgentState
+            {
+                Installed = true,
+                Version = "1.3.0"
+            }
+        };
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync();
+
+        // Register online session with http inbound scheme (as reported behind reverse proxy)
+        // Using a mock open WebSocket
+        using var fakeWs = new TestWebSocket();
+        connManager.Register(hostId, hostId.ToString(), fakeWs, "manage.local.chriskingdon.com", "http");
+
+        var service = new MassAgentUpdateService(db, connManager, binaryService, config, logger);
+        var batch = await service.TriggerMassUpdateAsync(new MassUpdateRequest(HostIds: new List<Guid> { hostId }, AllOutdated: false), "http://localhost:5029");
+
+        Assert.Equal(1, batch.TotalTargeted);
+        Assert.Equal(1, batch.DispatchedCount);
+        Assert.NotNull(fakeWs.LastSentJson);
+        Assert.Contains("https://manage.local.chriskingdon.com/api/v1/agents/binaries/linux-amd64", fakeWs.LastSentJson);
+        Assert.DoesNotContain("http://manage.local.chriskingdon.com", fakeWs.LastSentJson);
+    }
+
+    private class TestWebSocket : System.Net.WebSockets.WebSocket
+    {
+        public string? LastSentJson { get; private set; }
+        public override System.Net.WebSockets.WebSocketCloseStatus? CloseStatus => null;
+        public override string? CloseStatusDescription => null;
+        public override System.Net.WebSockets.WebSocketState State => System.Net.WebSockets.WebSocketState.Open;
+        public override string SubProtocol => "";
+
+        public override void Abort() { }
+        public override Task CloseAsync(System.Net.WebSockets.WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override Task CloseOutputAsync(System.Net.WebSockets.WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override void Dispose() { }
+        public override Task<System.Net.WebSockets.WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken) =>
+            Task.FromResult(new System.Net.WebSockets.WebSocketReceiveResult(0, System.Net.WebSockets.WebSocketMessageType.Close, true));
+
+        public override Task SendAsync(ArraySegment<byte> buffer, System.Net.WebSockets.WebSocketMessageType messageType, bool endOfMessage, CancellationToken cancellationToken)
+        {
+            LastSentJson = System.Text.Encoding.UTF8.GetString(buffer.Array!, buffer.Offset, buffer.Count);
+            return Task.CompletedTask;
+        }
     }
 }

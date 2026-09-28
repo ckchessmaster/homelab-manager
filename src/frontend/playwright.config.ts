@@ -31,10 +31,12 @@ export default defineConfig({
     {
       name: 'chromium-desktop',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: /.*mobile.*\.spec\.ts/,
     },
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 7'] },
+      testMatch: /.*mobile.*\.spec\.ts/,
     },
     {
       name: 'mobile-ios',
@@ -42,12 +44,18 @@ export default defineConfig({
         ...devices['iPhone 14'],
         defaultBrowserType: 'chromium',
       },
+      testMatch: /.*mobile.*\.spec\.ts/,
     },
   ],
   webServer: {
-    command: 'npm run dev',
+    command: `${nodeBinPath}/npm run dev`,
     port: 5173,
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: {
+      PATH: `${nodeBinPath}:${process.env.PATH || ''}`,
+    },
   },
 })
