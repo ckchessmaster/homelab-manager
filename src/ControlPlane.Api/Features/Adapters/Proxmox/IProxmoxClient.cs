@@ -69,6 +69,19 @@ public interface IProxmoxClient
         CancellationToken ct = default);
 
     /// <summary>
+    /// Attempts to query all guest agent network IPv4 addresses across all interfaces.
+    /// </summary>
+    async Task<List<string>> TryGetGuestIpAddressesAsync(
+        string node,
+        int vmid,
+        bool isLxc = false,
+        CancellationToken ct = default)
+    {
+        var primary = await TryGetGuestIpAddressAsync(node, vmid, isLxc, ct);
+        return string.IsNullOrWhiteSpace(primary) ? new List<string>() : new List<string> { primary };
+    }
+
+    /// <summary>
     /// Lists all snapshots currently existing for a VM (QEMU) or LXC container.
     /// </summary>
     Task<List<ProxmoxSnapshotItem>> ListVmSnapshotsAsync(

@@ -28,10 +28,23 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
 
   const importMutation = useImportCandidate()
 
+  const availableIps = React.useMemo(() => {
+    if (!candidate) return []
+    const set = new Set<string>()
+    if (candidate.ipAddress) set.add(candidate.ipAddress)
+    if (candidate.allIpAddresses) {
+      candidate.allIpAddresses.forEach((ip) => {
+        if (ip && ip.trim()) set.add(ip.trim())
+      })
+    }
+    return Array.from(set)
+  }, [candidate])
+
   useEffect(() => {
     if (candidate) {
       setName(candidate.name)
-      setIpAddress(candidate.ipAddress || '')
+      const primaryIp = candidate.ipAddress || candidate.allIpAddresses?.[0] || ''
+      setIpAddress(primaryIp)
       setFriendlyName(candidate.name)
       setTargetType(
         candidate.targetType ||
@@ -133,18 +146,52 @@ export const ImportCandidateModal: React.FC<ImportCandidateModalProps> = ({
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-zinc-300 mb-1">IP Address *</label>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-medium text-zinc-300">IP Address *</label>
+              {availableIps.length > 1 && (
+                <span className="text-[11px] text-sky-400 font-medium">
+                  {availableIps.length} detected interfaces
+                </span>
+              )}
+            </div>
+
+            {availableIps.length > 1 && (
+              <div>
+                <select
+                  value={availableIps.includes(ipAddress) ? ipAddress : 'custom'}
+                  onChange={(e) => {
+                    if (e.target.value !== 'custom') {
+                      setIpAddress(e.target.value)
+                    }
+                  }}
+                  className="w-full h-8 bg-zinc-900 border border-zinc-800 rounded-md px-2.5 text-xs text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
+                >
+                  {availableIps.map((ip) => (
+                    <option key={ip} value={ip}>
+                      {ip} {ip === candidate.ipAddress ? '(Detected Primary)' : '(Detected Alternate)'}
+                    </option>
+                  ))}
+                  <option value="custom">Custom / Manual IP Address</option>
+                </select>
+              </div>
+            )}
+
             <Input
               value={ipAddress}
               onChange={(e) => setIpAddress(e.target.value)}
               placeholder="e.g. 192.168.1.150"
               required
             />
-            {!candidate.ipAddress && (
-              <p className="text-[11px] text-amber-400/90 mt-1 flex items-center gap-1">
+
+            {!candidate.ipAddress && availableIps.length === 0 ? (
+              <p className="text-[11px] text-amber-400/90 flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
                 No IP address was reported by guest agent. Please confirm the IP manually.
+              </p>
+            ) : (
+              <p className="text-[11px] text-zinc-500">
+                You can select from detected IP interfaces above or type a reachable IP directly (e.g. VLAN interface).
               </p>
             )}
           </div>

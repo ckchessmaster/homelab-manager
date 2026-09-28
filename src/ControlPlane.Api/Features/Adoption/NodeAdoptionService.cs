@@ -152,7 +152,7 @@ public class NodeAdoptionService
             Emit("SERVICE_STARTING", "Configuring and starting Windows Service", AdoptionStepStatus.Running);
             try
             {
-                var hubUrl = ResolveHubUrl(request.HubUrl);
+                var hubUrl = ResolveHubUrl(request.HubUrl, request.TargetHost);
                 var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
                 var insecureFlag = request.Insecure ? " --insecure" : "";
                 var binPath = $"\"\\\"C:\\Program Files\\ControlPlaneAgent\\controlplane-agent.exe\\\" --hub-url \\\"{hubUrl}\\\"{insecureFlag} --token \\\"{token}\\\" --node-id \\\"{hostId}\\\"\"";
@@ -202,7 +202,7 @@ public class NodeAdoptionService
             Emit("SERVICE_STARTING", "Configuring and starting systemd service", AdoptionStepStatus.Running);
             try
             {
-                var hubUrl = ResolveHubUrl(request.HubUrl);
+                var hubUrl = ResolveHubUrl(request.HubUrl, request.TargetHost);
                 var token = _apiKeyOptions.CurrentValue.ApiKey ?? hostId.ToString();
                 var insecureFlag = request.Insecure ? " --insecure" : "";
 
@@ -268,7 +268,7 @@ public class NodeAdoptionService
         }
         else
         {
-            var hubUrl = ResolveHubUrl(request.HubUrl);
+            var hubUrl = ResolveHubUrl(request.HubUrl, request.TargetHost);
             string? agentLogs = null;
             try
             {
@@ -303,20 +303,81 @@ public class NodeAdoptionService
         }
     }
 
-    private string ResolveHubUrl(string? requestedHubUrl)
+    private string ResolveHubUrl(string? requestedHubUrl, string? targetHost = null)
     {
+        var configured = _configuration["ControlPlane:HubUrl"];
+        var isTargetLoopback = string.IsNullOrWhiteSpace(targetHost)
+            || targetHost.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || targetHost.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+            || targetHost.Equals("::1", StringComparison.OrdinalIgnoreCase);
+
+        string baseHubUrl;
         if (!string.IsNullOrWhiteSpace(requestedHubUrl))
         {
-            return requestedHubUrl;
+            if (!isTargetLoopback && (requestedHubUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase) || requestedHubUrl.Contains("127.0.0.1")))
+            {
+                if (!string.IsNullOrWhiteSpace(configured))
+                {
+                    baseHubUrl = configured;
+                }
+                else
+                {
+                    baseHubUrl = ResolveLanHubUrl(requestedHubUrl);
+                }
+            }
+            else
+            {
+                baseHubUrl = requestedHubUrl;
+            }
         }
-
-        var configured = _configuration["ControlPlane:HubUrl"];
-        if (!string.IsNullOrWhiteSpace(configured))
+        else if (!string.IsNullOrWhiteSpace(configured))
         {
-            return configured;
+            baseHubUrl = configured;
+        }
+        else if (isTargetLoopback)
+        {
+            baseHubUrl = "ws://localhost:5029/agent-hub";
+        }
+        else
+        {
+            baseHubUrl = ResolveLanHubUrl("ws://localhost:5029/agent-hub");
         }
 
-        return MassAgentUpdateService.ResolveLanAddress("ws://localhost:5029/agent-hub", _configuration);
+        if (Uri.TryCreate(baseHubUrl, UriKind.Absolute, out var uri))
+        {
+            if (string.IsNullOrEmpty(uri.AbsolutePath) || uri.AbsolutePath == "/")
+            {
+                var builder = new UriBuilder(uri)
+                {
+                    Path = "/agent-hub"
+                };
+                return builder.Uri.ToString();
+            }
+        }
+
+        return baseHubUrl;
+    }
+
+    private static string ResolveLanHubUrl(string defaultUrl)
+    {
+        try
+        {
+            using var socket = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Dgram, 0);
+            socket.Connect("8.8.8.8", 65530);
+            if (socket.LocalEndPoint is System.Net.IPEndPoint endPoint)
+            {
+                var uri = new Uri(defaultUrl);
+                var scheme = uri.Scheme;
+                var port = uri.Port > 0 ? uri.Port : 5029;
+                var path = string.IsNullOrEmpty(uri.AbsolutePath) || uri.AbsolutePath == "/" ? "/agent-hub" : uri.AbsolutePath;
+                return $"{scheme}://{endPoint.Address}:{port}{path}";
+            }
+        }
+        catch
+        {
+            // fallback
+        }
+        return defaultUrl;
     }
 
     private string? FindAgentBinary(string filename)

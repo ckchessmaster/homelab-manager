@@ -22,8 +22,10 @@ public record DiscoveredCandidateDto(
     [property: JsonPropertyName("unifiSwitchPort")] int? UnifiSwitchPort = null,
     [property: JsonPropertyName("roles")] List<string>? Roles = null,
     [property: JsonPropertyName("isManaged")] bool IsManaged = false,
+    [property: JsonPropertyName("agentInstalled")] bool AgentInstalled = false,
     [property: JsonPropertyName("existingHostId")] Guid? ExistingHostId = null,
-    [property: JsonPropertyName("existingHostname")] string? ExistingHostname = null
+    [property: JsonPropertyName("existingHostname")] string? ExistingHostname = null,
+    [property: JsonPropertyName("allIpAddresses")] List<string>? AllIpAddresses = null
 );
 
 /// <summary>

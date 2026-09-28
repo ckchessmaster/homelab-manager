@@ -549,8 +549,10 @@ public class HostService
         bool isOnline = false,
         HypervisorHostSummaryDto? hypervisor = null,
         List<HostedVmSummaryDto>? hostedVms = null,
-        HostVitalsDto? vitals = null)
+        HostVitalsDto? vitals = null,
+        List<string>? detectedIps = null)
     {
+        var ips = detectedIps ?? (!string.IsNullOrWhiteSpace(host.IpAddress) ? new List<string> { host.IpAddress } : new List<string>());
         return new HostResponse(
             Id: host.Id,
             Hostname: host.Hostname,
@@ -574,7 +576,8 @@ public class HostService
             UpdatedAt: host.UpdatedAt,
             Hypervisor: hypervisor,
             HostedVms: hostedVms,
-            Vitals: vitals
+            Vitals: vitals,
+            DetectedIps: ips
         );
     }
 }

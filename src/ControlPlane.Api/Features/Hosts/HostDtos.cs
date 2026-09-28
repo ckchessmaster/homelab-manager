@@ -16,7 +16,8 @@ public record HostResponse(
     DateTimeOffset UpdatedAt,
     HypervisorHostSummaryDto? Hypervisor = null,
     List<HostedVmSummaryDto>? HostedVms = null,
-    HostVitalsDto? Vitals = null
+    HostVitalsDto? Vitals = null,
+    List<string>? DetectedIps = null
 );
 
 public record HostVitalsDto(

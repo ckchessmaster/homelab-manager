@@ -438,6 +438,13 @@ public class ProxmoxClient : IProxmoxClient
 
     public async Task<string?> TryGetGuestIpAddressAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)
     {
+        var ips = await TryGetGuestIpAddressesAsync(node, vmid, isLxc, ct);
+        return ips.FirstOrDefault();
+    }
+
+    public async Task<List<string>> TryGetGuestIpAddressesAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)
+    {
+        var resultList = new List<string>();
         var options = await GetOptionsAsync(ct);
         ValidateConfiguration(options);
         if (isLxc)
@@ -458,7 +465,10 @@ public class ProxmoxClient : IProxmoxClient
                             if (!string.IsNullOrWhiteSpace(cidr))
                             {
                                 var ip = cidr.Split('/')[0];
-                                if (!ip.StartsWith("127.") && !ip.StartsWith("169.254.")) return ip;
+                                if (!ip.StartsWith("127.") && !ip.StartsWith("169.254.") && !resultList.Contains(ip))
+                                {
+                                    resultList.Add(ip);
+                                }
                             }
                         }
                     }
@@ -468,7 +478,7 @@ public class ProxmoxClient : IProxmoxClient
             {
                 _logger.LogDebug(ex, "Could not fetch LXC interfaces for {Node}/{Vmid}", node, vmid);
             }
-            return null;
+            return resultList;
         }
 
         try
@@ -489,7 +499,10 @@ public class ProxmoxClient : IProxmoxClient
                         if (string.Equals(addr.IpAddressType, "ipv4", StringComparison.OrdinalIgnoreCase))
                         {
                             var ip = addr.IpAddress;
-                            if (!ip.StartsWith("127.") && !ip.StartsWith("169.254.")) return ip;
+                            if (!string.IsNullOrWhiteSpace(ip) && !ip.StartsWith("127.") && !ip.StartsWith("169.254.") && !resultList.Contains(ip))
+                            {
+                                resultList.Add(ip);
+                            }
                         }
                     }
                 }
@@ -500,7 +513,7 @@ public class ProxmoxClient : IProxmoxClient
             _logger.LogDebug(ex, "Guest agent network query not available for QEMU VM {Node}/{Vmid}", node, vmid);
         }
 
-        return null;
+        return resultList;
     }
 
     public async Task<string?> TryGetGuestOsTypeAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)

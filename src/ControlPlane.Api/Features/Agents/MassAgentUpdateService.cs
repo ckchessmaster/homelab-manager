@@ -218,7 +218,8 @@ public class MassAgentUpdateService
             if (socket.LocalEndPoint is System.Net.IPEndPoint endPoint)
             {
                 var uri = new Uri(defaultUrl);
-                return $"{uri.Scheme}://{endPoint.Address}:{uri.Port}";
+                var path = (string.IsNullOrEmpty(uri.AbsolutePath) || uri.AbsolutePath == "/") ? "" : uri.AbsolutePath;
+                return $"{uri.Scheme}://{endPoint.Address}:{uri.Port}{path}";
             }
         }
         catch

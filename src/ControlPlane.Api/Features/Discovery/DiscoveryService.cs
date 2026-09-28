@@ -262,6 +262,10 @@ public class DiscoveryService : IDiscoveryService
                             && string.Equals(h.Proxmox.Node, n.Node, StringComparison.OrdinalIgnoreCase)
                             && h.Proxmox.Vmid <= 0));
 
+                    var nodeIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (!string.IsNullOrWhiteSpace(matchedHost?.IpAddress)) nodeIps.Add(matchedHost.IpAddress);
+                    if (!string.IsNullOrWhiteSpace(defaultNodeIp)) nodeIps.Add(defaultNodeIp);
+
                     candidates.Add(new DiscoveredCandidateDto(
                         Id: $"pve:{instanceId}:node:{n.Node}",
                         Source: "Proxmox",
@@ -275,8 +279,10 @@ public class DiscoveryService : IDiscoveryService
                         ProxmoxInstanceId: instanceId,
                         Roles: new List<string> { "hypervisor", "pve-host" },
                         IsManaged: matchedHost != null,
+                        AgentInstalled: matchedHost?.Agent?.Installed ?? false,
                         ExistingHostId: matchedHost?.Id,
-                        ExistingHostname: matchedHost?.Hostname
+                        ExistingHostname: matchedHost?.Hostname,
+                        AllIpAddresses: nodeIps.ToList()
                     ));
                 }
             }
@@ -308,13 +314,15 @@ public class DiscoveryService : IDiscoveryService
                     var name = res.Name ?? $"vm-{vmid}";
                     var status = res.Status ?? "unknown";
 
+                    List<string> guestIps = new();
                     string? ip = null;
                     string? osRaw = null;
                     if (string.Equals(status, "running", StringComparison.OrdinalIgnoreCase) && vmid > 0)
                     {
                         try
                         {
-                            ip = await client.TryGetGuestIpAddressAsync(res.Node, vmid, isLxc, ct);
+                            guestIps = await client.TryGetGuestIpAddressesAsync(res.Node, vmid, isLxc, ct);
+                            ip = guestIps.FirstOrDefault();
                         }
                         catch (Exception ipEx)
                         {
@@ -340,6 +348,7 @@ public class DiscoveryService : IDiscoveryService
                             && string.Equals(h.Proxmox.Node, res.Node, StringComparison.OrdinalIgnoreCase)
                             && h.Proxmox.Vmid == vmid)
                         || (!string.IsNullOrWhiteSpace(ip) && string.Equals(h.IpAddress, ip, StringComparison.OrdinalIgnoreCase))
+                        || (guestIps.Count > 0 && guestIps.Any(gIp => string.Equals(h.IpAddress, gIp, StringComparison.OrdinalIgnoreCase)))
                         || string.Equals(h.Hostname, name, StringComparison.OrdinalIgnoreCase));
 
                     var roles = new List<string> { isLxc ? "container" : "virtual-machine" };
@@ -347,6 +356,11 @@ public class DiscoveryService : IDiscoveryService
                     {
                         roles.Add("home-assistant");
                     }
+
+                    var allCandidateIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (!string.IsNullOrWhiteSpace(ip)) allCandidateIps.Add(ip);
+                    foreach (var gIp in guestIps) allCandidateIps.Add(gIp);
+                    if (!string.IsNullOrWhiteSpace(matchedHost?.IpAddress)) allCandidateIps.Add(matchedHost.IpAddress);
 
                     candidates.Add(new DiscoveredCandidateDto(
                         Id: $"pve:{instanceId}:{res.Node}:{vmid}",
@@ -361,8 +375,10 @@ public class DiscoveryService : IDiscoveryService
                         ProxmoxInstanceId: instanceId,
                         Roles: roles,
                         IsManaged: matchedHost != null,
+                        AgentInstalled: matchedHost?.Agent?.Installed ?? false,
                         ExistingHostId: matchedHost?.Id,
-                        ExistingHostname: matchedHost?.Hostname
+                        ExistingHostname: matchedHost?.Hostname,
+                        AllIpAddresses: allCandidateIps.ToList()
                     ));
                 }
                 catch (Exception candEx)
@@ -404,6 +420,10 @@ public class DiscoveryService : IDiscoveryService
                     string.Equals(c.Name, kNode.Name, StringComparison.OrdinalIgnoreCase)
                     || (!string.IsNullOrWhiteSpace(kNode.InternalIp) && string.Equals(c.IpAddress, kNode.InternalIp, StringComparison.OrdinalIgnoreCase)));
 
+                var k8sIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(kNode.InternalIp)) k8sIps.Add(kNode.InternalIp);
+                if (!string.IsNullOrWhiteSpace(matchedHost?.IpAddress)) k8sIps.Add(matchedHost.IpAddress);
+
                 if (existingCandidate != null)
                 {
                     // Merge Kubernetes metadata into existing candidate
@@ -411,12 +431,17 @@ public class DiscoveryService : IDiscoveryService
                     var mergedRoles = new HashSet<string>(existingCandidate.Roles ?? new List<string>());
                     foreach (var r in kNode.Roles) mergedRoles.Add($"k8s-{r}");
 
+                    var mergedIps = new HashSet<string>(existingCandidate.AllIpAddresses ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                    foreach (var kIp in k8sIps) mergedIps.Add(kIp);
+
                     candidates[index] = existingCandidate with
                     {
                         K8sClusterId = clusterId,
                         K8sNodeName = kNode.Name,
                         Roles = mergedRoles.ToList(),
-                        IpAddress = existingCandidate.IpAddress ?? kNode.InternalIp
+                        IpAddress = existingCandidate.IpAddress ?? kNode.InternalIp,
+                        AllIpAddresses = mergedIps.ToList(),
+                        AgentInstalled = existingCandidate.AgentInstalled || (matchedHost?.Agent?.Installed ?? false)
                     };
                 }
                 else
@@ -437,8 +462,10 @@ public class DiscoveryService : IDiscoveryService
                         K8sNodeName: kNode.Name,
                         Roles: roles,
                         IsManaged: matchedHost != null,
+                        AgentInstalled: matchedHost?.Agent?.Installed ?? false,
                         ExistingHostId: matchedHost?.Id,
-                        ExistingHostname: matchedHost?.Hostname
+                        ExistingHostname: matchedHost?.Hostname,
+                        AllIpAddresses: k8sIps.ToList()
                     ));
                 }
             }
@@ -506,6 +533,10 @@ public class DiscoveryService : IDiscoveryService
                         ? $"{dev.Model.ToLowerInvariant().Replace(' ', '-')}-{cleanMac[..Math.Min(4, cleanMac.Length)]}"
                         : $"unifi-{cleanMac[..Math.Min(6, cleanMac.Length)]}");
 
+                var unifiDevIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(dev.Ip)) unifiDevIps.Add(dev.Ip);
+                if (!string.IsNullOrWhiteSpace(matchedHost?.IpAddress)) unifiDevIps.Add(matchedHost.IpAddress);
+
                 candidates.Add(new DiscoveredCandidateDto(
                     Id: $"unifi:dev:{config.Id}:{cleanMac}",
                     Source: "UniFi",
@@ -523,8 +554,10 @@ public class DiscoveryService : IDiscoveryService
                     UnifiSwitchPort: null,
                     Roles: roles,
                     IsManaged: matchedHost != null,
+                    AgentInstalled: matchedHost?.Agent?.Installed ?? false,
                     ExistingHostId: matchedHost?.Id,
-                    ExistingHostname: matchedHost?.Hostname
+                    ExistingHostname: matchedHost?.Hostname,
+                    AllIpAddresses: unifiDevIps.ToList()
                 ));
             }
         }
@@ -548,9 +581,28 @@ public class DiscoveryService : IDiscoveryService
                     string.Equals(h.IpAddress, clientLease.Ip, StringComparison.OrdinalIgnoreCase) ||
                     (h.NetworkPort != null && string.Equals(h.NetworkPort.SwitchMac, clientLease.Mac, StringComparison.OrdinalIgnoreCase)));
 
-                if (candidates.Any(c => c.IpAddress == clientLease.Ip)) continue;
+                var existingIndex = candidates.FindIndex(c =>
+                    (!string.IsNullOrWhiteSpace(clientLease.Ip) && (string.Equals(c.IpAddress, clientLease.Ip, StringComparison.OrdinalIgnoreCase) || (c.AllIpAddresses != null && c.AllIpAddresses.Contains(clientLease.Ip, StringComparer.OrdinalIgnoreCase))))
+                    || (!string.IsNullOrWhiteSpace(clientLease.Hostname) && string.Equals(c.Name, clientLease.Hostname, StringComparison.OrdinalIgnoreCase)));
+
+                if (existingIndex >= 0)
+                {
+                    var existing = candidates[existingIndex];
+                    var ips = new HashSet<string>(existing.AllIpAddresses ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                    if (!string.IsNullOrWhiteSpace(clientLease.Ip)) ips.Add(clientLease.Ip);
+                    candidates[existingIndex] = existing with
+                    {
+                        AllIpAddresses = ips.ToList(),
+                        AgentInstalled = existing.AgentInstalled || (matchedHost?.Agent?.Installed ?? false)
+                    };
+                    continue;
+                }
 
                 var cleanMac = clientLease.Mac.Replace(":", "").Replace("-", "").ToLowerInvariant();
+                var clientIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(clientLease.Ip)) clientIps.Add(clientLease.Ip);
+                if (!string.IsNullOrWhiteSpace(matchedHost?.IpAddress)) clientIps.Add(matchedHost.IpAddress);
+
                 candidates.Add(new DiscoveredCandidateDto(
                     Id: $"unifi:{config.Id}:{cleanMac}",
                     Source: "UniFi",
@@ -568,8 +620,10 @@ public class DiscoveryService : IDiscoveryService
                     UnifiSwitchPort: null,
                     Roles: new List<string> { "network-client" },
                     IsManaged: matchedHost != null,
+                    AgentInstalled: matchedHost?.Agent?.Installed ?? false,
                     ExistingHostId: matchedHost?.Id,
-                    ExistingHostname: matchedHost?.Hostname
+                    ExistingHostname: matchedHost?.Hostname,
+                    AllIpAddresses: clientIps.ToList()
                 ));
             }
         }
@@ -675,6 +729,10 @@ public class DiscoveryService : IDiscoveryService
 
             if (!candidates.Any(c => c.Id == $"opnsense:host:{config.Id}" || (!string.IsNullOrWhiteSpace(opnsenseIp) && c.IpAddress == opnsenseIp)))
             {
+                var firewallIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(opnsenseIp)) firewallIps.Add(opnsenseIp);
+                if (!string.IsNullOrWhiteSpace(matchedHost?.IpAddress)) firewallIps.Add(matchedHost.IpAddress);
+
                 candidates.Add(new DiscoveredCandidateDto(
                     Id: $"opnsense:host:{config.Id}",
                     Source: "OPNsense",
@@ -692,8 +750,10 @@ public class DiscoveryService : IDiscoveryService
                     UnifiSwitchPort: null,
                     Roles: roles,
                     IsManaged: matchedHost != null,
+                    AgentInstalled: matchedHost?.Agent?.Installed ?? false,
                     ExistingHostId: matchedHost?.Id,
-                    ExistingHostname: matchedHost?.Hostname
+                    ExistingHostname: matchedHost?.Hostname,
+                    AllIpAddresses: firewallIps.ToList()
                 ));
             }
         }
@@ -718,12 +778,31 @@ public class DiscoveryService : IDiscoveryService
                     (h.NetworkPort != null && !string.IsNullOrWhiteSpace(lease.Mac) &&
                      string.Equals(h.NetworkPort.SwitchMac, lease.Mac, StringComparison.OrdinalIgnoreCase)));
 
-                if (candidates.Any(c => c.IpAddress == lease.Ip)) continue;
+                var existingIndex = candidates.FindIndex(c =>
+                    (!string.IsNullOrWhiteSpace(lease.Ip) && (string.Equals(c.IpAddress, lease.Ip, StringComparison.OrdinalIgnoreCase) || (c.AllIpAddresses != null && c.AllIpAddresses.Contains(lease.Ip, StringComparer.OrdinalIgnoreCase))))
+                    || (!string.IsNullOrWhiteSpace(lease.Hostname) && string.Equals(c.Name, lease.Hostname, StringComparison.OrdinalIgnoreCase)));
+
+                if (existingIndex >= 0)
+                {
+                    var existing = candidates[existingIndex];
+                    var ips = new HashSet<string>(existing.AllIpAddresses ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                    if (!string.IsNullOrWhiteSpace(lease.Ip)) ips.Add(lease.Ip);
+                    candidates[existingIndex] = existing with
+                    {
+                        AllIpAddresses = ips.ToList(),
+                        AgentInstalled = existing.AgentInstalled || (matchedHost?.Agent?.Installed ?? false)
+                    };
+                    continue;
+                }
 
                 var cleanMac = (lease.Mac ?? string.Empty).Replace(":", "").Replace("-", "").ToLowerInvariant();
                 var candidateName = !string.IsNullOrWhiteSpace(lease.Hostname)
                     ? lease.Hostname
                     : (!string.IsNullOrWhiteSpace(cleanMac) ? $"dhcp-{cleanMac[..Math.Min(6, cleanMac.Length)]}" : $"host-{lease.Ip.Replace('.', '-')}");
+
+                var leaseIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(lease.Ip)) leaseIps.Add(lease.Ip);
+                if (!string.IsNullOrWhiteSpace(matchedHost?.IpAddress)) leaseIps.Add(matchedHost.IpAddress);
 
                 candidates.Add(new DiscoveredCandidateDto(
                     Id: $"opnsense:{config.Id}:{cleanMac}",
@@ -742,8 +821,10 @@ public class DiscoveryService : IDiscoveryService
                     UnifiSwitchPort: null,
                     Roles: new List<string> { "dhcp-lease" },
                     IsManaged: matchedHost != null,
+                    AgentInstalled: matchedHost?.Agent?.Installed ?? false,
                     ExistingHostId: matchedHost?.Id,
-                    ExistingHostname: matchedHost?.Hostname
+                    ExistingHostname: matchedHost?.Hostname,
+                    AllIpAddresses: leaseIps.ToList()
                 ));
             }
         }
@@ -820,6 +901,36 @@ public class DiscoveryService : IDiscoveryService
 
         if (conflict)
         {
+            var existing = await _db.Hosts.FirstOrDefaultAsync(h =>
+                h.Hostname.ToLower() == hostname.ToLower() || h.IpAddress.ToLower() == cleanIp.ToLower(), ct);
+            if (existing != null)
+            {
+                if (!string.IsNullOrWhiteSpace(cleanIp) && existing.IpAddress != cleanIp)
+                {
+                    existing.IpAddress = cleanIp;
+                }
+                if (!string.IsNullOrWhiteSpace(friendlyName) && string.IsNullOrWhiteSpace(existing.FriendlyName))
+                {
+                    existing.FriendlyName = friendlyName;
+                }
+                if (request.ProxmoxVmid.HasValue && request.ProxmoxVmid.Value > 0 && !string.IsNullOrWhiteSpace(request.ProxmoxNode))
+                {
+                    existing.Proxmox ??= new Storage.Entities.ProxmoxTarget();
+                    existing.Proxmox.Node = request.ProxmoxNode;
+                    existing.Proxmox.Vmid = request.ProxmoxVmid.Value;
+                    existing.Proxmox.InstanceId = request.ProxmoxInstanceId;
+                }
+                if (!string.IsNullOrWhiteSpace(request.K8sNodeName))
+                {
+                    existing.Kubernetes ??= new Storage.Entities.KubernetesTarget();
+                    existing.Kubernetes.NodeName = request.K8sNodeName;
+                    existing.Kubernetes.ClusterId = request.K8sClusterId;
+                }
+                await _db.SaveChangesAsync(ct);
+                _logger.LogInformation("Import resolved conflict by updating existing host '{Hostname}' ({HostId}) with IP {IpAddress}", existing.Hostname, existing.Id, cleanIp);
+                return new ImportCandidateResponse(true, existing.Id, existing.Hostname, null);
+            }
+
             var firstError = errors?.Values.FirstOrDefault()?.FirstOrDefault() ?? "A host with this hostname or IP already exists.";
             return new ImportCandidateResponse(false, null, null, firstError);
         }

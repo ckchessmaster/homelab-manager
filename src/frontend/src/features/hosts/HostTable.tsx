@@ -1160,6 +1160,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             setAdoptHost(null)
           }}
           host={adoptHost}
+          detectedIps={adoptHost?.detectedIps ?? undefined}
         />
       )}
 

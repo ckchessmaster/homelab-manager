@@ -14,11 +14,13 @@ import {
   GitFork,
   Wifi,
   Shield,
+  AlertCircle,
 } from 'lucide-react'
 import { useDiscoveryScan } from './useDiscovery'
 import { useSyncHostCorrelations } from '../hosts/useHosts'
 import { ImportCandidateModal } from './ImportCandidateModal'
 import { MassAdoptModal } from './MassAdoptModal'
+import { AdoptNodeModal } from '../hosts/AdoptNodeModal'
 import { Button } from '../../components/ui/button'
 import { MetricStrip } from '../../components/ui/metric-strip'
 import { useIsMobile } from '../../hooks/useMediaQuery'
@@ -48,6 +50,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
   const [managementFilter, setManagementFilter] = useState<'all' | 'unmanaged' | 'managed'>('all')
   const [selectedCandidate, setSelectedCandidate] = useState<DiscoveredCandidate | null>(null)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [adoptCandidate, setAdoptCandidate] = useState<DiscoveredCandidate | null>(null)
+  const [isAdoptModalOpen, setIsAdoptModalOpen] = useState(false)
   const [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set())
   const [isMassAdoptModalOpen, setIsMassAdoptModalOpen] = useState(false)
   const [successNotice, setSuccessNotice] = useState<{ message: string; hostId?: string } | null>(null)
@@ -89,15 +93,15 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
 
       const matchesManagement =
         managementFilter === 'all' ||
-        (managementFilter === 'unmanaged' && !c.isManaged) ||
-        (managementFilter === 'managed' && c.isManaged)
+        (managementFilter === 'unmanaged' && (!c.isManaged || !c.agentInstalled)) ||
+        (managementFilter === 'managed' && c.isManaged && Boolean(c.agentInstalled))
 
       return matchesSearch && matchesSource && matchesManagement
     })
   }, [candidates, searchTerm, sourceFilter, managementFilter])
 
   const unmanagedInView = useMemo(
-    () => filteredCandidates.filter((c) => !c.isManaged),
+    () => filteredCandidates.filter((c) => !c.isManaged || !c.agentInstalled),
     [filteredCandidates]
   )
 
@@ -130,6 +134,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
   const handleImport = (candidate: DiscoveredCandidate) => {
     setSelectedCandidate(candidate)
     setIsImportModalOpen(true)
+  }
+
+  const handleAdopt = (candidate: DiscoveredCandidate) => {
+    setAdoptCandidate(candidate)
+    setIsAdoptModalOpen(true)
   }
 
   return (
@@ -304,8 +313,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
             className="h-9 bg-zinc-950/80 border border-zinc-800 rounded-lg px-3 text-xs text-zinc-300 focus:outline-none focus:border-sky-500/80 cursor-pointer"
           >
             <option value="all">All Items</option>
-            <option value="unmanaged">Unmanaged Only</option>
-            <option value="managed">Already Managed</option>
+            <option value="unmanaged">Unmanaged / Pending Agent</option>
+            <option value="managed">Managed & Online</option>
           </select>
         </TableToolbarGroup>
       </TableToolbar>
@@ -337,7 +346,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    {!candidate.isManaged ? (
+                    {!candidate.isManaged || !candidate.agentInstalled ? (
                       <input
                         type="checkbox"
                         checked={isCandidateSelected}
@@ -355,17 +364,31 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                       </span>
                     </div>
                   </div>
-                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                    candidate.status === 'running' || candidate.status === 'Ready' || candidate.status === 'online' || candidate.status === 'active'
-                      ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/50'
-                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                  }`}>
-                    {candidate.status}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {candidate.isManaged && !candidate.agentInstalled && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-amber-950/40 text-amber-400 border-amber-800/50">
+                        Pending Agent
+                      </span>
+                    )}
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      candidate.status === 'running' || candidate.status === 'Ready' || candidate.status === 'online' || candidate.status === 'active'
+                        ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/50'
+                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                    }`}>
+                      {candidate.status}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-2 text-xs pt-1 border-t border-zinc-800/60 flex-wrap">
-                  <span className="font-mono text-zinc-300">{candidate.ipAddress || '—'}</span>
+                  <div className="flex flex-col">
+                    <span className="font-mono text-zinc-300">{candidate.ipAddress || '—'}</span>
+                    {candidate.allIpAddresses && candidate.allIpAddresses.length > 1 && (
+                      <span className="text-[10px] text-sky-400/90 font-mono">
+                        +{candidate.allIpAddresses.length - 1} more detected
+                      </span>
+                    )}
+                  </div>
                   <div>
                     {!candidate.isManaged ? (
                       <Button
@@ -377,6 +400,27 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                         <Plus className="h-3.5 w-3.5" />
                         Import
                       </Button>
+                    ) : !candidate.agentInstalled ? (
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleAdopt(candidate)}
+                          className="gap-1 text-xs py-1 px-2.5 min-h-[36px] bg-sky-600 hover:bg-sky-500 text-white font-medium"
+                        >
+                          <Shield className="h-3.5 w-3.5" />
+                          Adopt
+                        </Button>
+                        {candidate.existingHostId && onSelectHost && (
+                          <button
+                            type="button"
+                            onClick={() => onSelectHost(candidate.existingHostId!)}
+                            className="text-xs text-zinc-400 hover:text-zinc-200 font-medium px-2 py-1 min-h-[36px]"
+                          >
+                            View
+                          </button>
+                        )}
+                      </div>
                     ) : candidate.existingHostId && onSelectHost ? (
                       <button
                         type="button"
@@ -447,7 +491,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
               filteredCandidates.map((candidate) => (
                 <TableRow key={candidate.id} className="border-zinc-800/60 hover:bg-zinc-800/30">
                   <TableCell className="w-10 text-center">
-                    {!candidate.isManaged ? (
+                    {!candidate.isManaged || !candidate.agentInstalled ? (
                       <input
                         type="checkbox"
                         checked={selectedCandidateKeys.has(candidate.id || candidate.name)}
@@ -541,7 +585,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
 
                   <TableCell>
                     {candidate.ipAddress ? (
-                      <span className="font-mono text-xs text-zinc-300">{candidate.ipAddress}</span>
+                      <div className="flex flex-col">
+                        <span className="font-mono text-xs text-zinc-300">{candidate.ipAddress}</span>
+                        {candidate.allIpAddresses && candidate.allIpAddresses.length > 1 && (
+                          <span
+                            className="text-[10px] text-sky-400/90 font-mono cursor-default"
+                            title={candidate.allIpAddresses.join(', ')}
+                          >
+                            +{candidate.allIpAddresses.length - 1} more detected
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-[11px] text-amber-400/90 italic">Guest IP not reported</span>
                     )}
@@ -577,31 +631,29 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                   </TableCell>
 
                   <TableCell>
-                    {candidate.isManaged ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-md">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Managed
-                      </span>
-                    ) : (
+                    {!candidate.isManaged ? (
                       <span className="inline-flex items-center gap-1 text-[11px] text-sky-400 bg-sky-950/40 border border-sky-800/40 px-2 py-0.5 rounded-md">
                         <Compass className="h-3 w-3" />
                         New Target
+                      </span>
+                    ) : !candidate.agentInstalled ? (
+                      <span
+                        className="inline-flex items-center gap-1 text-[11px] text-amber-400 bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded-md"
+                        title="Host record exists in inventory, but background compute node agent is not yet deployed"
+                      >
+                        <AlertCircle className="h-3 w-3" />
+                        Pending Agent
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-md">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Managed
                       </span>
                     )}
                   </TableCell>
 
                   <TableCell className="text-right">
-                    {candidate.isManaged ? (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-1 text-zinc-300 hover:text-zinc-100 text-xs py-1 px-2"
-                        onClick={() => candidate.existingHostId && onSelectHost?.(candidate.existingHostId)}
-                      >
-                        <span>View</span>
-                        <ArrowRight className="h-3 w-3" />
-                      </Button>
-                    ) : (
+                    {!candidate.isManaged ? (
                       <Button
                         variant="primary"
                         size="sm"
@@ -610,6 +662,39 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
                       >
                         <Plus className="h-3 w-3" />
                         <span>Import</span>
+                      </Button>
+                    ) : !candidate.agentInstalled ? (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleAdopt(candidate)}
+                          className="gap-1 bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs py-1 px-2.5"
+                        >
+                          <Shield className="h-3 w-3" />
+                          <span>Adopt Agent</span>
+                        </Button>
+                        {candidate.existingHostId && onSelectHost && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="gap-1 text-zinc-400 hover:text-zinc-100 text-xs py-1 px-2"
+                            onClick={() => onSelectHost(candidate.existingHostId!)}
+                          >
+                            <span>View</span>
+                            <ArrowRight className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="gap-1 text-zinc-300 hover:text-zinc-100 text-xs py-1 px-2"
+                        onClick={() => candidate.existingHostId && onSelectHost?.(candidate.existingHostId)}
+                      >
+                        <span>View</span>
+                        <ArrowRight className="h-3 w-3" />
                       </Button>
                     )}
                   </TableCell>
@@ -655,6 +740,40 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({ onSelectHost }) =>
           refetch()
         }}
       />
+
+      {/* Adopt Node Modal */}
+      {isAdoptModalOpen && (
+        <AdoptNodeModal
+          key={adoptCandidate?.id ?? 'discovery-adopt'}
+          isOpen={isAdoptModalOpen}
+          onClose={() => {
+            setIsAdoptModalOpen(false)
+            setAdoptCandidate(null)
+            refetch()
+          }}
+          host={
+            adoptCandidate?.existingHostId
+              ? ({
+                  id: adoptCandidate.existingHostId,
+                  hostname: adoptCandidate.name,
+                  friendlyName: adoptCandidate.name,
+                  ipAddress: adoptCandidate.ipAddress || adoptCandidate.allIpAddresses?.[0] || '',
+                  osFamily: adoptCandidate.osFamily || 'linux_debian',
+                  targetType: adoptCandidate.targetType || 'baremetal',
+                  agent: {
+                    installed: Boolean(adoptCandidate.agentInstalled),
+                    pendingReboot: false,
+                    upgradablePackagesCount: 0,
+                  },
+                  createdAt: '',
+                  updatedAt: '',
+                  detectedIps: adoptCandidate.allIpAddresses,
+                } as any)
+              : null
+          }
+          detectedIps={adoptCandidate?.allIpAddresses}
+        />
+      )}
     </div>
   )
 }

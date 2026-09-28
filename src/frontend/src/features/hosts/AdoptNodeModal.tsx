@@ -10,22 +10,44 @@ interface AdoptNodeModalProps {
   isOpen: boolean
   onClose: () => void
   host?: Host | null
+  detectedIps?: string[]
 }
 
 export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
   isOpen,
   onClose,
   host: initialHost,
+  detectedIps,
 }) => {
   const [createdHost, setCreatedHost] = useState<Host | null>(null)
   const effectiveHost = initialHost || createdHost
+
+  const availableIps = React.useMemo(() => {
+    const set = new Set<string>()
+    if (detectedIps) {
+      detectedIps.forEach((ip) => {
+        if (ip && ip.trim()) set.add(ip.trim())
+      })
+    }
+    if (effectiveHost?.detectedIps) {
+      effectiveHost.detectedIps.forEach((ip) => {
+        if (ip && ip.trim()) set.add(ip.trim())
+      })
+    }
+    if (effectiveHost?.ipAddress && effectiveHost.ipAddress.trim()) {
+      set.add(effectiveHost.ipAddress.trim())
+    }
+    return Array.from(set)
+  }, [detectedIps, effectiveHost])
 
   const initialPlatform = effectiveHost?.osFamily?.toLowerCase().includes('windows') ? 'windows' : 'linux'
   const [platform, setPlatform] = useState<'linux' | 'windows'>(initialPlatform)
   const [winMethod, setWinMethod] = useState<'powershell' | 'ssh'>('powershell')
 
   // SSH Form fields
-  const [targetHost, setTargetHost] = useState(effectiveHost?.ipAddress || '')
+  const [targetHost, setTargetHost] = useState(() => {
+    return effectiveHost?.ipAddress || detectedIps?.[0] || ''
+  })
   const [hostname, setHostname] = useState(effectiveHost?.hostname || effectiveHost?.friendlyName || '')
   const [port, setPort] = useState(22)
   const [username, setUsername] = useState(platform === 'windows' ? 'Administrator' : 'root')
@@ -88,13 +110,15 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
 
   useEffect(() => {
     if (initialHost) {
-      setTargetHost(initialHost.ipAddress || '')
+      setTargetHost(initialHost.ipAddress || detectedIps?.[0] || '')
       setHostname(initialHost.hostname || initialHost.friendlyName || '')
       const isWin = initialHost.osFamily?.toLowerCase().includes('windows')
       setPlatform(isWin ? 'windows' : 'linux')
       setUsername(isWin ? 'Administrator' : 'root')
+    } else if (detectedIps && detectedIps.length > 0) {
+      setTargetHost(detectedIps[0])
     }
-  }, [initialHost])
+  }, [initialHost, detectedIps])
 
   useEffect(() => {
     if (platform === 'windows') {
@@ -320,7 +344,34 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-zinc-300 mb-1">IP Address *</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-medium text-zinc-300">IP Address *</label>
+                            {availableIps.length > 1 && (
+                              <span className="text-[11px] text-sky-400 font-medium">
+                                {availableIps.length} detected IPs
+                              </span>
+                            )}
+                          </div>
+                          {availableIps.length > 1 && (
+                            <div className="mb-1.5">
+                              <select
+                                value={availableIps.includes(targetHost) ? targetHost : 'custom'}
+                                onChange={(e) => {
+                                  if (e.target.value !== 'custom') {
+                                    setTargetHost(e.target.value)
+                                  }
+                                }}
+                                className="w-full px-2 py-1 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
+                              >
+                                {availableIps.map((ip) => (
+                                  <option key={ip} value={ip}>
+                                    {ip} (Detected)
+                                  </option>
+                                ))}
+                                <option value="custom">Custom / Manual IP</option>
+                              </select>
+                            </div>
+                          )}
                           <input
                             type="text"
                             required
@@ -449,9 +500,36 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                   )}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                        Target Host (IP or Domain) <span className="text-rose-400">*</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-medium text-zinc-300">
+                          Target Host (IP or Domain) <span className="text-rose-400">*</span>
+                        </label>
+                        {availableIps.length > 1 && (
+                          <span className="text-[11px] text-sky-400 font-medium">
+                            {availableIps.length} detected IPs
+                          </span>
+                        )}
+                      </div>
+                      {availableIps.length > 1 && (
+                        <div className="mb-2">
+                          <select
+                            value={availableIps.includes(targetHost) ? targetHost : 'custom'}
+                            onChange={(e) => {
+                              if (e.target.value !== 'custom') {
+                                setTargetHost(e.target.value)
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
+                          >
+                            {availableIps.map((ip) => (
+                              <option key={ip} value={ip}>
+                                {ip} {ip === effectiveHost?.ipAddress ? '(Primary IP)' : '(Alternate Interface)'}
+                              </option>
+                            ))}
+                            <option value="custom">Custom / Manual IP Override...</option>
+                          </select>
+                        </div>
+                      )}
                       <input
                         type="text"
                         required
@@ -513,14 +591,41 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
               )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                    Target Host (IP or Domain) <span className="text-rose-400">*</span>
-                    {effectiveHost && (
-                      <span className="text-[11px] text-sky-400 font-normal ml-2">
-                        (Pre-filled from inventory)
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-zinc-300">
+                      Target Host (IP or Domain) <span className="text-rose-400">*</span>
+                      {effectiveHost && (
+                        <span className="text-[11px] text-sky-400 font-normal ml-2">
+                          (Pre-filled from inventory)
+                        </span>
+                      )}
+                    </label>
+                    {availableIps.length > 1 && (
+                      <span className="text-[11px] text-sky-400 font-medium">
+                        {availableIps.length} detected IPs
                       </span>
                     )}
-                  </label>
+                  </div>
+                  {availableIps.length > 1 && (
+                    <div className="mb-2">
+                      <select
+                        value={availableIps.includes(targetHost) ? targetHost : 'custom'}
+                        onChange={(e) => {
+                          if (e.target.value !== 'custom') {
+                            setTargetHost(e.target.value)
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
+                      >
+                        {availableIps.map((ip) => (
+                          <option key={ip} value={ip}>
+                            {ip} {ip === effectiveHost?.ipAddress ? '(Primary IP)' : '(Alternate Interface)'}
+                          </option>
+                        ))}
+                        <option value="custom">Custom / Manual IP Override...</option>
+                      </select>
+                    </div>
+                  )}
                   <input
                     type="text"
                     required
@@ -529,6 +634,11 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                     placeholder="192.168.1.150"
                     className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                   />
+                  {availableIps.length > 1 && (
+                    <span className="block text-[11px] text-zinc-500 mt-1">
+                      Pick a detected interface above or enter any reachable IP manually (e.g. VLAN 20).
+                    </span>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-zinc-300 mb-1.5">

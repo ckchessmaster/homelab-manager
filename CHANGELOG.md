@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.4.2
+
+### Added
+* **Multi-Homed Host & Multi-IP Adoption Support**:
+  * Enhanced Proxmox QEMU/LXC adapter with `TryGetGuestIpAddressesAsync` to collect all active IPv4 interfaces from guest agents.
+  * Added `AllIpAddresses` and `AgentInstalled` properties to discovery candidates and `DetectedIps` to `HostResponse`.
+  * Added multi-IP dropdown selector with manual IP override in both `<AdoptNodeModal />` and `<ImportCandidateModal />`, allowing one-click selection of alternative network interfaces (e.g. VLAN 20, 30, 70, 80) or custom IP input for multi-homed nodes like `nvr-host`.
+  * Multi-IP interface badge in DiscoveryView desktop and mobile candidate cards showing additional detected IP count.
+
+### Fixed
+* **Discovery Candidate State & Adoption Blockers**:
+  * Resolved false-positive "Managed" status on discovered candidates where a host record existed in inventory but the background agent daemon was not yet deployed (`!candidate.agentInstalled`).
+  * Added distinct "Pending Agent" badge and direct "Adopt Agent" workflow button in `<DiscoveryView />` (desktop and mobile) for unadopted nodes.
+  * Re-enabled checkbox selection on "Pending Agent" candidates to allow batch adoption.
+  * Fixed conflict rejection in `ImportCandidateAsync` so importing existing unmanaged or partially-adopted candidates safely updates their network IP and adapter metadata without failing.
+* **Hub URL Resolution & Local Dev Preservation**:
+  * Fixed `ResolveHubUrl` and `ResolveLanAddress` in `NodeAdoptionService` to prevent stripping the `/agent-hub` path from WebSocket connection strings.
+  * Added automatic LAN address resolution for remote target nodes when the UI requested WebSocket URL points to `localhost` or `127.0.0.1`, while strictly preserving loopback routing for local development and automated testing environments.
+
+---
+
 ## v1.4.1
 
 ### Fixed

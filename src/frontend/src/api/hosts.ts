@@ -77,6 +77,7 @@ export interface Host {
   hypervisor?: HypervisorHostSummary | null
   hostedVms?: HostedVmSummary[] | null
   vitals?: HostVitals | null
+  detectedIps?: string[] | null
 }
 
 export interface CreateHostPayload {

@@ -15,8 +15,10 @@ export interface DiscoveredCandidate {
   unifiSwitchPort?: number | null
   roles?: string[] | null
   isManaged: boolean
+  agentInstalled?: boolean
   existingHostId?: string | null
   existingHostname?: string | null
+  allIpAddresses?: string[]
 }
 
 export interface DiscoveryScanResult {
