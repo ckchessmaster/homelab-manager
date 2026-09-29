@@ -1059,23 +1059,25 @@ public class KubernetesAdapter : IKubernetesAdapter
                     var crds = await _client.ApiextensionsV1.ListCustomResourceDefinitionAsync(cancellationToken: ct);
                     if (crds?.Items != null)
                     {
-                        var namespacedCrds = crds.Items
-                            .Where(c => c.Spec?.Scope == "Namespaced")
-                            .Take(25)
+                        var targetCrds = crds.Items
+                            .Where(c => c.Spec != null && !string.IsNullOrWhiteSpace(c.Spec.Group) && !string.IsNullOrWhiteSpace(c.Spec.Names?.Plural))
+                            .Where(c => string.IsNullOrWhiteSpace(namespaceName) || c.Spec.Scope == "Namespaced")
+                            .Take(250)
                             .ToList();
 
-                        await Parallel.ForEachAsync(namespacedCrds, new ParallelOptions { MaxDegreeOfParallelism = 5, CancellationToken = ct }, async (crd, token) =>
+                        await Parallel.ForEachAsync(targetCrds, new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = ct }, async (crd, token) =>
                         {
                             try
                             {
-                                var group = crd.Spec?.Group;
-                                var version = crd.Spec?.Versions?.FirstOrDefault(v => v.Served)?.Name ?? "v1";
-                                var plural = crd.Spec?.Names?.Plural;
-                                var kindName = crd.Spec?.Names?.Kind ?? "CustomResource";
+                                var group = crd.Spec.Group;
+                                var version = crd.Spec.Versions?.FirstOrDefault(v => v.Served)?.Name 
+                                    ?? crd.Spec.Versions?.FirstOrDefault()?.Name 
+                                    ?? "v1";
+                                var plural = crd.Spec.Names.Plural;
+                                var kindName = crd.Spec.Names.Kind ?? "CustomResource";
+                                var isClusterScoped = crd.Spec.Scope == "Cluster";
 
-                                if (string.IsNullOrWhiteSpace(group) || string.IsNullOrWhiteSpace(plural)) return;
-
-                                object? customObj = string.IsNullOrWhiteSpace(namespaceName)
+                                object? customObj = string.IsNullOrWhiteSpace(namespaceName) || isClusterScoped
                                     ? await _client.CustomObjects.ListClusterCustomObjectAsync(group, version, plural, cancellationToken: token)
                                     : await _client.CustomObjects.ListNamespacedCustomObjectAsync(group, version, namespaceName, plural, cancellationToken: token);
 
@@ -1085,7 +1087,7 @@ public class KubernetesAdapter : IKubernetesAdapter
                                     {
                                         var meta = item.TryGetProperty("metadata", out var m) ? m : default;
                                         var objName = meta.TryGetProperty("name", out var n) ? n.GetString() : null;
-                                        var objNs = meta.TryGetProperty("namespace", out var ns) ? ns.GetString() : (namespaceName ?? "default");
+                                        var objNs = meta.TryGetProperty("namespace", out var ns) ? ns.GetString() : (isClusterScoped ? "cluster-wide" : (namespaceName ?? "default"));
 
                                         if (string.IsNullOrWhiteSpace(objName)) continue;
 
@@ -1720,12 +1722,16 @@ public class KubernetesAdapter : IKubernetesAdapter
                             var crds = await _client.ApiextensionsV1.ListCustomResourceDefinitionAsync(cancellationToken: ct);
                             var crd = crds?.Items.FirstOrDefault(c =>
                                 c.Spec?.Names?.Kind?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
-                                c.Spec?.Names?.Singular?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true);
+                                c.Spec?.Names?.Singular?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
+                                c.Spec?.Names?.Plural?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
+                                c.Spec?.Names?.ShortNames?.Any(s => s.Equals(kind, StringComparison.OrdinalIgnoreCase)) == true);
 
                             if (crd?.Spec != null)
                             {
                                 var group = crd.Spec.Group;
-                                var version = crd.Spec.Versions.FirstOrDefault(v => v.Served)?.Name ?? "v1";
+                                var version = crd.Spec.Versions?.FirstOrDefault(v => v.Served)?.Name 
+                                    ?? crd.Spec.Versions?.FirstOrDefault()?.Name 
+                                    ?? "v1";
                                 var plural = crd.Spec.Names.Plural;
 
                                 object? customObj = crd.Spec.Scope == "Cluster"
@@ -1735,6 +1741,22 @@ public class KubernetesAdapter : IKubernetesAdapter
                                 if (customObj != null)
                                 {
                                     var json = System.Text.Json.JsonSerializer.Serialize(customObj);
+                                    var jsonNode = System.Text.Json.Nodes.JsonNode.Parse(json);
+                                    if (jsonNode is System.Text.Json.Nodes.JsonObject rootObj)
+                                    {
+                                        if (rootObj["metadata"] is System.Text.Json.Nodes.JsonObject meta)
+                                        {
+                                            meta.Remove("managedFields");
+                                            meta.Remove("resourceVersion");
+                                            meta.Remove("uid");
+                                            meta.Remove("generation");
+                                            meta.Remove("creationTimestamp");
+                                        }
+                                        rootObj.Remove("status");
+                                        var cleanJson = rootObj.ToJsonString();
+                                        var yamlObj = k8s.KubernetesYaml.Deserialize<object>(cleanJson);
+                                        return k8s.KubernetesYaml.Serialize(yamlObj);
+                                    }
                                     using var jsonDoc = System.Text.Json.JsonDocument.Parse(json);
                                     return k8s.KubernetesYaml.Serialize(jsonDoc.RootElement);
                                 }
@@ -1778,6 +1800,24 @@ public class KubernetesAdapter : IKubernetesAdapter
                 var kindMatch = Regex.Match(doc, @"(?<![a-zA-Z0-9\-_./])kind:\s*['""]?([A-Za-z0-9]+)['""]?");
                 if (!kindMatch.Success) continue;
                 var kind = kindMatch.Groups[1].Value;
+
+                var apiVersionMatch = Regex.Match(doc, @"(?<![a-zA-Z0-9\-_./])apiVersion:\s*['""]?([A-Za-z0-9\-./]+)['""]?");
+                string? specifiedGroup = null;
+                string? specifiedVersion = null;
+                if (apiVersionMatch.Success)
+                {
+                    var rawApi = apiVersionMatch.Groups[1].Value.Trim();
+                    var slashIdx = rawApi.IndexOf('/');
+                    if (slashIdx > 0)
+                    {
+                        specifiedGroup = rawApi[..slashIdx];
+                        specifiedVersion = rawApi[(slashIdx + 1)..];
+                    }
+                    else
+                    {
+                        specifiedVersion = rawApi;
+                    }
+                }
 
                 var metadataMatch = Regex.Match(doc, @"metadata:\s*\n((?:[ \t]+[^\n]*\n?)+)", RegexOptions.Multiline);
                 var fallbackName = "unknown";
@@ -2053,19 +2093,31 @@ public class KubernetesAdapter : IKubernetesAdapter
                         {
                             var crds = await _client.ApiextensionsV1.ListCustomResourceDefinitionAsync(cancellationToken: ct);
                             var crd = crds?.Items.FirstOrDefault(c =>
+                                (specifiedGroup == null || c.Spec?.Group?.Equals(specifiedGroup, StringComparison.OrdinalIgnoreCase) == true) &&
+                                (c.Spec?.Names?.Kind?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
+                                 c.Spec?.Names?.Singular?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
+                                 c.Spec?.Names?.Plural?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true))
+                                ?? crds?.Items.FirstOrDefault(c =>
                                 c.Spec?.Names?.Kind?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
-                                c.Spec?.Names?.Singular?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true);
+                                c.Spec?.Names?.Singular?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
+                                c.Spec?.Names?.Plural?.Equals(kind, StringComparison.OrdinalIgnoreCase) == true ||
+                                c.Spec?.Names?.ShortNames?.Any(s => s.Equals(kind, StringComparison.OrdinalIgnoreCase)) == true);
 
                             if (crd?.Spec != null)
                             {
                                 var group = crd.Spec.Group;
-                                var version = crd.Spec.Versions.FirstOrDefault(v => v.Served)?.Name ?? "v1";
+                                var version = (specifiedVersion != null && crd.Spec.Versions?.Any(v => v.Name.Equals(specifiedVersion, StringComparison.OrdinalIgnoreCase)) == true)
+                                    ? specifiedVersion
+                                    : (crd.Spec.Versions?.FirstOrDefault(v => v.Served)?.Name ?? crd.Spec.Versions?.FirstOrDefault()?.Name ?? "v1");
                                 var plural = crd.Spec.Names.Plural;
+                                var isClusterScoped = crd.Spec.Scope == "Cluster";
 
                                 var parsedObj = k8s.KubernetesYaml.Deserialize<object>(doc);
+                                var rawJson = System.Text.Json.JsonSerializer.Serialize(parsedObj);
+
                                 try
                                 {
-                                    if (crd.Spec.Scope == "Cluster")
+                                    if (isClusterScoped)
                                     {
                                         await _client.CustomObjects.CreateClusterCustomObjectAsync(parsedObj, group, version, plural, dryRun: dryRunOption, cancellationToken: ct);
                                     }
@@ -2077,20 +2129,79 @@ public class KubernetesAdapter : IKubernetesAdapter
                                 }
                                 catch (HttpOperationException ex) when (ex.Response.StatusCode == HttpStatusCode.Conflict)
                                 {
-                                    if (crd.Spec.Scope == "Cluster")
+                                    // Fetch existing resource to extract its resourceVersion
+                                    string? existingRv = null;
+                                    try
                                     {
-                                        await _client.CustomObjects.ReplaceClusterCustomObjectAsync(parsedObj, group, version, plural, fallbackName, dryRun: dryRunOption, cancellationToken: ct);
+                                        var existingObj = isClusterScoped
+                                            ? await _client.CustomObjects.GetClusterCustomObjectAsync(group, version, plural, fallbackName, cancellationToken: ct)
+                                            : await _client.CustomObjects.GetNamespacedCustomObjectAsync(group, version, fallbackNs, plural, fallbackName, cancellationToken: ct);
+
+                                        if (existingObj is JsonElement existingJson &&
+                                            existingJson.TryGetProperty("metadata", out var metaProp) &&
+                                            metaProp.TryGetProperty("resourceVersion", out var rvProp))
+                                        {
+                                            existingRv = rvProp.GetString();
+                                        }
                                     }
-                                    else
+                                    catch (Exception getEx)
                                     {
-                                        await _client.CustomObjects.ReplaceNamespacedCustomObjectAsync(parsedObj, group, version, fallbackNs, plural, fallbackName, dryRun: dryRunOption, cancellationToken: ct);
+                                        _logger.LogDebug(getEx, "Could not fetch existing {Kind}/{Name} on conflict", kind, fallbackName);
                                     }
-                                    affected.Add($"{kind}/{fallbackName} (updated)");
+
+                                    bool updated = false;
+                                    try
+                                    {
+                                        var patch = new V1Patch(rawJson, V1Patch.PatchType.MergePatch);
+                                        if (isClusterScoped)
+                                        {
+                                            await _client.CustomObjects.PatchClusterCustomObjectAsync(patch, group, version, plural, fallbackName, dryRun: dryRunOption, cancellationToken: ct);
+                                        }
+                                        else
+                                        {
+                                            await _client.CustomObjects.PatchNamespacedCustomObjectAsync(patch, group, version, fallbackNs, plural, fallbackName, dryRun: dryRunOption, cancellationToken: ct);
+                                        }
+                                        affected.Add($"{kind}/{fallbackName} (patched)");
+                                        updated = true;
+                                    }
+                                    catch (Exception patchEx)
+                                    {
+                                        _logger.LogDebug(patchEx, "MergePatch failed for {Kind}/{Name}, attempting Replace", kind, fallbackName);
+                                    }
+
+                                    if (!updated)
+                                    {
+                                        var jsonNode = System.Text.Json.Nodes.JsonNode.Parse(rawJson);
+                                        if (jsonNode is System.Text.Json.Nodes.JsonObject rootObj)
+                                        {
+                                            var metaNode = rootObj["metadata"] as System.Text.Json.Nodes.JsonObject;
+                                            if (metaNode == null)
+                                            {
+                                                metaNode = new System.Text.Json.Nodes.JsonObject();
+                                                rootObj["metadata"] = metaNode;
+                                            }
+                                            if (!string.IsNullOrWhiteSpace(existingRv))
+                                            {
+                                                metaNode["resourceVersion"] = existingRv;
+                                            }
+                                            rootObj.Remove("status");
+
+                                            if (isClusterScoped)
+                                            {
+                                                await _client.CustomObjects.ReplaceClusterCustomObjectAsync(rootObj, group, version, plural, fallbackName, dryRun: dryRunOption, cancellationToken: ct);
+                                            }
+                                            else
+                                            {
+                                                await _client.CustomObjects.ReplaceNamespacedCustomObjectAsync(rootObj, group, version, fallbackNs, plural, fallbackName, dryRun: dryRunOption, cancellationToken: ct);
+                                            }
+                                            affected.Add($"{kind}/{fallbackName} (updated)");
+                                        }
+                                    }
                                 }
                             }
                             else
                             {
-                                warnings.Add($"Resource kind '{kind}' skipped during manifest apply.");
+                                warnings.Add($"Resource kind '{kind}' (apiVersion: '{apiVersionMatch.Groups[1].Value}') skipped: CRD not found on cluster.");
                             }
                         }
                         catch (Exception crdEx)
@@ -2101,11 +2212,20 @@ public class KubernetesAdapter : IKubernetesAdapter
                 }
             }
 
+            var isSuccess = affected.Count > 0 || (docs.Count == 0 && warnings.Count == 0);
             var msg = dryRun
-                ? $"Dry run completed successfully for {affected.Count} resource(s)."
-                : $"Applied successfully: {affected.Count} resource(s) processed.";
+                ? (affected.Count > 0
+                    ? $"Dry run completed successfully for {affected.Count} resource(s)."
+                    : (warnings.Count > 0
+                        ? $"Dry run failed: 0 resource(s) matched. {string.Join("; ", warnings)}"
+                        : "Dry run completed: no resources found in manifest."))
+                : (affected.Count > 0
+                    ? $"Applied successfully: {affected.Count} resource(s) processed."
+                    : (warnings.Count > 0
+                        ? $"Apply failed: 0 resource(s) processed. {string.Join("; ", warnings)}"
+                        : "No resources found in manifest."));
 
-            return new K8sApplyResultDto(true, msg, affected, warnings);
+            return new K8sApplyResultDto(isSuccess, msg, affected, warnings);
         }
         catch (Exception ex)
         {

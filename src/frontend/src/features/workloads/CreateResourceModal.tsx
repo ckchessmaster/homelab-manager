@@ -90,6 +90,7 @@ export function CreateResourceModal({
     success: boolean
     message: string
     affected: string[]
+    warnings?: string[]
   } | null>(null)
   const [isDryRunning, setIsDryRunning] = useState(false)
 
@@ -356,6 +357,7 @@ spec:
         success: res.success,
         message: res.message,
         affected: res.affectedResources || [],
+        warnings: res.warnings || [],
       })
     } catch (err: unknown) {
       setDryRunResult({
@@ -382,11 +384,12 @@ spec:
         yamlContent: rawYaml,
         dryRun: false,
       })
-      if (res.success) {
+      if (res.success && (res.affectedResources?.length ?? 0) > 0) {
         onSuccess?.('Manifest', 'YAML')
         onClose()
       } else {
-        setErrorMessage(res.message || 'Failed to apply manifest.')
+        const warnText = res.warnings?.length ? ` (${res.warnings.join('; ')})` : ''
+        setErrorMessage((res.message || 'Failed to apply manifest.') + warnText)
       }
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : 'Error applying manifest.')
@@ -936,6 +939,13 @@ spec:
                       <p className="text-[11px] opacity-80">
                         Affected resources: {dryRunResult.affected.join(', ')}
                       </p>
+                    )}
+                    {dryRunResult.warnings && dryRunResult.warnings.length > 0 && (
+                      <div className="mt-1 space-y-0.5 text-[11px] text-amber-300">
+                        {dryRunResult.warnings.map((w, idx) => (
+                          <p key={idx}>⚠️ {w}</p>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>

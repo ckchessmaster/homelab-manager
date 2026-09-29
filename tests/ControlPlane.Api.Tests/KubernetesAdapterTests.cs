@@ -634,6 +634,280 @@ status:
     }
 
     [Fact]
+    public async Task ApplyManifestYamlAsync_AppliesCustomResource_WhenConflict()
+    {
+        var crdListJson = @"{
+            ""items"": [
+                {
+                    ""spec"": {
+                        ""group"": ""redis.redis.opstreelabs.in"",
+                        ""names"": {
+                            ""kind"": ""Redis"",
+                            ""plural"": ""redis"",
+                            ""singular"": ""redis""
+                        },
+                        ""scope"": ""Namespaced"",
+                        ""versions"": [
+                            { ""name"": ""v1beta2"", ""served"": true, ""storage"": true }
+                        ]
+                    }
+                }
+            ]
+        }";
+
+        var requests = new List<HttpRequestMessage>();
+        var (client, reqs) = CreateMockK8s(req =>
+        {
+            requests.Add(req);
+            if (req.RequestUri!.AbsolutePath.Contains("/customresourcedefinitions"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(crdListJson, Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.Method == HttpMethod.Post && req.RequestUri.AbsolutePath.Contains("/redis"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Conflict)
+                {
+                    Content = new StringContent("{\"kind\":\"Status\",\"status\":\"Failure\",\"message\":\"already exists\",\"code\":409}", Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.Method == HttpMethod.Get && req.RequestUri.AbsolutePath.Contains("/redis/my-redis"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"metadata\":{\"name\":\"my-redis\",\"resourceVersion\":\"999\"}}", Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.Method == HttpMethod.Put && req.RequestUri.AbsolutePath.Contains("/redis/my-redis"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"metadata\":{\"name\":\"my-redis\"}}", Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.Method.Method == "PATCH" && req.RequestUri.AbsolutePath.Contains("/redis/my-redis"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"metadata\":{\"name\":\"my-redis\"}}", Encoding.UTF8, "application/json")
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var yaml = @"
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: Redis
+metadata:
+  name: my-redis
+  namespace: test-ns
+spec:
+  kubernetesConfig:
+    image: redis:7.0.12
+";
+
+        var result = await adapter.ApplyManifestYamlAsync(yaml, false, CancellationToken.None);
+        Assert.True(result.Success, result.Message + " Warnings: " + string.Join(", ", result.Warnings ?? new()));
+        Assert.Contains(result.AffectedResources, r => r.Contains("Redis/my-redis"));
+    }
+
+    [Fact]
+    public async Task ApplyManifestYamlAsync_FailsWithCleanMessage_WhenNoResourcesMatched()
+    {
+        var crdListJson = "{\"items\": []}";
+        var (client, _) = CreateMockK8s(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/customresourcedefinitions"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(crdListJson, Encoding.UTF8, "application/json")
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var yaml = @"
+apiVersion: nonexisting.io/v1
+kind: UnknownKind
+metadata:
+  name: test-resource
+";
+
+        var result = await adapter.ApplyManifestYamlAsync(yaml, false, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Empty(result.AffectedResources);
+        Assert.Contains("Apply failed: 0 resource(s) processed", result.Message);
+        Assert.Contains(result.Warnings!, w => w.Contains("UnknownKind"));
+    }
+
+    [Fact]
+    public async Task ApplyManifestYamlAsync_AppliesCustomResource_FallbackToReplaceWithInjectedRv_WhenPatchFails()
+    {
+        var crdListJson = @"{
+            ""items"": [
+                {
+                    ""spec"": {
+                        ""group"": ""redis.redis.opstreelabs.in"",
+                        ""names"": {
+                            ""kind"": ""Redis"",
+                            ""plural"": ""redis"",
+                            ""singular"": ""redis""
+                        },
+                        ""scope"": ""Namespaced"",
+                        ""versions"": [
+                            { ""name"": ""v1beta2"", ""served"": true, ""storage"": true }
+                        ]
+                    }
+                }
+            ]
+        }";
+
+        string? putBody = null;
+        var (client, reqs) = CreateMockK8s(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/customresourcedefinitions"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(crdListJson, Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.Method == HttpMethod.Post && req.RequestUri.AbsolutePath.Contains("/redis"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Conflict)
+                {
+                    Content = new StringContent("{\"kind\":\"Status\",\"status\":\"Failure\",\"message\":\"already exists\",\"code\":409}", Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.Method == HttpMethod.Get && req.RequestUri.AbsolutePath.Contains("/redis/my-redis"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"metadata\":{\"name\":\"my-redis\",\"resourceVersion\":\"rv-555\"}}", Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.Method.Method == "PATCH")
+            {
+                // Simulate patch rejected, forcing fallback to Replace
+                return new HttpResponseMessage(HttpStatusCode.UnsupportedMediaType);
+            }
+            if (req.Method == HttpMethod.Put && req.RequestUri.AbsolutePath.Contains("/redis/my-redis"))
+            {
+                putBody = req.Content?.ReadAsStringAsync().Result;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"metadata\":{\"name\":\"my-redis\"}}", Encoding.UTF8, "application/json")
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var yaml = @"
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: Redis
+metadata:
+  name: my-redis
+  namespace: test-ns
+spec:
+  kubernetesConfig:
+    image: redis:7.0.12
+status:
+  phase: Running
+";
+
+        var result = await adapter.ApplyManifestYamlAsync(yaml, false, CancellationToken.None);
+        Assert.True(result.Success, result.Message);
+        Assert.Contains("Redis/my-redis (updated)", result.AffectedResources);
+        Assert.NotNull(putBody);
+        Assert.Contains("\"resourceVersion\":\"rv-555\"", putBody);
+        Assert.DoesNotContain("\"status\"", putBody);
+    }
+
+    [Fact]
+    public async Task GetResourceYamlAsync_CleansCustomResourceMetadataAndStatus()
+    {
+        var crdListJson = @"{
+            ""items"": [
+                {
+                    ""spec"": {
+                        ""group"": ""redis.redis.opstreelabs.in"",
+                        ""names"": {
+                            ""kind"": ""Redis"",
+                            ""plural"": ""redis"",
+                            ""singular"": ""redis""
+                        },
+                        ""scope"": ""Namespaced"",
+                        ""versions"": [
+                            { ""name"": ""v1beta2"", ""served"": true }
+                        ]
+                    }
+                }
+            ]
+        }";
+
+        var (client, _) = CreateMockK8s(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/customresourcedefinitions"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(crdListJson, Encoding.UTF8, "application/json")
+                };
+            }
+            if (req.RequestUri.AbsolutePath.Contains("/redis/my-redis"))
+            {
+                var json = @"{
+                    ""apiVersion"": ""redis.redis.opstreelabs.in/v1beta2"",
+                    ""kind"": ""Redis"",
+                    ""metadata"": {
+                        ""name"": ""my-redis"",
+                        ""namespace"": ""test-ns"",
+                        ""resourceVersion"": ""999"",
+                        ""uid"": ""uuid-123"",
+                        ""generation"": 1,
+                        ""creationTimestamp"": ""2026-01-01T00:00:00Z"",
+                        ""managedFields"": [{""manager"": ""test""}]
+                    },
+                    ""spec"": {
+                        ""kubernetesConfig"": { ""image"": ""redis:7.0.12"" }
+                    },
+                    ""status"": {
+                        ""phase"": ""Running""
+                    }
+                }";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var logger = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Debug)).CreateLogger<KubernetesAdapter>();
+        var adapter = new KubernetesAdapter(client, logger);
+        var yaml = await adapter.GetResourceYamlAsync("test-ns", "my-redis", "Redis", CancellationToken.None);
+
+        Assert.NotNull(yaml);
+        Assert.Contains("name: my-redis", yaml);
+        Assert.DoesNotContain("managedFields", yaml);
+        Assert.DoesNotContain("resourceVersion", yaml);
+        Assert.DoesNotContain("creationTimestamp", yaml);
+        Assert.DoesNotContain("status:", yaml);
+    }
+
+    [Fact]
     public async Task GetServiceAsync_ReturnsServiceDetailWithCleanRawYaml()
     {
         var (client, requests) = CreateMockK8s(req =>

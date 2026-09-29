@@ -2,8 +2,8 @@ apiVersion: v2
 name: controlplane
 description: Resilient Homelab Orchestration & Management Plane (ControlPlane)
 type: application
-version: 1.5.1
-appVersion: "1.5.1"
+version: 1.5.2
+appVersion: "1.5.2"
 keywords:
   - homelab
   - orchestration

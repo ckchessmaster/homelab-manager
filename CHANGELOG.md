@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.5.2
+
+### Fixed
+* **Kubernetes Custom Resource Definitions (CRDs) Discovery & Management**:
+  * **Alphabetical CRD Truncation**: Resolved an issue in `KubernetesAdapter.ListAllWorkloadsAsync` where custom resources beyond the first 25 alphabetically sorted CRDs (such as Opstree Redis operator CRDs under `redis.redis.opstreelabs.in`) were omitted from "All Resources" and CRD view filtering. Expanded CRD discovery up to 250 CRDs with 10 concurrent query workers and support for both namespaced and cluster-scoped custom objects.
+  * **Custom Resource Conflict Resolution & Dry-Run**: Fixed `KubernetesAdapter.ApplyManifestYamlAsync` to handle existing custom resources during create/apply. Instead of failing with unhandled 409/422 conflicts when updating without a specified resourceVersion, it resolves existing objects, injects current `metadata.resourceVersion`, strips stale `status`, and applies updates via native `MergePatch` with fallback to `Replace`.
+  * **Accurate API Version & Group Resolution**: Enhanced manifest parsing in `ApplyManifestYamlAsync` to parse `apiVersion` (group/version) directly from YAML documents, correctly routing custom resource manifests to their intended API versions (e.g. `v1beta2` vs `v1beta1`).
+  * **Clean YAML Export for CRDs**: Enhanced `KubernetesAdapter.GetResourceYamlAsync` to strip cluttering server-managed metadata (`managedFields`, `resourceVersion`, `uid`, `generation`, `creationTimestamp`, and `status`) when exporting custom resource YAML, allowing seamless in-place editing.
+  * **Dry-Run & Error Transparency**: Updated both the backend result messaging and `<CreateResourceModal />` to surface detailed server warnings and ensure dry-run/apply results report failure when 0 resources are processed, preventing false success indications.
+
+---
+
 ## v1.5.1
 
 ### Fixed
