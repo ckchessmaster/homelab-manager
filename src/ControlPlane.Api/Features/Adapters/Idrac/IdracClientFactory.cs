@@ -64,11 +64,18 @@ public class IdracClientFactory : IIdracClientFactory
         var all = await ResolveAllAsync(ct);
         foreach (var (config, password) in all)
         {
-            if (string.Equals(config.ConnectionMode, "agent", StringComparison.OrdinalIgnoreCase) && config.HostId == hostId)
+            if (config.HostId == hostId)
             {
                 return (_client, config, password);
             }
         }
+
+        // If only 1 instance is configured, fall back to it
+        if (all.Count == 1)
+        {
+            return (_client, all[0].Config, all[0].Password);
+        }
+
         return null;
     }
 

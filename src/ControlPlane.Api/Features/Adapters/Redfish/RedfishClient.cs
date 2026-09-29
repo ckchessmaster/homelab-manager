@@ -277,6 +277,14 @@ public class RedfishClient : IRedfishClient
                                                     slot = $"Bay {ordVal.GetInt32()}";
                                                 }
                                             }
+                                            if (slot == null && !string.IsNullOrWhiteSpace(dId))
+                                            {
+                                                var bayMatch = System.Text.RegularExpressions.Regex.Match(dId, @"Bay\.(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                                                if (bayMatch.Success)
+                                                {
+                                                    slot = $"Bay {bayMatch.Groups[1].Value}";
+                                                }
+                                            }
 
                                             drives.Add(new RedfishDriveInfo(dId, dName, dModel, dSerial, dMedia, dCap, dStatus, lifeLeft, failurePred, slot));
                                         }

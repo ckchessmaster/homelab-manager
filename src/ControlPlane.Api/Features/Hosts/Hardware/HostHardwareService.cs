@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Adapters.Idrac;
 using ControlPlane.Api.Features.Adapters.Proxmox;
 using ControlPlane.Api.Features.Agents;
@@ -260,11 +261,26 @@ public class HostHardwareService : IHostHardwareService
         }
 
         // 2. Query Out-of-band BMC (iDRAC / Redfish)
-        if (_idracFactory != null && host.Idrac != null)
+        if (_idracFactory != null)
         {
             try
             {
                 var resolved = await _idracFactory.ResolveByHostIdAsync(hostId, ct);
+                if (resolved == null && host.Idrac != null && !string.IsNullOrWhiteSpace(host.Idrac.IpAddress))
+                {
+                    var byIp = await _idracFactory.ResolveByHostBmcIpAsync(host.Idrac.IpAddress, ct);
+                    if (byIp != null)
+                    {
+                        var cfg = new IdracStoredInstance
+                        {
+                            BmcUrl = byIp.Value.BmcUrl,
+                            Username = byIp.Value.Username,
+                            AllowSelfSignedCert = byIp.Value.AllowSelfSigned
+                        };
+                        resolved = (byIp.Value.Client, cfg, byIp.Value.Password);
+                    }
+                }
+
                 if (resolved != null)
                 {
                     var bmcHw = await resolved.Value.Client.GetInstanceHardwareInventoryAsync(resolved.Value.Config, resolved.Value.Password, ct);
@@ -275,9 +291,34 @@ public class HostHardwareService : IHostHardwareService
                         powerSupplies.AddRange(bmcHw.PowerSupplies);
                         memoryModules.AddRange(bmcHw.MemoryModules);
 
-                        // If no disks were retrieved via agent, use BMC disks
-                        if (disks.Count == 0 && bmcHw.Disks.Count > 0)
+                        var hasOnlyVirtualDisks = disks.Count > 0 && disks.All(d =>
+                            d.Model?.Contains("PERC", StringComparison.OrdinalIgnoreCase) == true ||
+                            d.Model?.Contains("MegaRAID", StringComparison.OrdinalIgnoreCase) == true ||
+                            d.Model?.Contains("RAID", StringComparison.OrdinalIgnoreCase) == true ||
+                            string.IsNullOrWhiteSpace(d.SerialNumber));
+
+                        if (bmcHw.Disks.Count > 0 && (disks.Count == 0 || hasOnlyVirtualDisks))
                         {
+                            // If agent reported the RAID controller as disks, ensure the controller is preserved in Controllers
+                            foreach (var vd in disks)
+                            {
+                                if (vd.Model?.Contains("PERC", StringComparison.OrdinalIgnoreCase) == true ||
+                                    vd.Model?.Contains("MegaRAID", StringComparison.OrdinalIgnoreCase) == true)
+                                {
+                                    if (!controllers.Any(c => c.Name.Contains(vd.Model, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        controllers.Add(new StorageControllerDto(
+                                            Id: vd.DeviceId,
+                                            Name: vd.Model,
+                                            Status: HardwareHealthStatus.Ok,
+                                            Model: vd.Model
+                                        ));
+                                    }
+                                }
+                            }
+
+                            // Replace virtual controller LUNs with true BMC physical disks!
+                            disks.Clear();
                             disks.AddRange(bmcHw.Disks);
                         }
                         else if (bmcHw.Disks.Count > 0)

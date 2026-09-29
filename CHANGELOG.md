@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.5.1
+
+### Fixed
+* **Out-of-Band BMC (iDRAC / Redfish) Inventory & Host Resolution**:
+  * **Network BMC Resolver**: Resolved an issue in `IdracClientFactory.ResolveByHostIdAsync` where instances configured with `ConnectionMode = "network"` were ignored when linking hosts to their out-of-band Redfish controllers. Added fallback to single configured BMC instances.
+  * **Physical vs Virtual Disk Priority**: Updated `HostHardwareService.GetHardwareInventoryAsync` so that when an out-of-band BMC (iDRAC / Redfish) returns true physical disks, it detects virtual RAID controller LUNs (such as PERC H710P/H730P or MegaRAID volumes), surfaces the controller in **Storage Controllers & RAID**, and populates **Physical Disks & SMART** with the underlying physical drives.
+  * **Dell Bay Slot Parsing**: Enhanced `RedfishClient.GetDrivesAsync` with regex fallback to extract drive bay numbers (`Bay 0`, `Bay 1`) from Dell drive identifiers (`Disk.Bay.N:...`).
+  * **Live BMC Vitals on Host Overview**: Updated `HostService.GetHostVitalsAsync` to resolve network BMC telemetry (live power draw, ambient/CPU thermals) without requiring redundant manual IP linkage.
+
+---
+
 ## v1.5.0
 
 ### Added

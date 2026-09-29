@@ -507,11 +507,26 @@ public class HostService
         string? health = "OK";
         string source = agentMetrics != null ? "agent" : "system";
 
-        if (_idracFactory != null && host.Idrac != null)
+        if (_idracFactory != null)
         {
             try
             {
                 var resolved = await _idracFactory.ResolveByHostIdAsync(host.Id, cancellationToken);
+                if (resolved == null && host.Idrac != null && !string.IsNullOrWhiteSpace(host.Idrac.IpAddress))
+                {
+                    var byIp = await _idracFactory.ResolveByHostBmcIpAsync(host.Idrac.IpAddress, cancellationToken);
+                    if (byIp != null)
+                    {
+                        var cfg = new Features.Adapters.Config.IdracStoredInstance
+                        {
+                            BmcUrl = byIp.Value.BmcUrl,
+                            Username = byIp.Value.Username,
+                            AllowSelfSignedCert = byIp.Value.AllowSelfSigned
+                        };
+                        resolved = (byIp.Value.Client, cfg, byIp.Value.Password);
+                    }
+                }
+
                 if (resolved != null)
                 {
                     var bmcVitals = await resolved.Value.Client.GetInstanceVitalsAsync(resolved.Value.Config, resolved.Value.Password, cancellationToken);
