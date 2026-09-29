@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Stage 1: Compile Vite & React 19 Assets
-FROM node:22-alpine AS build
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 
 # Install dependencies using lockfile

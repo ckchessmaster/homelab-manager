@@ -169,6 +169,7 @@ jobs:
   build-and-push-containers:
     name: Build & Publish OCI Images (GHCR)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [metadata, test-backend, test-agent, test-frontend, test-helm]
     if: needs.metadata.outputs.should_publish == 'true'
     strategy:
