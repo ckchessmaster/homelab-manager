@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"controlplane-agent/internal/config"
+	"controlplane-agent/internal/hardware"
 	"controlplane-agent/internal/lifecycle"
 	"controlplane-agent/internal/metrics"
 	"controlplane-agent/internal/packages"
@@ -26,19 +27,20 @@ import (
 )
 
 var (
-	Version = "1.4.2"
+	Version = "1.5.0"
 )
 
 type HeartbeatPayload struct {
-	Type           string                   `json:"type"`
-	NodeID         string                   `json:"nodeId"`
-	Hostname       string                   `json:"hostname"`
-	AgentVersion   string                   `json:"agentVersion"`
-	KernelVersion  string                   `json:"kernelVersion"`
-	PendingReboot  bool                     `json:"pendingReboot"`
-	PackageManager string                   `json:"packageManager"`
-	Metrics        *metrics.Metrics         `json:"metrics"`
-	PackageSummary *packages.PackageSummary `json:"packageSummary"`
+	Type           string                    `json:"type"`
+	NodeID         string                    `json:"nodeId"`
+	Hostname       string                    `json:"hostname"`
+	AgentVersion   string                    `json:"agentVersion"`
+	KernelVersion  string                    `json:"kernelVersion"`
+	PendingReboot  bool                      `json:"pendingReboot"`
+	PackageManager string                    `json:"packageManager"`
+	Metrics        *metrics.Metrics          `json:"metrics"`
+	PackageSummary *packages.PackageSummary  `json:"packageSummary"`
+	Hardware       *hardware.HardwareSummary `json:"hardware,omitempty"`
 }
 
 type CommandEnvelope struct {
@@ -80,6 +82,23 @@ func (pc *PackageCache) Set(s *packages.PackageSummary) {
 	pc.summary = s
 }
 
+type HardwareCache struct {
+	mu      sync.RWMutex
+	summary *hardware.HardwareSummary
+}
+
+func (hc *HardwareCache) Get() *hardware.HardwareSummary {
+	hc.mu.RLock()
+	defer hc.mu.RUnlock()
+	return hc.summary
+}
+
+func (hc *HardwareCache) Set(s *hardware.HardwareSummary) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	hc.summary = s
+}
+
 const (
 	writeWait  = 5 * time.Second
 	pongWait   = 35 * time.Second
@@ -94,18 +113,19 @@ func main() {
 
 	collector := metrics.NewCollector()
 	pkgInspector := packages.DetectInspector()
+	hwInspector := hardware.DetectInspector()
 	procRunner := runner.NewProcessRunner()
 
 	// Test mode: output vitals to stdout and exit
 	if cfg.TestMetrics {
-		runTestMetrics(collector, pkgInspector)
+		runTestMetrics(collector, pkgInspector, hwInspector)
 		return
 	}
 
 	if service.IsWindowsService() {
 		log.Printf("[Agent %s] Running as Windows Service", Version)
 		err := service.RunAsService("ControlPlaneAgent", func(ctx context.Context) error {
-			return runAgentLoop(ctx, cfg, collector, pkgInspector, procRunner)
+			return runAgentLoop(ctx, cfg, collector, pkgInspector, hwInspector, procRunner)
 		})
 		if err != nil {
 			log.Fatalf("Windows service error: %v", err)
@@ -125,7 +145,7 @@ func main() {
 		cancel()
 	}()
 
-	if err := runAgentLoop(ctx, cfg, collector, pkgInspector, procRunner); err != nil {
+	if err := runAgentLoop(ctx, cfg, collector, pkgInspector, hwInspector, procRunner); err != nil {
 		log.Printf("[Agent] Agent loop terminated: %v", err)
 	}
 }
@@ -135,12 +155,14 @@ func runAgentLoop(
 	cfg *config.Config,
 	collector metrics.Collector,
 	pkgInspector packages.Inspector,
+	hwInspector hardware.Inspector,
 	procRunner *runner.ProcessRunner,
 ) error {
 	hostname, _ := os.Hostname()
 	log.Printf("[Agent %s] Starting ControlPlane agent for node '%s' (ID: %s)", Version, hostname, cfg.NodeID)
 
 	pkgCache := &PackageCache{}
+	hwCache := &HardwareCache{}
 
 	// Initial package inspection in background immediately
 	go func() {
@@ -148,6 +170,15 @@ func runAgentLoop(
 		defer inspectCancel()
 		if s, err := pkgInspector.Inspect(inspectCtx); err == nil {
 			pkgCache.Set(s)
+		}
+	}()
+
+	// Initial hardware inspection in background immediately
+	go func() {
+		inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer inspectCancel()
+		if s, err := hwInspector.Inspect(inspectCtx); err == nil {
+			hwCache.Set(s)
 		}
 	}()
 
@@ -169,6 +200,24 @@ func runAgentLoop(
 		}
 	}()
 
+	// Periodic hardware inspection every 10 minutes
+	go func() {
+		hwTicker := time.NewTicker(10 * time.Minute)
+		defer hwTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hwTicker.C:
+				inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 45*time.Second)
+				if s, err := hwInspector.Inspect(inspectCtx); err == nil {
+					hwCache.Set(s)
+				}
+				inspectCancel()
+			}
+		}
+	}()
+
 	// Outbound persistent connection loop
 	backoff := 1 * time.Second
 	maxBackoff := 15 * time.Second
@@ -182,7 +231,7 @@ func runAgentLoop(
 		}
 
 		sessionStart := time.Now()
-		err := runAgentSession(ctx, cfg, hostname, collector, pkgCache, procRunner, func() {
+		err := runAgentSession(ctx, cfg, hostname, collector, pkgCache, hwCache, hwInspector, procRunner, func() {
 			// Successfully connected & registered
 			backoff = 1 * time.Second
 		})
@@ -223,6 +272,8 @@ func runAgentSession(
 	hostname string,
 	collector metrics.Collector,
 	pkgCache *PackageCache,
+	hwCache *HardwareCache,
+	hwInspector hardware.Inspector,
 	procRunner *runner.ProcessRunner,
 	onConnected func(),
 ) error {
@@ -288,7 +339,7 @@ func runAgentSession(
 	})
 
 	// Send initial heartbeat immediately upon connection
-	sendHeartbeat(cfg, hostname, collector, pkgCache, writeJSON)
+	sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, writeJSON)
 
 	// Periodic heartbeat timer
 	ticker := time.NewTicker(cfg.HeartbeatInterval)
@@ -307,7 +358,7 @@ func runAgentSession(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := sendHeartbeat(cfg, hostname, collector, pkgCache, writeJSON); err != nil {
+				if err := sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, writeJSON); err != nil {
 					log.Printf("[Agent] Heartbeat transmission failed: %v", err)
 					errChan <- err
 					return
@@ -374,6 +425,16 @@ func runAgentSession(
 						_ = lifecycle.PerformSelfUpdate(ctx, envelope.JobID, cfg.NodeID, envelope.DownloadURL, envelope.TargetVersion, cfg.Token, cfg.Insecure, writeJSON)
 					}(updateEnv)
 				}
+			} else if base.Type == "CMD_HARDWARE_SCAN" {
+				go func() {
+					log.Printf("[Agent] Handling on-demand CMD_HARDWARE_SCAN...")
+					inspectCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+					defer cancel()
+					if s, err := hwInspector.Inspect(inspectCtx); err == nil {
+						hwCache.Set(s)
+						_ = sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, writeJSON)
+					}
+				}()
 			} else if base.Type == "EXECUTE_COMMAND" {
 				var cmd CommandEnvelope
 				if err := json.Unmarshal(message, &cmd); err == nil {
@@ -409,10 +470,12 @@ func sendHeartbeat(
 	hostname string,
 	collector metrics.Collector,
 	pkgCache *PackageCache,
+	hwCache *HardwareCache,
 	writeFn func(interface{}) error,
 ) error {
 	m, _ := collector.Collect()
 	pkg := pkgCache.Get()
+	hw := hwCache.Get()
 
 	pkgManager := ""
 	if pkg != nil {
@@ -429,12 +492,13 @@ func sendHeartbeat(
 		PackageManager: pkgManager,
 		Metrics:        m,
 		PackageSummary: pkg,
+		Hardware:       hw,
 	}
 
 	return writeFn(payload)
 }
 
-func runTestMetrics(collector metrics.Collector, pkgInspector packages.Inspector) {
+func runTestMetrics(collector metrics.Collector, pkgInspector packages.Inspector, hwInspector hardware.Inspector) {
 	m, err := collector.Collect()
 	if err != nil {
 		log.Printf("Metrics collection error: %v", err)
@@ -445,11 +509,17 @@ func runTestMetrics(collector metrics.Collector, pkgInspector packages.Inspector
 		log.Printf("Package inspection error: %v", err)
 	}
 
+	hw, err := hwInspector.Inspect(context.Background())
+	if err != nil {
+		log.Printf("Hardware inspection error: %v", err)
+	}
+
 	output := map[string]interface{}{
 		"kernelVersion":  collector.KernelVersion(),
 		"pendingReboot":  collector.IsRebootRequired(),
 		"metrics":        m,
 		"packageSummary": pkg,
+		"hardware":       hw,
 	}
 
 	jsonBytes, _ := json.MarshalIndent(output, "", "  ")

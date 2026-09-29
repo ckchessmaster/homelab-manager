@@ -100,4 +100,26 @@ test.describe('Host Inventory & Management', () => {
     await page.getByRole('button', { name: /Done/i }).click()
     await expect(page.getByText('Mass Adopt Hosts & Install Agent')).not.toBeVisible()
   })
+
+  test('inspects host hardware inventory and triggers telemetry scan', async ({ page }) => {
+    // Click row to open InspectorSheet
+    await page.getByText('k8s-control-01').click()
+
+    // Verify Inspector Sheet opened
+    await expect(page.getByText('Hardware & agent telemetry inspector')).toBeVisible()
+
+    // Click on Hardware & Disks tab
+    await page.getByRole('button', { name: /Hardware & Disks/i }).click()
+
+    // Verify drive model, SMART status, wear-out, and PSUs are displayed
+    await expect(page.getByText('Samsung 980 PRO 1TB')).toBeVisible()
+    await expect(page.getByText('SMART: PASSED')).toBeVisible()
+    await expect(page.getByText(/97.5% remaining life/i)).toBeVisible()
+    await expect(page.getByText('PSU 1')).toBeVisible()
+    await expect(page.getByText('Redundant')).toBeVisible()
+
+    // Click Scan Now
+    await page.getByRole('button', { name: /Scan Now/i }).click()
+    await expect(page.getByText(/Hardware telemetry scan successfully completed/i)).toBeVisible()
+  })
 })

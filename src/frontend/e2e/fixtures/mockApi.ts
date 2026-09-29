@@ -329,6 +329,72 @@ export async function setupMockApi(page: Page, options?: {
     }
   })
 
+  // 8c. GET & POST /api/v1/hosts/:id/hardware
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/hosts\/[a-zA-Z0-9-]+\/hardware(\/scan)?(\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        hostId: '11111111-1111-1111-1111-111111111111',
+        collectedAt: new Date().toISOString(),
+        overallHealth: 'Ok',
+        healthAlerts: [],
+        disks: [
+          {
+            deviceId: '/dev/nvme0n1',
+            name: '/dev/nvme0n1',
+            model: 'Samsung 980 PRO 1TB',
+            serialNumber: 'S5GXNF0R123456',
+            mediaType: 'NVMe',
+            sizeBytes: 1000204886016,
+            status: 'Ok',
+            wearOutPercentage: 97.5,
+            temperatureCelsius: 41,
+            smartHealthStatus: 'PASSED',
+          },
+        ],
+        controllers: [],
+        powerSupplies: [
+          {
+            id: 'psu1',
+            name: 'PSU 1',
+            status: 'Ok',
+            outputWatts: 125,
+            redundancyHealthy: true,
+          },
+        ],
+        memoryModules: [
+          {
+            slotLocation: 'DIMM_A1',
+            sizeBytes: 34359738368,
+            speedMhz: '3200',
+            status: 'Ok',
+            correctableEccErrors: 0,
+            uncorrectableEccErrors: 0,
+          },
+        ],
+        zfsPools: [],
+        source: 'agent',
+      }),
+    })
+  })
+
+  // 8d. GET & PUT /api/v1/system/settings/hardware-thresholds
+  await page.route(/^https?:\/\/[^/]+\/api\/v1\/system\/settings\/hardware-thresholds$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        minSsdWearOutPct: 10.0,
+        criticalSsdWearOutPct: 2.0,
+        maxDiskTemperatureCelsius: 55.0,
+        criticalDiskTemperatureCelsius: 65.0,
+        alertOnPsuRedundancyLost: true,
+        alertOnEccErrors: true,
+      }),
+    })
+  })
+
   // 9. DELETE /api/v1/hosts/:id
   await page.route(/^https?:\/\/[^/]+\/api\/v1\/hosts\/[a-zA-Z0-9-]+$/, async (route) => {
     if (route.request().method() === 'DELETE') {

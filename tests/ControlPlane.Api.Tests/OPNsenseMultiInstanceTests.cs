@@ -299,4 +299,176 @@ public class OPNsenseMultiInstanceTests
         Assert.Equal("00:11:22:33:44:55", leases[0].Mac);
         Assert.Equal("truenas-core", leases[0].Hostname);
     }
+
+    [Fact]
+    public async Task OPNsenseClient_GetInterfacesAsync_HandlesNumericMetadataWithoutThrowing()
+    {
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            Assert.Contains("/api/interfaces/overview/interfacesInfo", req.RequestUri!.ToString());
+
+            // Notice: includes numeric "total": 9 and "status": "ok" which previously threw InvalidOperationException
+            var json = JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["total"] = 9,
+                ["status"] = "ok",
+                ["wan"] = new
+                {
+                    name = "wan",
+                    description = "WAN",
+                    device = "igb0",
+                    status = "up",
+                    media = "1000baseT <full-duplex>",
+                    macaddr = "a0:36:9f:11:22:33",
+                    mtu = 1500,
+                    enabled = true,
+                    ipv4 = new[] { new { ipaddr = "198.51.100.10", netmask = "24" } }
+                },
+                ["opt1"] = new
+                {
+                    name = "opt1",
+                    description = "KUBERNETES",
+                    device = "vlan0.30",
+                    status = "up",
+                    media = "10Gbase-T",
+                    macaddr = "a0:36:9f:11:22:38",
+                    mtu = 1500,
+                    enabled = true,
+                    ipv4 = new[] { new { ipaddr = "10.10.30.1", netmask = "24" } }
+                }
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+            };
+        });
+
+        var factory = new MockHttpClientFactory(new HttpClient(handler));
+        var client = new OPNsenseClient(factory, NullLogger<OPNsenseClient>.Instance);
+
+        var interfaces = await client.GetInterfacesAsync("https://192.168.1.1", "key", "secret");
+
+        Assert.Equal(2, interfaces.Count);
+        Assert.Equal("wan", interfaces[0].Name);
+        Assert.Equal("WAN", interfaces[0].Description);
+        Assert.Equal("igb0", interfaces[0].Device);
+        Assert.Equal("198.51.100.10/24", interfaces[0].IpAddress);
+        Assert.Equal("up", interfaces[0].Status);
+
+        Assert.Equal("opt1", interfaces[1].Name);
+        Assert.Equal("KUBERNETES", interfaces[1].Description);
+        Assert.Equal("vlan0.30", interfaces[1].Device);
+        Assert.Equal("10.10.30.1/24", interfaces[1].IpAddress);
+    }
+
+    [Fact]
+    public async Task OPNsenseClient_CheckFirmwareUpdatesAsync_TriggersCheckAndParsesUpdates()
+    {
+        bool checkCalled = false;
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.ToString().Contains("/api/core/firmware/check"))
+            {
+                checkCalled = true;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"status\":\"ok\"}", System.Text.Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (req.Method == HttpMethod.Get && req.RequestUri!.ToString().Contains("/api/core/firmware/status"))
+            {
+                var json = JsonSerializer.Serialize(new
+                {
+                    product_version = "26.7.4_1-amd64",
+                    status = "updates-available",
+                    status_msg = "3 package updates available.",
+                    status_upgrade_action = "upgrade",
+                    needs_reboot = 0,
+                    last_check = "2026-09-29T14:00:00Z",
+                    new_packages = new[]
+                    {
+                        new { name = "os-haproxy" },
+                        new { name = "os-acme-client" },
+                        new { name = "curl" }
+                    },
+                    all_packages = new[]
+                    {
+                        new { name = "os-haproxy" },
+                        new { name = "os-acme-client" },
+                        new { name = "curl" }
+                    }
+                });
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var factory = new MockHttpClientFactory(new HttpClient(handler));
+        var client = new OPNsenseClient(factory, NullLogger<OPNsenseClient>.Instance);
+
+        var fw = await client.CheckFirmwareUpdatesAsync("https://192.168.1.1", "key", "secret");
+
+        Assert.True(checkCalled);
+        Assert.Equal("26.7.4_1-amd64", fw.Version);
+        Assert.Equal(3, fw.UpdatesAvailable);
+        Assert.False(fw.NeedsReboot);
+        Assert.Contains("os-haproxy", fw.Packages!);
+    }
+
+    [Fact]
+    public async Task OPNsenseClient_GetVitalsAsync_ParsesCpuRamDiskUptime()
+    {
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            var json = JsonSerializer.Serialize(new
+            {
+                loadavg = new[] { 0.17, 0.19, 0.20 },
+                memory = new { total = 6387941376L, used = 1675760640L },
+                disk = new { total = 219043332096L, used = 2576980377L },
+                uptime = 1152000L,
+                temperatures = new Dictionary<string, double> { ["CPU Core 0"] = 38.5 }
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+            };
+        });
+
+        var factory = new MockHttpClientFactory(new HttpClient(handler));
+        var client = new OPNsenseClient(factory, NullLogger<OPNsenseClient>.Instance);
+
+        var vitals = await client.GetVitalsAsync("https://192.168.1.1", "key", "secret");
+
+        Assert.Equal(3, vitals.CpuLoadAverage.Length);
+        Assert.Equal(0.17, vitals.CpuLoadAverage[0]);
+        Assert.True(vitals.MemoryUsagePercent > 20.0);
+        Assert.NotNull(vitals.Temperatures);
+        Assert.Equal(38.5, vitals.Temperatures["CPU Core 0"]);
+    }
+
+    [Fact]
+    public async Task OPNsenseClient_GetHAProxyAndAcme_GracefullyHandlesNotInstalled()
+    {
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var factory = new MockHttpClientFactory(new HttpClient(handler));
+        var client = new OPNsenseClient(factory, NullLogger<OPNsenseClient>.Instance);
+
+        var haproxy = await client.GetHAProxyStatusAsync("https://192.168.1.1", "key", "secret");
+        Assert.False(haproxy.IsInstalled);
+
+        var acme = await client.GetAcmeStatusAsync("https://192.168.1.1", "key", "secret");
+        Assert.False(acme.IsInstalled);
+    }
 }

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
-import { OsBadge, AgentStatusBadge, RebootBadge, UpdatesBadge, TargetTypeBadge } from './HostStatusBadge'
+import { OsBadge, AgentStatusBadge, RebootBadge, UpdatesBadge, TargetTypeBadge, HardwareHealthBadge } from './HostStatusBadge'
 
 describe('HostStatusBadge Primitives', () => {
   it('renders OsBadge for different OS families', () => {
@@ -60,5 +60,21 @@ describe('HostStatusBadge Primitives', () => {
 
     rerender(<UpdatesBadge count={0} />)
     expect(screen.queryByText(/update/i)).not.toBeInTheDocument()
+  })
+
+  it('renders HardwareHealthBadge for Ok, Warning, and Critical', () => {
+    const { rerender } = render(<HardwareHealthBadge status="Ok" />)
+    expect(screen.getByText('Hardware OK')).toBeInTheDocument()
+
+    rerender(<HardwareHealthBadge status="Warning" alerts={['Disk /dev/sda elevated temp: 58°C']} />)
+    expect(screen.getByText(/Hardware Warning/i)).toBeInTheDocument()
+    expect(screen.getByText(/1/i)).toBeInTheDocument()
+
+    rerender(<HardwareHealthBadge status="Critical" alerts={['Disk /dev/sda SMART failed', 'PSU redundancy lost']} />)
+    expect(screen.getByText(/Hardware Critical/i)).toBeInTheDocument()
+    expect(screen.getByText(/2/i)).toBeInTheDocument()
+
+    rerender(<HardwareHealthBadge status={null} />)
+    expect(screen.queryByText(/Hardware/i)).not.toBeInTheDocument()
   })
 })

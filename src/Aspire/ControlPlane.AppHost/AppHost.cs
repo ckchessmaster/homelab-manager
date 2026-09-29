@@ -7,6 +7,15 @@ var masterKey = builder.AddParameter("master-key", secret: true);
 var enableMcpServer = builder.AddParameter("enable-mcp-server", "true");
 var zitadelMasterKey = builder.AddParameter("zitadel-masterkey", "MasterkeyNeedsToHave32Characters", secret: true);
 var zitadelClientId = builder.AddParameter("zitadel-client-id", "389775242525999110");
+var isDemoEnabled = string.Equals(Environment.GetEnvironmentVariable("DEMO_MODE"), "true", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(builder.Configuration["DEMO_MODE"], "true", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(builder.Configuration["demo-mode"], "true", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(builder.Configuration["demoMode"], "true", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(builder.Configuration["demo"], "true", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(builder.Configuration["Demo:Enabled"], "true", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(builder.Configuration["Parameters:demo-mode"], "true", StringComparison.OrdinalIgnoreCase);
+
+builder.AddParameter("demo-mode", isDemoEnabled ? "true" : "false");
 
 var postgres = builder.AddPostgres("postgres")
     .WithDataVolume()
@@ -107,7 +116,7 @@ var api = builder.AddProject<Projects.ControlPlane_Api>("api")
     .WithEnvironment("Zitadel__Authority", zitadel.GetEndpoint("http"))
     .WithEnvironment("Zitadel__Audience", "controlplane")
     .WithEnvironment("Zitadel__ValidAudiences__0", zitadelClientId)
-    .WithEnvironment("Zitadel__RequireHttpsMetadata", "false");
+    .WithEnvironment("DEMO_MODE", isDemoEnabled ? "true" : "false");
 
 if (temporal != null)
 {
@@ -141,6 +150,7 @@ builder.AddViteApp("frontend", "../../frontend")
     .WaitFor(api)
     .WithEnvironment("VITE_ZITADEL_AUTHORITY", zitadel.GetEndpoint("http"))
     .WithEnvironment("VITE_ZITADEL_CLIENT_ID", zitadelClientId)
+    .WithEnvironment("VITE_DEMO_MODE", isDemoEnabled ? "true" : "false")
     .WithExternalHttpEndpoints();
 
 builder.Build().Run();

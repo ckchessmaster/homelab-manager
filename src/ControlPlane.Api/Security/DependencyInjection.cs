@@ -12,7 +12,7 @@ public static class DependencyInjection
         services.Configure<ApiKeyAuthenticationOptions>(options =>
         {
             options.ApiKey = configuration["ControlPlane:ApiKey"];
-            options.BypassAuth = configuration.GetValue<bool>("AUTH_BYPASS", false);
+            options.BypassAuth = configuration.GetValue<bool>("AUTH_BYPASS", false) || configuration.GetValue<bool>("DEMO_MODE", false);
         });
 
         services.Configure<ZitadelJwtOptions>(configuration.GetSection(ZitadelJwtOptions.SectionName));
@@ -34,7 +34,7 @@ public static class DependencyInjection
             options =>
             {
                 options.ApiKey = configuration["ControlPlane:ApiKey"];
-                options.BypassAuth = configuration.GetValue<bool>("AUTH_BYPASS", false);
+                options.BypassAuth = configuration.GetValue<bool>("AUTH_BYPASS", false) || configuration.GetValue<bool>("DEMO_MODE", false);
             })
         .AddJwtBearer(AuthConstants.JwtBearerScheme, options =>
         {

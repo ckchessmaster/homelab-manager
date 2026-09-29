@@ -11,10 +11,15 @@ import {
   rebootHost,
   syncHostCorrelations,
   updateHost,
+  fetchHostHardware,
+  triggerHardwareScan,
+  fetchHardwareThresholds,
+  updateHardwareThresholds,
   type CreateHostPayload,
   type HostFilterParams,
   type ProxmoxProbePayload,
   type UpdateHostPayload,
+  type HardwareThresholds,
 } from '../../api/hosts'
 import { JOBS_QUERY_KEY } from '../orchestration/useJobs'
 
@@ -125,3 +130,42 @@ export function useSyncHostCorrelations() {
     },
   })
 }
+
+export function useHostHardware(id?: string | null, options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: [...HOSTS_QUERY_KEY, id, 'hardware'],
+    queryFn: () => (id ? fetchHostHardware(id) : Promise.reject('No ID provided')),
+    enabled: Boolean(id),
+    refetchInterval: options?.refetchInterval ?? 30000,
+  })
+}
+
+export function useTriggerHardwareScan() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (hostId: string) => triggerHardwareScan(hostId),
+    onSuccess: (_, hostId) => {
+      queryClient.invalidateQueries({ queryKey: [...HOSTS_QUERY_KEY, hostId, 'hardware'] })
+      queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    },
+  })
+}
+
+export function useHardwareThresholds() {
+  return useQuery({
+    queryKey: ['system-settings', 'hardware-thresholds'],
+    queryFn: () => fetchHardwareThresholds(),
+  })
+}
+
+export function useUpdateHardwareThresholds() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (thresholds: HardwareThresholds) => updateHardwareThresholds(thresholds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-settings', 'hardware-thresholds'] })
+      queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    },
+  })
+}
+

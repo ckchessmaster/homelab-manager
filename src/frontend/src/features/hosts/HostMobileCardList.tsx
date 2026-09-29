@@ -7,6 +7,7 @@ import {
   AgentStatusBadge,
   RebootBadge,
   UpdatesBadge,
+  HardwareHealthBadge,
 } from './HostStatusBadge'
 import { HostVitalsBadge } from './HostVitalsBadge'
 import {
@@ -224,6 +225,10 @@ export function HostMobileCardList({
             <div className="flex items-center justify-between gap-2 pt-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <HostVitalsBadge vitals={host.vitals} />
+                <HardwareHealthBadge
+                  status={host.hardwareHealth || host.vitals?.hardwareHealth}
+                  alerts={host.hardwareAlerts || host.vitals?.hardwareAlerts}
+                />
                 {host.agent?.pendingReboot && <RebootBadge pending={true} />}
                 {Boolean(host.agent?.upgradablePackagesCount) && (
                   <UpdatesBadge count={host.agent?.upgradablePackagesCount} />

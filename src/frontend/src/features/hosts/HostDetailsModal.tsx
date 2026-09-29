@@ -13,9 +13,11 @@ import {
   AgentStatusBadge,
   RebootBadge,
   UpdatesBadge,
+  HardwareHealthBadge,
 } from './HostStatusBadge'
 import { HostVitalsBadge } from './HostVitalsBadge'
 import { useHostVitals } from './useHosts'
+import { HardwareInventoryTab } from './HardwareInventoryTab'
 import {
   Server,
   Shield,
@@ -33,6 +35,7 @@ import {
   Radio,
   ArrowRight,
   AlertTriangle,
+  HardDrive,
 } from 'lucide-react'
 import { useState } from 'react'
 import type { Host } from '../../api/hosts'
@@ -72,6 +75,7 @@ export function HostDetailsModal({
   const [fanModalOpen, setFanModalOpen] = useState(false)
   const [isBlinking, setIsBlinking] = useState(false)
   const [rebootConfirmOpen, setRebootConfirmOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'overview' | 'hardware'>('overview')
 
   const bmcPowerMutation = useIdracPowerActionByIp()
   const bmcIdentifyMutation = useIdracIdentifyByIp()
@@ -159,13 +163,51 @@ export function HostDetailsModal({
             </div>
 
             <div className="flex items-center gap-2">
+              <HardwareHealthBadge
+                status={host.hardwareHealth || host.vitals?.hardwareHealth}
+                alerts={host.hardwareAlerts || host.vitals?.hardwareAlerts}
+              />
               <AgentStatusBadge agent={host.agent} />
               <RebootBadge pending={host.agent.pendingReboot} />
               <UpdatesBadge count={host.agent.upgradablePackagesCount} />
             </div>
           </div>
 
-          {/* Identity & Metadata */}
+          {/* Navigation Tab Bar */}
+          <div className="flex items-center gap-1 border-b border-zinc-800 pb-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('overview')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                activeTab === 'overview'
+                  ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
+              }`}
+            >
+              Overview & Topology
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('hardware')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'hardware'
+                  ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-xs'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
+              }`}
+            >
+              <HardDrive className="w-3.5 h-3.5 text-sky-400" />
+              <span>Hardware & Disks</span>
+              {Boolean(host.hardwareAlerts && host.hardwareAlerts.length > 0) && (
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              )}
+            </button>
+          </div>
+
+          {activeTab === 'hardware' ? (
+            <HardwareInventoryTab hostId={host.id} isOnline={host.agent.isOnline} />
+          ) : (
+            <>
+              {/* Identity & Metadata */}
           <div className="grid grid-cols-2 gap-3 p-3 bg-zinc-950/40 border border-zinc-800/60 rounded-xl text-xs">
             <div className="space-y-1">
               <span className="text-[11px] text-zinc-400">Host ID</span>
@@ -402,6 +444,8 @@ export function HostDetailsModal({
                 ))}
               </div>
             </div>
+          )}
+          </>
           )}
 
           {/* Timestamps */}

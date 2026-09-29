@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../../api/client'
 import {
@@ -5,11 +6,14 @@ import {
   AlertTriangle,
   Server,
   Layers,
+  Sparkles,
 } from 'lucide-react'
 import type { NavTab } from './AppSidebar'
 import { useAuthUser } from '../../features/auth/useAuthUser'
 import { ApiKeyHeaderMenu } from '../../features/auth/ApiKeyHeaderMenu'
 import { UserProfileDropdown } from '../../features/auth/UserProfileDropdown'
+import { fetchDemoStatus, type DemoStatusDto } from '../../api/system'
+import { DemoResetModal } from '../../features/demo/DemoResetModal'
 
 interface StorageStatus {
   provider?: string
@@ -32,6 +36,17 @@ export function AppHeader({
   rebootPendingCount = 0,
 }: AppHeaderProps) {
   const { authMode } = useAuthUser()
+  const [demoResetOpen, setDemoResetOpen] = useState(false)
+
+  const { data: demoStatus } = useQuery<DemoStatusDto>({
+    queryKey: ['demoStatus'],
+    queryFn: fetchDemoStatus,
+    staleTime: 60000,
+    retry: false,
+  })
+
+  const isDemoMode = Boolean(demoStatus?.enabled || demoStatus?.isDemoMode)
+
   const { data: storageStatus } = useQuery<StorageStatus>({
     queryKey: ['storageStatus'],
     queryFn: () => apiClient<StorageStatus>('/api/storage/status'),
@@ -87,6 +102,19 @@ export function AppHeader({
       <div className="flex items-center gap-3">
         {/* Vitals Pills */}
         <div className="hidden lg:flex items-center gap-2">
+          {/* Demo Mode Pill */}
+          {isDemoMode && (
+            <button
+              onClick={() => setDemoResetOpen(true)}
+              title="Demo Mode is active. Click to reset fleet data."
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-400 font-medium hover:bg-amber-500/20 transition-colors cursor-pointer"
+            >
+              <Sparkles className="h-3 w-3 text-amber-400 animate-pulse" />
+              <span>Demo Mode</span>
+              <span className="text-[10px] text-amber-400/80 underline ml-0.5">Reset</span>
+            </button>
+          )}
+
           {/* Storage Engine */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300">
             <Database className="h-3 w-3 text-emerald-400" />
@@ -108,6 +136,18 @@ export function AppHeader({
           )}
         </div>
 
+        {/* Mobile Demo Mode Pill */}
+        {isDemoMode && (
+          <button
+            onClick={() => setDemoResetOpen(true)}
+            title="Demo Mode active. Click to reset."
+            className="lg:hidden flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-400 font-medium hover:bg-amber-500/20 transition-colors cursor-pointer"
+          >
+            <Sparkles className="h-2.5 w-2.5 text-amber-400 animate-pulse" />
+            <span>Demo</span>
+          </button>
+        )}
+
         {/* Strictly segregated auth mode widgets: API Key mode OR OIDC mode, never both */}
         {authMode === 'api_key' ? (
           <ApiKeyHeaderMenu onOpenSettings={onOpenSettings} />
@@ -115,6 +155,10 @@ export function AppHeader({
           <UserProfileDropdown />
         )}
       </div>
+
+      {isDemoMode && (
+        <DemoResetModal open={demoResetOpen} onClose={() => setDemoResetOpen(false)} />
+      )}
     </header>
   )
 }

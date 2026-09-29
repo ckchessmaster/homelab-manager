@@ -13,6 +13,7 @@ using ControlPlane.Api.Features.Adoption;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Cluster;
+using ControlPlane.Api.Features.Demo;
 using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Jobs;
@@ -62,6 +63,7 @@ builder.Services.AddTemporalOrchestration(builder.Configuration);
 builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
 builder.Services.AddScoped<NodeAdoptionService>();
 builder.Services.AddScoped<HostService>();
+builder.Services.AddScoped<ControlPlane.Api.Features.Hosts.Hardware.IHostHardwareService, ControlPlane.Api.Features.Hosts.Hardware.HostHardwareService>();
 builder.Services.AddScoped<IHostCorrelationService, HostCorrelationService>();
 builder.Services.Configure<AgentBinarySyncOptions>(builder.Configuration.GetSection(AgentBinarySyncOptions.SectionName));
 builder.Services.AddSingleton<AgentBinaryService>();
@@ -112,6 +114,8 @@ builder.Services.AddScoped<IKubernetesAdapter>(sp =>
     var factory = sp.GetRequiredService<IKubernetesClientFactory>();
     return factory.CreateAdapterAsync().GetAwaiter().GetResult();
 });
+
+builder.Services.AddControlPlaneDemoMode(builder.Configuration);
 
 builder.Services.AddHttpClient(ProxmoxProbeService.StandardHttpClientName);
 builder.Services.AddHttpClient(ProxmoxProbeService.InsecureHttpClientName)
@@ -192,6 +196,14 @@ app.UseControlPlaneSecurity();
 app.UseAgentHub();
 
 await app.InitializeDatabaseAsync();
+
+var demoOpts = app.Services.GetRequiredService<IOptions<DemoOptions>>().Value;
+if (demoOpts.Enabled && demoOpts.AutoSeed)
+{
+    using var scope = app.Services.CreateScope();
+    var seeder = scope.ServiceProvider.GetRequiredService<DemoDataSeeder>();
+    await seeder.SeedAsync(forceReset: false);
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -287,6 +299,7 @@ app.MapDiscoveryEndpoints();
 app.MapSecurityEndpoints();
 app.MapApiTokenEndpoints();
 app.MapSystemEndpoints();
+app.MapDemoEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
 app.MapTemporalWorkflowEndpoints();
 app.MapControlPlaneMcp(app.Configuration);

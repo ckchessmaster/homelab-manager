@@ -34,5 +34,6 @@ public record SystemInfoDto(
     TimeSpan Uptime,
     long WorkingSetBytes,
     DateTimeOffset ServerTimeUtc,
-    string EnvironmentName
+    string EnvironmentName,
+    bool IsDemoMode = false
 );

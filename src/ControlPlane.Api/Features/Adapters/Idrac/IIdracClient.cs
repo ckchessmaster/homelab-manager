@@ -16,6 +16,9 @@ public interface IIdracClient
     Task<IdracVitalsDto> GetInstanceVitalsAsync(IdracStoredInstance config, string password, CancellationToken ct = default);
     Task<IdracPowerControlResponse> ResetInstanceSystemAsync(IdracStoredInstance config, string password, string resetType, CancellationToken ct = default);
 
+    Task<BmcHardwareInventoryDto> GetHardwareInventoryAsync(string bmcUrl, string username, string password, bool allowSelfSigned = true, CancellationToken ct = default);
+    Task<BmcHardwareInventoryDto> GetInstanceHardwareInventoryAsync(IdracStoredInstance config, string password, CancellationToken ct = default);
+
     // --- Fan Control ---
     Task<BmcFanControlResponse> SetFanControlAsync(string bmcUrl, string username, string password, string mode, int? percentage, bool allowSelfSigned = true, CancellationToken ct = default);
     Task<BmcFanControlResponse> SetAgentFanControlAsync(Guid hostId, string mode, int? percentage, CancellationToken ct = default);

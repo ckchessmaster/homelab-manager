@@ -44,6 +44,10 @@ export interface OPNsenseInterface {
   ipAddress?: string | null
   status: string
   media?: string | null
+  description?: string | null
+  macAddress?: string | null
+  mtu?: number | null
+  enabled?: boolean
 }
 
 export interface OPNsenseService {
@@ -69,6 +73,97 @@ export interface OPNsenseFirmware {
   updatesAvailable: number
   packages?: string[] | null
   lastCheck?: string | null
+  needsReboot?: boolean
+  statusMsg?: string | null
+  upgradeAction?: string | null
+}
+
+export interface OPNsenseVitals {
+  cpuLoadAverage: number[]
+  memoryTotalBytes: number
+  memoryUsedBytes: number
+  memoryUsagePercent: number
+  diskTotalBytes: number
+  diskUsedBytes: number
+  diskUsagePercent: number
+  uptimeSeconds: number
+  uptimeFormatted: string
+  temperatures?: Record<string, number> | null
+  lastConfigChange?: string | null
+}
+
+export interface OPNsenseHAProxyBackendServer {
+  name: string
+  address: string
+  port?: number | null
+  status: string
+  activeSessions?: number | null
+  checkDurationMs?: number | null
+}
+
+export interface OPNsenseHAProxyStatus {
+  isInstalled: boolean
+  running: boolean
+  frontends: string[]
+  backends: OPNsenseHAProxyBackendServer[]
+  message?: string | null
+}
+
+export interface OPNsenseAcmeCertificate {
+  id: string
+  name: string
+  description: string
+  altNames: string[]
+  status: string
+  validFrom?: string | null
+  validTo?: string | null
+  daysRemaining?: number | null
+  lastUpdate?: string | null
+}
+
+export interface OPNsenseAcmeStatus {
+  isInstalled: boolean
+  certificates: OPNsenseAcmeCertificate[]
+  message?: string | null
+}
+
+export interface OPNsenseSecurityAlert {
+  timestamp: string
+  threat: string
+  category: string
+  severity: string
+  sourceIp: string
+  sourcePort?: number | null
+  destinationIp: string
+  destinationPort?: number | null
+  protocol: string
+  action: string
+}
+
+export interface OPNsenseSecurityStatus {
+  isInstalled: boolean
+  running: boolean
+  model?: string | null
+  threatCount24h: number
+  alerts: OPNsenseSecurityAlert[]
+}
+
+export interface OPNsenseFirewallStats {
+  totalFilterRules: number
+  totalAliases: number
+  pfStatesCurrent: number
+  pfStatesMax: number
+  pfStatesPercent: number
+  recentBlockedPacketsCount: number
+}
+
+export interface OPNsenseArpEntry {
+  ip: string
+  mac: string
+  interface: string
+  hostname?: string | null
+  manufacturer?: string | null
+  expired: boolean
 }
 
 export interface OPNsenseTelemetry {
@@ -138,4 +233,34 @@ export async function fetchOPNsenseDhcpLeases(id: string): Promise<OPNsenseDhcpL
 
 export async function fetchOPNsenseFirmware(id: string): Promise<OPNsenseFirmware> {
   return apiClient<OPNsenseFirmware>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/firmware`)
+}
+
+export async function checkOPNsenseFirmware(id: string): Promise<OPNsenseFirmware> {
+  return apiClient<OPNsenseFirmware>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/firmware/check`, {
+    method: 'POST',
+  })
+}
+
+export async function fetchOPNsenseVitals(id: string): Promise<OPNsenseVitals> {
+  return apiClient<OPNsenseVitals>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/vitals`)
+}
+
+export async function fetchOPNsenseHAProxy(id: string): Promise<OPNsenseHAProxyStatus> {
+  return apiClient<OPNsenseHAProxyStatus>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/haproxy`)
+}
+
+export async function fetchOPNsenseAcme(id: string): Promise<OPNsenseAcmeStatus> {
+  return apiClient<OPNsenseAcmeStatus>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/acme`)
+}
+
+export async function fetchOPNsenseSecurityAlerts(id: string): Promise<OPNsenseSecurityStatus> {
+  return apiClient<OPNsenseSecurityStatus>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/security-alerts`)
+}
+
+export async function fetchOPNsenseFirewallStats(id: string): Promise<OPNsenseFirewallStats> {
+  return apiClient<OPNsenseFirewallStats>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/firewall-stats`)
+}
+
+export async function fetchOPNsenseArp(id: string): Promise<OPNsenseArpEntry[]> {
+  return apiClient<OPNsenseArpEntry[]>(`/api/v1/adapters/opnsense/instances/${encodeURIComponent(id)}/arp`)
 }

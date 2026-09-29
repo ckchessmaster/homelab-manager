@@ -587,6 +587,13 @@ public class DiscoveryTests
         public Task<OPNsenseServiceActionResult> RestartServiceAsync(string baseUrl, string apiKey, string apiSecret, string serviceName, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseServiceActionResult(true, "OK"));
         public Task<List<OPNsenseDhcpLease>> GetDhcpLeasesAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(Leases);
         public Task<OPNsenseFirmwareInfo> GetFirmwareStatusAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseFirmwareInfo("1.0", "OK", 0, null, null));
+        public Task<OPNsenseFirmwareInfo> CheckFirmwareUpdatesAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseFirmwareInfo("1.0", "OK", 0, null, null));
+        public Task<OPNsenseVitalsInfo> GetVitalsAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseVitalsInfo([0.1, 0.2, 0.3], 1024, 512, 50.0, 2048, 1024, 50.0, 3600, "1h", null, null));
+        public Task<OPNsenseHAProxyStatus> GetHAProxyStatusAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseHAProxyStatus(false, false, [], []));
+        public Task<OPNsenseAcmeStatus> GetAcmeStatusAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseAcmeStatus(false, []));
+        public Task<OPNsenseSecurityStatus> GetSecurityAlertsAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseSecurityStatus(false, false, null, 0, []));
+        public Task<OPNsenseFirewallStats> GetFirewallStatsAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new OPNsenseFirewallStats(0, 0, 0, 0, 0, 0));
+        public Task<List<OPNsenseArpEntry>> GetArpTableAsync(string baseUrl, string apiKey, string apiSecret, bool allowSelfSigned = true, CancellationToken ct = default) => Task.FromResult(new List<OPNsenseArpEntry>());
     }
 
     private class FakeOPNsenseClientFactory : IOPNsenseClientFactory

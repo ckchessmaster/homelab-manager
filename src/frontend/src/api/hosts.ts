@@ -44,6 +44,8 @@ export interface HostedVmSummary {
   isOnline: boolean
 }
 
+export type HardwareHealthStatus = 'Ok' | 'Warning' | 'Critical' | 'Unknown'
+
 export interface HostVitals {
   cpuUsagePct?: number | null
   memoryUsagePct?: number | null
@@ -54,6 +56,8 @@ export interface HostVitals {
   powerState?: string | null
   healthStatus?: string | null
   source?: string | null
+  hardwareHealth?: HardwareHealthStatus | null
+  hardwareAlerts?: string[] | null
 }
 
 export interface Host {
@@ -78,6 +82,8 @@ export interface Host {
   hostedVms?: HostedVmSummary[] | null
   vitals?: HostVitals | null
   detectedIps?: string[] | null
+  hardwareHealth?: HardwareHealthStatus | null
+  hardwareAlerts?: string[] | null
 }
 
 export interface CreateHostPayload {
@@ -449,4 +455,102 @@ export function isKubernetesHost(h: Host): boolean {
     h.targetType?.includes('kubernetes')
   )
 }
+
+export interface PhysicalDisk {
+  deviceId: string
+  name?: string | null
+  model?: string | null
+  serialNumber?: string | null
+  mediaType: string
+  sizeBytes: number
+  status: HardwareHealthStatus
+  wearOutPercentage?: number | null
+  temperatureCelsius?: number | null
+  slotLocation?: string | null
+  smartHealthStatus?: string | null
+  attributes?: Record<string, string> | null
+}
+
+export interface StorageController {
+  id: string
+  name: string
+  status: HardwareHealthStatus
+  model?: string | null
+  firmwareVersion?: string | null
+  batteryBackupHealthy?: boolean | null
+}
+
+export interface PowerSupply {
+  id: string
+  name?: string | null
+  status: HardwareHealthStatus
+  inputWatts?: number | null
+  outputWatts?: number | null
+  lineInputVoltage?: number | null
+  redundancyHealthy: boolean
+}
+
+export interface MemoryModule {
+  slotLocation: string
+  sizeBytes: number
+  speedMhz?: string | null
+  status: HardwareHealthStatus
+  correctableEccErrors?: number | null
+  uncorrectableEccErrors?: number | null
+}
+
+export interface ZfsPoolHealth {
+  poolName: string
+  state: string
+  sizeBytes: number
+  allocatedBytes: number
+  freeBytes: number
+  fragmentation?: string | null
+  healthDetails?: string | null
+}
+
+export interface HostHardwareInventory {
+  hostId: string
+  collectedAt: string
+  overallHealth: HardwareHealthStatus
+  healthAlerts: string[]
+  disks: PhysicalDisk[]
+  controllers: StorageController[]
+  powerSupplies: PowerSupply[]
+  memoryModules: MemoryModule[]
+  zfsPools?: ZfsPoolHealth[] | null
+  source?: string | null
+}
+
+export interface HardwareThresholds {
+  minSsdWearOutPct: number
+  criticalSsdWearOutPct: number
+  maxDiskTemperatureCelsius: number
+  criticalDiskTemperatureCelsius: number
+  alertOnPsuRedundancyLost: boolean
+  alertOnEccErrors: boolean
+}
+
+export async function fetchHostHardware(hostId: string, forceRefresh = false): Promise<HostHardwareInventory> {
+  const query = forceRefresh ? '?forceRefresh=true' : ''
+  return apiClient<HostHardwareInventory>(`/api/v1/hosts/${hostId}/hardware${query}`)
+}
+
+export async function triggerHardwareScan(hostId: string): Promise<HostHardwareInventory> {
+  return apiClient<HostHardwareInventory>(`/api/v1/hosts/${hostId}/hardware/scan`, {
+    method: 'POST',
+  })
+}
+
+export async function fetchHardwareThresholds(): Promise<HardwareThresholds> {
+  return apiClient<HardwareThresholds>('/api/v1/system/settings/hardware-thresholds')
+}
+
+export async function updateHardwareThresholds(thresholds: HardwareThresholds): Promise<HardwareThresholds> {
+  return apiClient<HardwareThresholds>('/api/v1/system/settings/hardware-thresholds', {
+    method: 'PUT',
+    body: JSON.stringify(thresholds),
+  })
+}
+
 

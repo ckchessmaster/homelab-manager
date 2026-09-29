@@ -116,3 +116,30 @@ public record ProxmoxSnapshotItem(
 public record ProxmoxSnapshotListResponse(
     [property: JsonPropertyName("data")] List<ProxmoxSnapshotItem> Data
 );
+
+public record ProxmoxDiskItem(
+    [property: JsonPropertyName("devpath")] string DevPath,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("type")] string? Type = null,
+    [property: JsonPropertyName("model")] string? Model = null,
+    [property: JsonPropertyName("serial")] string? Serial = null,
+    [property: JsonPropertyName("health")] string? Health = null,
+    [property: JsonPropertyName("wearout")] object? Wearout = null
+);
+
+public record ProxmoxDiskListResponse(
+    [property: JsonPropertyName("data")] List<ProxmoxDiskItem> Data
+);
+
+public record ProxmoxZfsPoolItem(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("alloc")] long Alloc,
+    [property: JsonPropertyName("free")] long Free,
+    [property: JsonPropertyName("health")] string Health,
+    [property: JsonPropertyName("frag")] object? Frag = null
+);
+
+public record ProxmoxZfsListResponse(
+    [property: JsonPropertyName("data")] List<ProxmoxZfsPoolItem> Data
+);

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.5.0
+
+### Added
+* **OPNsense Adapter Enhancements & Security Center**:
+  * **Interface Parsing & Zone Inspection**: Resolved empty interface tables by implementing defensive JSON parsing in `OPNsenseClient` that handles numeric metadata tokens, evaluates booleans dynamically, and falls back to `/api/diagnostics/interface/getInterfaceConfig`. Surfaces all active zones (`[CAMERA]`, `[GUEST]`, `[IOT]`, `[KUBERNETES]`, `[LAN]`, `[SERVERS]`, `[TRUSTED]`, `[WAN]`, `[WAN2]`) in `<OPNsenseInterfacesTable />` with search filtering and one-click MAC copy.
+  * **Firmware Updates & On-Demand Checking**: Added on-demand update trigger (`POST /api/adapters/opnsense/{instanceId}/firmware/check`) and `<OPNsenseFirmwareBanner />` with upgrade package counts, reboot required warnings, and direct WebGUI updater deep-links.
+  * **HAProxy & ACME Telemetry**: Deep inspection of HAProxy frontends, backends, sessions, and server UP/DOWN health (`os-haproxy`) and Let's Encrypt SSL/TLS certificate expiry countdowns (`os-acme-client`) with graceful plugin fallback notices.
+  * **Firewall States & Suricata IDS Alerts**: Active Packet Filter (PF) live states table utilization, filter rule counts, network aliases, and real-time Suricata IDS alert feed with alert dismissal, UI-only threat signature ignoring, and an Ignored Rules management dialog.
+  * **Hardware Vitals & Live ARP Discovery**: Live CPU load averages (1m / 5m / 15m), Memory gauge, Disk gauge, thermal sensors, and ARP neighbor table with one-click node adoption.
+  * **MCP Operational Tools**: Enriched `get_op_nsense_status` and added `check_opnsense_updates` tool for AI pair programmers.
+* **Hardware Inventory, Monitoring & Wear-Out Telemetry**:
+  * **Comprehensive Storage Telemetry**: Physical disk inventory tracking media types (NVMe, SATA, SAS), SMART health status, wear-out percentages, and operating temperatures.
+  * **RAID Controllers & PSUs**: In-band and out-of-band telemetry for storage controllers (battery backup unit health, firmware) and redundant PSUs with input wattage and line status.
+  * **Hardware Threshold Alerts**: Configurable temperature and wear-out threshold indicators in hardware inventory and settings.
+* **Demo Mode & Standalone Presentation Architecture**:
+  * Added demo mode adapters across all infrastructure providers (Proxmox, Kubernetes, UniFi, OPNsense, Redfish, iDRAC, Helm, Home Assistant) using scrubbed RFC 5737 documentation subnets and generic homelab domains.
+  * Added one-click demo state reset modal.
+
+---
+
 ## v1.4.2
 
 ### Added

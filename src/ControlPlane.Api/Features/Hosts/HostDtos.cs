@@ -17,7 +17,9 @@ public record HostResponse(
     HypervisorHostSummaryDto? Hypervisor = null,
     List<HostedVmSummaryDto>? HostedVms = null,
     HostVitalsDto? Vitals = null,
-    List<string>? DetectedIps = null
+    List<string>? DetectedIps = null,
+    string? HardwareHealth = null,
+    List<string>? HardwareAlerts = null
 );
 
 public record HostVitalsDto(
@@ -29,7 +31,9 @@ public record HostVitalsDto(
     long? UptimeSeconds = null,
     string? PowerState = null,
     string? HealthStatus = null,
-    string? Source = null
+    string? Source = null,
+    string? HardwareHealth = null,
+    List<string>? HardwareAlerts = null
 );
 
 public record HypervisorHostSummaryDto(Guid HostId, string Hostname, string? FriendlyName, string? NodeName);

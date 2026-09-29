@@ -14,7 +14,11 @@ public record OPNsenseInterfaceInfo(
     string Device,
     string? IpAddress,
     string Status,
-    string? Media
+    string? Media,
+    string? Description = null,
+    string? MacAddress = null,
+    int? Mtu = null,
+    bool Enabled = true
 );
 
 public record OPNsenseServiceItem(
@@ -39,7 +43,98 @@ public record OPNsenseFirmwareInfo(
     string Status,
     int UpdatesAvailable,
     List<string>? Packages,
-    string? LastCheck
+    string? LastCheck,
+    bool NeedsReboot = false,
+    string? StatusMsg = null,
+    string? UpgradeAction = null
+);
+
+public record OPNsenseVitalsInfo(
+    double[] CpuLoadAverage,
+    long MemoryTotalBytes,
+    long MemoryUsedBytes,
+    double MemoryUsagePercent,
+    long DiskTotalBytes,
+    long DiskUsedBytes,
+    double DiskUsagePercent,
+    long UptimeSeconds,
+    string UptimeFormatted,
+    Dictionary<string, double>? Temperatures,
+    string? LastConfigChange
+);
+
+public record OPNsenseHAProxyBackendServer(
+    string Name,
+    string Address,
+    int? Port,
+    string Status,
+    int? ActiveSessions,
+    int? CheckDurationMs
+);
+
+public record OPNsenseHAProxyStatus(
+    bool IsInstalled,
+    bool Running,
+    List<string> Frontends,
+    List<OPNsenseHAProxyBackendServer> Backends,
+    string? Message = null
+);
+
+public record OPNsenseAcmeCertificate(
+    string Id,
+    string Name,
+    string Description,
+    List<string> AltNames,
+    string Status,
+    DateTimeOffset? ValidFrom,
+    DateTimeOffset? ValidTo,
+    int? DaysRemaining,
+    DateTimeOffset? LastUpdate
+);
+
+public record OPNsenseAcmeStatus(
+    bool IsInstalled,
+    List<OPNsenseAcmeCertificate> Certificates,
+    string? Message = null
+);
+
+public record OPNsenseSecurityAlert(
+    string Timestamp,
+    string Threat,
+    string Category,
+    string Severity,
+    string SourceIp,
+    int? SourcePort,
+    string DestinationIp,
+    int? DestinationPort,
+    string Protocol,
+    string Action
+);
+
+public record OPNsenseSecurityStatus(
+    bool IsInstalled,
+    bool Running,
+    string? Model,
+    int ThreatCount24h,
+    List<OPNsenseSecurityAlert> Alerts
+);
+
+public record OPNsenseFirewallStats(
+    int TotalFilterRules,
+    int TotalAliases,
+    int PfStatesCurrent,
+    int PfStatesMax,
+    double PfStatesPercent,
+    int RecentBlockedPacketsCount
+);
+
+public record OPNsenseArpEntry(
+    string Ip,
+    string Mac,
+    string Interface,
+    string? Hostname,
+    string? Manufacturer,
+    bool Expired
 );
 
 public record OPNsenseTelemetryResponse(

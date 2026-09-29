@@ -98,9 +98,14 @@ public class NodeAdoptionService
         catch (Exception ex)
         {
             _logger.LogError(ex, "SSH connection/probe failed for host {Host}", request.TargetHost);
-            Emit("SSH_CONNECTING", "SSH connection failed", AdoptionStepStatus.Failed, ex.Message);
-            return new NodeAdoptionResponse(hostId, false, ex.Message, steps);
+            var isTimeout = ex is Renci.SshNet.Common.SshOperationTimeoutException || ex.Message.Contains("15000 milliseconds") || ex.Message.Contains("timed out");
+            var userMsg = isTimeout
+                ? $"Connection to {request.TargetHost}:{request.Port} timed out after 15s. SSH daemon may not be running, or firewall/UFW may be blocking port {request.Port}. You can adopt this host using the 1-Click Script or verify port reachability."
+                : ex.Message;
+            Emit("SSH_CONNECTING", "SSH connection failed", AdoptionStepStatus.Failed, userMsg);
+            return new NodeAdoptionResponse(hostId, false, userMsg, steps);
         }
+
 
         // Step 2: Binary selection
         Emit("ARCH_DETECTED", "Selecting matching agent binary", AdoptionStepStatus.Running);

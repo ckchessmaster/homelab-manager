@@ -654,6 +654,44 @@ public class ProxmoxClient : IProxmoxClient
             .ToList();
     }
 
+    public async Task<List<ProxmoxDiskItem>> GetNodeDisksAsync(string node, CancellationToken ct = default)
+    {
+        try
+        {
+            var options = await GetOptionsAsync(ct);
+            ValidateConfiguration(options);
+            var endpoint = $"/nodes/{Uri.EscapeDataString(node)}/disks/list";
+            using var request = CreateRequest(options, HttpMethod.Get, endpoint);
+            using var response = await SendAsync(options, request, ct);
+            var listResponse = await response.Content.ReadFromJsonAsync<ProxmoxDiskListResponse>(ct);
+            return listResponse?.Data ?? new List<ProxmoxDiskItem>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query Proxmox disks on node '{Node}'", node);
+            return new List<ProxmoxDiskItem>();
+        }
+    }
+
+    public async Task<List<ProxmoxZfsPoolItem>> GetNodeZfsPoolsAsync(string node, CancellationToken ct = default)
+    {
+        try
+        {
+            var options = await GetOptionsAsync(ct);
+            ValidateConfiguration(options);
+            var endpoint = $"/nodes/{Uri.EscapeDataString(node)}/disks/zfs";
+            using var request = CreateRequest(options, HttpMethod.Get, endpoint);
+            using var response = await SendAsync(options, request, ct);
+            var listResponse = await response.Content.ReadFromJsonAsync<ProxmoxZfsListResponse>(ct);
+            return listResponse?.Data ?? new List<ProxmoxZfsPoolItem>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query Proxmox ZFS pools on node '{Node}'", node);
+            return new List<ProxmoxZfsPoolItem>();
+        }
+    }
+
     public async Task<bool> HasVmAuditPermissionAsync(CancellationToken ct = default)
     {
         try

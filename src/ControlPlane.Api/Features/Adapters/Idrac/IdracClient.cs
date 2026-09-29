@@ -14,17 +14,20 @@ public class IdracClient : IIdracClient
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<IdracClient> _logger;
     private readonly AgentIpmiExecutor? _agentIpmiExecutor;
+    private readonly Redfish.IRedfishClient? _redfishClient;
 
     public const string InsecureHttpClientName = "IdracInsecureClient";
 
     public IdracClient(
         IHttpClientFactory httpClientFactory,
         ILogger<IdracClient> logger,
-        AgentIpmiExecutor? agentIpmiExecutor = null)
+        AgentIpmiExecutor? agentIpmiExecutor = null,
+        Redfish.IRedfishClient? redfishClient = null)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
         _agentIpmiExecutor = agentIpmiExecutor;
+        _redfishClient = redfishClient;
     }
 
     private HttpClient CreateClient(bool allowSelfSigned)
@@ -783,5 +786,112 @@ public class IdracClient : IIdracClient
             return await SetAgentBootOverrideAsync(config.HostId.Value, target, ct);
         }
         return await SetBootOverrideAsync(config.BmcUrl, config.Username, password, target, config.AllowSelfSignedCert, ct);
+    }
+
+    public async Task<BmcHardwareInventoryDto> GetHardwareInventoryAsync(
+        string bmcUrl,
+        string username,
+        string password,
+        bool allowSelfSigned = true,
+        CancellationToken ct = default)
+    {
+        var disks = new List<Features.Hosts.Hardware.PhysicalDiskDto>();
+        var controllers = new List<Features.Hosts.Hardware.StorageControllerDto>();
+        var psus = new List<Features.Hosts.Hardware.PowerSupplyDto>();
+        var memory = new List<Features.Hosts.Hardware.MemoryModuleDto>();
+
+        if (_redfishClient != null)
+        {
+            try
+            {
+                var rControllers = await _redfishClient.GetStorageControllersAsync(bmcUrl, username, password, allowSelfSigned, ct);
+                foreach (var c in rControllers)
+                {
+                    var status = string.Equals(c.HealthStatus, "OK", StringComparison.OrdinalIgnoreCase)
+                        ? Features.Hosts.Hardware.HardwareHealthStatus.Ok
+                        : Features.Hosts.Hardware.HardwareHealthStatus.Warning;
+                    controllers.Add(new Features.Hosts.Hardware.StorageControllerDto(c.Id, c.Name, status, c.Model, c.FirmwareVersion));
+                }
+
+                var rDrives = await _redfishClient.GetDrivesAsync(bmcUrl, username, password, allowSelfSigned, ct);
+                foreach (var d in rDrives)
+                {
+                    var status = string.Equals(d.HealthStatus, "OK", StringComparison.OrdinalIgnoreCase)
+                        ? Features.Hosts.Hardware.HardwareHealthStatus.Ok
+                        : (string.Equals(d.HealthStatus, "Critical", StringComparison.OrdinalIgnoreCase)
+                            ? Features.Hosts.Hardware.HardwareHealthStatus.Critical
+                            : Features.Hosts.Hardware.HardwareHealthStatus.Warning);
+
+                    if (d.FailurePredicted == true)
+                    {
+                        status = Features.Hosts.Hardware.HardwareHealthStatus.Critical;
+                    }
+
+                    disks.Add(new Features.Hosts.Hardware.PhysicalDiskDto(
+                        DeviceId: d.Id,
+                        Name: d.Name,
+                        Model: d.Model,
+                        SerialNumber: d.SerialNumber,
+                        MediaType: d.MediaType,
+                        SizeBytes: d.CapacityBytes,
+                        Status: status,
+                        WearOutPercentage: d.PredictedMediaLifeLeftPercent,
+                        SlotLocation: d.SlotLocation,
+                        SmartHealthStatus: d.FailurePredicted == true ? "FAILURE_PREDICTED" : d.HealthStatus
+                    ));
+                }
+
+                var rPower = await _redfishClient.GetPowerVitalsAsync(bmcUrl, username, password, allowSelfSigned, ct);
+                foreach (var p in rPower.PowerSupplies)
+                {
+                    var pStatus = string.Equals(p.HealthStatus, "OK", StringComparison.OrdinalIgnoreCase)
+                        ? Features.Hosts.Hardware.HardwareHealthStatus.Ok
+                        : Features.Hosts.Hardware.HardwareHealthStatus.Warning;
+                    if (string.Equals(p.State, "Absent", StringComparison.OrdinalIgnoreCase))
+                    {
+                        pStatus = Features.Hosts.Hardware.HardwareHealthStatus.Warning;
+                    }
+
+                    psus.Add(new Features.Hosts.Hardware.PowerSupplyDto(
+                        Id: p.Id,
+                        Name: p.Name,
+                        Status: pStatus,
+                        OutputWatts: p.OutputWatts,
+                        LineInputVoltage: p.LineInputVoltage,
+                        RedundancyHealthy: rPower.RedundancyHealthy
+                    ));
+                }
+
+                var rMem = await _redfishClient.GetMemoryModulesAsync(bmcUrl, username, password, allowSelfSigned, ct);
+                foreach (var m in rMem)
+                {
+                    var mStatus = string.Equals(m.HealthStatus, "OK", StringComparison.OrdinalIgnoreCase)
+                        ? Features.Hosts.Hardware.HardwareHealthStatus.Ok
+                        : Features.Hosts.Hardware.HardwareHealthStatus.Warning;
+
+                    memory.Add(new Features.Hosts.Hardware.MemoryModuleDto(
+                        SlotLocation: m.DeviceLocator,
+                        SizeBytes: m.CapacityBytes,
+                        SpeedMhz: m.SpeedMhz,
+                        Status: mStatus
+                    ));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to retrieve Redfish hardware inventory for {BmcUrl}", bmcUrl);
+            }
+        }
+
+        return new BmcHardwareInventoryDto(disks, controllers, psus, memory);
+    }
+
+    public Task<BmcHardwareInventoryDto> GetInstanceHardwareInventoryAsync(
+        IdracStoredInstance config,
+        string password,
+        CancellationToken ct = default)
+    {
+        var url = !string.IsNullOrWhiteSpace(config.BmcUrl) ? config.BmcUrl : (config.HostnameOrIp ?? string.Empty);
+        return GetHardwareInventoryAsync(url, config.Username, password, config.AllowSelfSignedCert, ct);
     }
 }

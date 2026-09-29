@@ -21,6 +21,7 @@ import {
   AgentStatusBadge,
   RebootBadge,
   UpdatesBadge,
+  HardwareHealthBadge,
 } from './HostStatusBadge'
 import { HostVitalsBadge } from './HostVitalsBadge'
 import { HostDetailsModal } from './HostDetailsModal'
@@ -772,7 +773,11 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                         >
                           <UpdatesBadge count={host.agent.upgradablePackagesCount} />
                         </span>
-                        {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && !host.vitals && (
+                        <HardwareHealthBadge
+                          status={host.hardwareHealth || host.vitals?.hardwareHealth}
+                          alerts={host.hardwareAlerts || host.vitals?.hardwareAlerts}
+                        />
+                        {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && !host.vitals && !host.hardwareHealth && (
                           <span className="text-xs text-zinc-500">Clean</span>
                         )}
                       </>

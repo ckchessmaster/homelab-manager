@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using ControlPlane.Api.Features.Agents.Models;
+using ControlPlane.Api.Features.Jobs;
 
 namespace ControlPlane.Api.Features.Agents;
 
@@ -16,13 +17,16 @@ public class AgentCommandExecutor : IAgentCommandExecutor
     private readonly ConcurrentDictionary<Guid, CommandExecutionState> _activeCommands = new();
     private readonly AgentConnectionManager _connectionManager;
     private readonly ILogger<AgentCommandExecutor> _logger;
+    private readonly IServiceProvider? _serviceProvider;
 
     public AgentCommandExecutor(
         AgentConnectionManager connectionManager,
-        ILogger<AgentCommandExecutor> logger)
+        ILogger<AgentCommandExecutor> logger,
+        IServiceProvider? serviceProvider = null)
     {
         _connectionManager = connectionManager;
         _logger = logger;
+        _serviceProvider = serviceProvider;
     }
 
     public async Task<AgentCommandResult> ExecuteCommandAsync(
@@ -32,6 +36,12 @@ public class AgentCommandExecutor : IAgentCommandExecutor
         string[] args,
         CancellationToken cancellationToken = default)
     {
+        var session = _connectionManager.GetSession(hostId);
+        if (session != null && session.IsSimulated)
+        {
+            return await ExecuteSimulatedCommandAsync(hostId, jobId, command, args, cancellationToken);
+        }
+
         if (!_connectionManager.IsOnline(hostId))
         {
             return new AgentCommandResult(false, -1, "Target host agent is offline.");
@@ -140,5 +150,99 @@ public class AgentCommandExecutor : IAgentCommandExecutor
                 _activeCommands.TryRemove(frame.JobId, out _);
             }
         }
+    }
+
+    private async Task<AgentCommandResult> ExecuteSimulatedCommandAsync(
+        Guid hostId,
+        Guid jobId,
+        string command,
+        string[] args,
+        CancellationToken ct)
+    {
+        var consumer = _serviceProvider != null
+            ? (IStepLogConsumer?)_serviceProvider.GetService(typeof(IStepLogConsumer))
+            : null;
+
+        var cmdLine = $"{command} {string.Join(" ", args)}".Trim();
+        var simulatedLines = GetSimulatedLines(cmdLine);
+
+        long seq = 1;
+        foreach (var line in simulatedLines)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            var frame = new AgentFrameData
+            {
+                JobId = jobId,
+                SequenceId = seq++,
+                StreamType = "stdout",
+                LogLine = line,
+                Timestamp = DateTimeOffset.UtcNow
+            };
+
+            if (consumer != null)
+            {
+                await consumer.ConsumeFrameAsync(hostId, frame, ct);
+            }
+            await Task.Delay(100, ct);
+        }
+
+        var completedFrame = new AgentFrameData
+        {
+            JobId = jobId,
+            SequenceId = seq++,
+            StreamType = "system",
+            LogLine = "Command completed successfully with code 0",
+            Timestamp = DateTimeOffset.UtcNow
+        };
+
+        if (consumer != null)
+        {
+            await consumer.ConsumeFrameAsync(hostId, completedFrame, ct);
+        }
+
+        return new AgentCommandResult(true, 0, null, string.Join(Environment.NewLine, simulatedLines), "");
+    }
+
+    private static List<string> GetSimulatedLines(string cmdLine)
+    {
+        var lower = cmdLine.ToLowerInvariant();
+        if (lower.Contains("apt") || lower.Contains("upgrade") || lower.Contains("update"))
+        {
+            return new List<string>
+            {
+                "[INFO] Checking repositories for package updates...",
+                "Hit:1 http://archive.ubuntu.com/ubuntu noble InRelease",
+                "Hit:2 http://archive.ubuntu.com/ubuntu noble-updates InRelease",
+                "Hit:3 http://security.ubuntu.com/ubuntu noble-security InRelease",
+                "Reading package lists... Done",
+                "Building dependency tree... Done",
+                "[INFO] 3 packages will be upgraded: libssl3, linux-firmware, systemd",
+                "Preparing to unpack .../libssl3_3.0.13-0ubuntu3.4_amd64.deb ...",
+                "Unpacking libssl3:amd64 (3.0.13-0ubuntu3.4) over (3.0.13-0ubuntu3.3) ...",
+                "Setting up libssl3:amd64 (3.0.13-0ubuntu3.4) ...",
+                "Setting up systemd (255.4-1ubuntu8.4) ...",
+                "Processing triggers for man-db (2.12.0-4build2) ...",
+                "[SUCCESS] Package upgrade batch completed successfully."
+            };
+        }
+
+        if (lower.Contains("reboot"))
+        {
+            return new List<string>
+            {
+                "[INFO] Initiating graceful system reboot...",
+                "[INFO] Stopping running services and flushing disk buffers...",
+                "[INFO] Sending SIGTERM to active processes...",
+                "[INFO] System restart commencing now."
+            };
+        }
+
+        return new List<string>
+        {
+            $"[INFO] Executing simulated command: {cmdLine}",
+            $"[INFO] Target node environment initialized.",
+            $"[SUCCESS] Execution finished without warnings."
+        };
     }
 }

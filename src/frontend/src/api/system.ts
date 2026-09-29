@@ -35,6 +35,14 @@ export interface SystemInfoDto {
   workingSetBytes: number
   serverTimeUtc: string
   environmentName: string
+  isDemoMode?: boolean
+}
+
+export interface DemoStatusDto {
+  enabled: boolean
+  isDemoMode?: boolean
+  simulationTickSeconds: number
+  autoSeed: boolean
 }
 
 export interface FetchSystemLogsParams {
@@ -74,4 +82,14 @@ export async function clearSystemLogs(): Promise<{ message: string }> {
 
 export async function fetchSystemInfo(): Promise<SystemInfoDto> {
   return apiClient<SystemInfoDto>('/api/v1/system/info')
+}
+
+export async function fetchDemoStatus(): Promise<DemoStatusDto> {
+  return apiClient<DemoStatusDto>('/api/v1/demo/status')
+}
+
+export async function resetDemoData(): Promise<{ message: string; hostCount: number; timestamp: string }> {
+  return apiClient<{ message: string; hostCount: number; timestamp: string }>('/api/v1/demo/reset', {
+    method: 'POST',
+  })
 }

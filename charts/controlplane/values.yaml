@@ -243,4 +243,17 @@ networkPolicy:
     - "192.168.0.0/16"
     - "10.0.0.0/8"
   cilium:
+    # Enable Cilium-native CiliumNetworkPolicy resource instead of / in addition to standard NetworkPolicy.
     enabled: false
+    # In Cilium, egress operates in default-deny mode once a CiliumNetworkPolicy is applied.
+    # By default, only 'kube-apiserver' is whitelisted for in-cluster Kubernetes API access.
+    toEntities:
+      - kube-apiserver
+    # Set to true to allow ControlPlane to reach cluster worker and host nodes (Cilium entities 'remote-node' and 'host').
+    # REQUIRED if ControlPlane runs in-cluster and needs to SSH-adopt or communicate with worker nodes in the same cluster.
+    allowClusterNodes: false
+    # Set to true to permit all outbound egress (Cilium entity 'all'), bypassing egress restrictions.
+    allowAllEgress: false
+    # Additional custom Cilium egress rules appended directly to spec.egress
+    extraEgress: []
+

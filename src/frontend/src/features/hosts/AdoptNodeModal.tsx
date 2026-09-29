@@ -43,6 +43,9 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
   const initialPlatform = effectiveHost?.osFamily?.toLowerCase().includes('windows') ? 'windows' : 'linux'
   const [platform, setPlatform] = useState<'linux' | 'windows'>(initialPlatform)
   const [winMethod, setWinMethod] = useState<'powershell' | 'ssh'>('powershell')
+  const [linuxMethod, setLinuxMethod] = useState<'ssh' | 'script'>('ssh')
+  const [linuxTool, setLinuxTool] = useState<'curl' | 'wget'>('curl')
+
 
   // SSH Form fields
   const [targetHost, setTargetHost] = useState(() => {
@@ -128,7 +131,9 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
     }
   }, [platform])
 
-  const isCompleted = adoptionResponse?.success === true || (platform === 'windows' && winMethod === 'powershell' && isAgentOnlineViaPolling)
+  const isCompleted = adoptionResponse?.success === true
+    || (platform === 'windows' && winMethod === 'powershell' && isAgentOnlineViaPolling)
+    || (platform === 'linux' && linuxMethod === 'script' && isAgentOnlineViaPolling)
 
   useEffect(() => {
     if (isCompleted) {
@@ -165,12 +170,12 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
     }
   }
 
-  const handleRegisterWindowsHost = async (e: React.FormEvent) => {
+  const handleRegisterHost = async (e: React.FormEvent, os: 'windows' | 'linux_debian') => {
     e.preventDefault()
     setErrorMessage(null)
 
     if (!targetHost.trim() || !hostname.trim()) {
-      setErrorMessage('Please provide both Hostname and IP Address for the new Windows host.')
+      setErrorMessage(`Please provide both Hostname and IP Address for the new ${os === 'windows' ? 'Windows' : 'Linux'} host.`)
       return
     }
 
@@ -179,12 +184,12 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
         hostname: hostname.trim(),
         ipAddress: targetHost.trim(),
         friendlyName: hostname.trim(),
-        osFamily: 'windows',
+        osFamily: os,
         targetType: 'baremetal',
       })
       setCreatedHost(newHost)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to register Windows host'
+      const message = err instanceof Error ? err.message : 'Failed to register host'
       setErrorMessage(message)
     }
   }
@@ -194,15 +199,29 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
     ? `& ([scriptblock]::Create((iwr -UseBasicParsing '${httpBaseUrl}/api/v1/agents/install.ps1').Content)) -HubUrl '${hubUrl}' -Token '${effectiveHost.id}' -NodeId '${effectiveHost.id}'${insecure ? ' -Insecure' : ''}`
     : ''
 
+  const linuxCurlCommand = effectiveHost
+    ? `curl -sSL${insecure ? ' -k' : ''} '${httpBaseUrl}/api/v1/agents/install.sh' | sudo bash -s -- --hub-url '${hubUrl}' --token '${effectiveHost.id}' --node-id '${effectiveHost.id}'${insecure ? ' --insecure' : ''}`
+    : ''
+
+  const linuxWgetCommand = effectiveHost
+    ? `wget -qO-${insecure ? ' --no-check-certificate' : ''} '${httpBaseUrl}/api/v1/agents/install.sh' | sudo bash -s -- --hub-url '${hubUrl}' --token '${effectiveHost.id}' --node-id '${effectiveHost.id}'${insecure ? ' --insecure' : ''}`
+    : ''
+
+  const activeScriptCommand = platform === 'windows'
+    ? powerShellCommand
+    : linuxTool === 'curl'
+      ? linuxCurlCommand
+      : linuxWgetCommand
+
   const handleCopyCommand = () => {
-    if (!powerShellCommand) return
-    navigator.clipboard.writeText(powerShellCommand)
+    if (!activeScriptCommand) return
+    navigator.clipboard.writeText(activeScriptCommand)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
   }
 
   const isAdopting = adoptMutation.isPending || createHostMutation.isPending
-  const showProgress = isAdopting || Boolean(adoptionResponse) || Boolean(errorMessage && winMethod === 'ssh')
+  const showProgress = isAdopting || Boolean(adoptionResponse) || Boolean(errorMessage && (platform === 'windows' ? winMethod === 'ssh' : linuxMethod === 'ssh'))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
@@ -327,7 +346,7 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                   )}
 
                   {!effectiveHost ? (
-                    <form onSubmit={handleRegisterWindowsHost} className="space-y-3">
+                    <form onSubmit={(e) => handleRegisterHost(e, 'windows')} className="space-y-3">
                       <div className="p-3 bg-zinc-950/50 border border-zinc-800 rounded-lg text-xs text-zinc-400">
                         Specify target Windows Server details to generate the one-click PowerShell installation command.
                       </div>
@@ -578,223 +597,457 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
               )}
             </div>
           ) : !showProgress ? (
-            /* Linux SSH Form */
-            <form id="adopt-form" onSubmit={handleStartSshAdoption} className="space-y-4">
-              {errorMessage && (
-                <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-lg text-xs text-rose-300 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="font-semibold">Adoption Failed</p>
-                    <p className="font-mono text-[11px] text-rose-300/90">{errorMessage}</p>
-                  </div>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium text-zinc-300">
-                      Target Host (IP or Domain) <span className="text-rose-400">*</span>
-                      {effectiveHost && (
-                        <span className="text-[11px] text-sky-400 font-normal ml-2">
-                          (Pre-filled from inventory)
-                        </span>
-                      )}
-                    </label>
-                    {availableIps.length > 1 && (
-                      <span className="text-[11px] text-sky-400 font-medium">
-                        {availableIps.length} detected IPs
-                      </span>
-                    )}
-                  </div>
-                  {availableIps.length > 1 && (
-                    <div className="mb-2">
-                      <select
-                        value={availableIps.includes(targetHost) ? targetHost : 'custom'}
-                        onChange={(e) => {
-                          if (e.target.value !== 'custom') {
-                            setTargetHost(e.target.value)
-                          }
-                        }}
-                        className="w-full px-2.5 py-1.5 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
-                      >
-                        {availableIps.map((ip) => (
-                          <option key={ip} value={ip}>
-                            {ip} {ip === effectiveHost?.ipAddress ? '(Primary IP)' : '(Alternate Interface)'}
-                          </option>
-                        ))}
-                        <option value="custom">Custom / Manual IP Override...</option>
-                      </select>
+            <div className="space-y-4">
+              {/* Linux Sub-methods: SSH vs 1-Click Script */}
+              <div className="flex items-center gap-3 text-xs border-b border-zinc-800/80 pb-3">
+                <button
+                  type="button"
+                  onClick={() => setLinuxMethod('ssh')}
+                  className={`flex items-center gap-1.5 font-medium px-3 py-1.5 rounded-md transition-colors ${
+                    linuxMethod === 'ssh'
+                      ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>SSH Automated</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLinuxMethod('script')}
+                  className={`flex items-center gap-1.5 font-medium px-3 py-1.5 rounded-md transition-colors ${
+                    linuxMethod === 'script'
+                      ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>1-Click Script (Console / Terminal)</span>
+                  <span className="px-1.5 py-0.2 bg-sky-400/20 text-sky-300 text-[10px] rounded font-mono">NEW</span>
+                </button>
+              </div>
+
+              {linuxMethod === 'script' ? (
+                <div className="space-y-4">
+                  {errorMessage && (
+                    <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-lg text-xs text-rose-300 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      <p className="font-mono text-[11px]">{errorMessage}</p>
                     </div>
                   )}
-                  <input
-                    type="text"
-                    required
-                    value={targetHost}
-                    onChange={(e) => setTargetHost(e.target.value)}
-                    placeholder="192.168.1.150"
-                    className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                  />
-                  {availableIps.length > 1 && (
-                    <span className="block text-[11px] text-zinc-500 mt-1">
-                      Pick a detected interface above or enter any reachable IP manually (e.g. VLAN 20).
-                    </span>
+
+                  {!effectiveHost ? (
+                    <form onSubmit={(e) => handleRegisterHost(e, 'linux_debian')} className="space-y-3">
+                      <div className="p-3 bg-zinc-950/50 border border-zinc-800 rounded-lg text-xs text-zinc-400">
+                        Specify target Linux server details to generate the one-click installation command.
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-300 mb-1">Hostname *</label>
+                          <input
+                            type="text"
+                            required
+                            value={hostname}
+                            onChange={(e) => setHostname(e.target.value)}
+                            placeholder="srv-node-01"
+                            className="w-full px-3 py-1.5 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-medium text-zinc-300">IP Address *</label>
+                            {availableIps.length > 1 && (
+                              <span className="text-[11px] text-sky-400 font-medium">
+                                {availableIps.length} detected IPs
+                              </span>
+                            )}
+                          </div>
+                          {availableIps.length > 1 && (
+                            <div className="mb-1.5">
+                              <select
+                                value={availableIps.includes(targetHost) ? targetHost : 'custom'}
+                                onChange={(e) => {
+                                  if (e.target.value !== 'custom') {
+                                    setTargetHost(e.target.value)
+                                  }
+                                }}
+                                className="w-full px-2 py-1 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
+                              >
+                                {availableIps.map((ip) => (
+                                  <option key={ip} value={ip}>
+                                    {ip} (Detected)
+                                  </option>
+                                ))}
+                                <option value="custom">Custom / Manual IP</option>
+                              </select>
+                            </div>
+                          )}
+                          <input
+                            type="text"
+                            required
+                            value={targetHost}
+                            onChange={(e) => setTargetHost(e.target.value)}
+                            placeholder="192.168.1.200"
+                            className="w-full px-3 py-1.5 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={createHostMutation.isPending}
+                        className="w-full py-2 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        {createHostMutation.isPending ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Registering Host...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Register Host & Generate Command</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-300 mb-1 flex items-center justify-between">
+                          <span>ControlPlane Hub WebSocket URL</span>
+                          <span className="text-[11px] text-zinc-500 font-normal">LAN address reachable from Linux node</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={hubUrl}
+                          onChange={(e) => setHubUrl(e.target.value)}
+                          placeholder="ws://localhost:5029/agent-hub"
+                          className="w-full px-3 py-1.5 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+
+                      <div className="pt-1 flex items-center justify-between">
+                        <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={insecure}
+                            onChange={(e) => setInsecure(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded border-zinc-700 bg-zinc-950 text-sky-500 focus:ring-sky-500"
+                          />
+                          <span>Allow insecure / self-signed TLS certificates (<code className="text-zinc-400">--insecure</code>)</span>
+                        </label>
+                        <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-md p-0.5 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => setLinuxTool('curl')}
+                            className={`px-2 py-0.5 rounded font-mono transition-colors ${
+                              linuxTool === 'curl' ? 'bg-zinc-800 text-sky-300 font-semibold' : 'text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            curl
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLinuxTool('wget')}
+                            className={`px-2 py-0.5 rounded font-mono transition-colors ${
+                              linuxTool === 'wget' ? 'bg-zinc-800 text-sky-300 font-semibold' : 'text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            wget
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="font-medium text-zinc-300">
+                            Run in a Terminal / Console on the Linux Node:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleCopyCommand}
+                            className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 transition-colors"
+                          >
+                            {copied ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-400" />
+                                <span className="text-emerald-400">Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span>Copy Snippet</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl font-mono text-[11px] text-zinc-200 break-all select-all leading-relaxed shadow-inner">
+                          {activeScriptCommand}
+                        </div>
+                        <p className="text-[11px] text-zinc-500 mt-1.5">
+                          Works on Debian, Ubuntu, RHEL, Rocky, and Raspberry Pi OS. You can also run this command via the Proxmox noVNC web console if SSH is disabled.
+                        </p>
+                      </div>
+
+                      {/* Live Listener Status */}
+                      <div className="p-3.5 bg-zinc-950/70 border border-zinc-800/80 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-sky-500"></span>
+                          </div>
+                          <span className="text-xs text-zinc-300 font-medium">
+                            Listening for outbound agent connection...
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-mono text-zinc-500">
+                          Node: {effectiveHost.id.slice(0, 8)}...
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                    SSH Port
-                  </label>
-                  <input
-                    type="number"
-                    value={port}
-                    onChange={(e) => setPort(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                    SSH Username
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="root"
-                    className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                    Hostname / Label (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={hostname}
-                    onChange={(e) => setHostname(e.target.value)}
-                    placeholder="srv-node-01"
-                    className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-              </div>
-
-              {/* Auth Method Selector */}
-              <div>
-                <label className="block text-xs font-medium text-zinc-300 mb-2">
-                  Authentication Method
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setAuthType('password')}
-                    className={`flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
-                      authType === 'password'
-                        ? 'bg-sky-500/10 border-sky-500/40 text-sky-300 shadow-xs'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    SSH Password
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAuthType('key')}
-                    className={`flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
-                      authType === 'key'
-                        ? 'bg-sky-500/10 border-sky-500/40 text-sky-300 shadow-xs'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    <Key className="w-3.5 h-3.5" />
-                    Private Key (Ed25519/RSA)
-                  </button>
-                </div>
-              </div>
-
-              {authType === 'password' ? (
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                    SSH Password
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
               ) : (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                      Private Key PEM Content
-                    </label>
-                    <textarea
-                      rows={4}
-                      required
-                      value={privateKey}
-                      onChange={(e) => setPrivateKey(e.target.value)}
-                      placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
-                      className="w-full px-3 py-2 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 resize-none"
-                    />
+                /* Linux SSH Form */
+                <form id="adopt-form" onSubmit={handleStartSshAdoption} className="space-y-4">
+                  {errorMessage && (
+                    <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-lg text-xs text-rose-300 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="font-semibold">Adoption Failed</p>
+                          <p className="font-mono text-[11px] text-rose-300/90">{errorMessage}</p>
+                        </div>
+                      </div>
+                      {effectiveHost && (
+                        <div className="pt-2 border-t border-rose-900/40 flex items-center justify-between">
+                          <span className="text-[11px] text-zinc-300">
+                            Is SSH blocked or disabled on this node?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setErrorMessage(null)
+                              setLinuxMethod('script')
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-medium text-sky-300 bg-sky-950/60 hover:bg-sky-900/60 border border-sky-800/60 rounded-md transition-colors flex items-center gap-1"
+                          >
+                            <Terminal className="w-3 h-3" />
+                            <span>Switch to 1-Click Script</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-medium text-zinc-300">
+                          Target Host (IP or Domain) <span className="text-rose-400">*</span>
+                          {effectiveHost && (
+                            <span className="text-[11px] text-sky-400 font-normal ml-2">
+                              (Pre-filled from inventory)
+                            </span>
+                          )}
+                        </label>
+                        {availableIps.length > 1 && (
+                          <span className="text-[11px] text-sky-400 font-medium">
+                            {availableIps.length} detected IPs
+                          </span>
+                        )}
+                      </div>
+                      {availableIps.length > 1 && (
+                        <div className="mb-2">
+                          <select
+                            value={availableIps.includes(targetHost) ? targetHost : 'custom'}
+                            onChange={(e) => {
+                              if (e.target.value !== 'custom') {
+                                setTargetHost(e.target.value)
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:border-sky-500 font-mono"
+                          >
+                            {availableIps.map((ip) => (
+                              <option key={ip} value={ip}>
+                                {ip} {ip === effectiveHost?.ipAddress ? '(Primary IP)' : '(Alternate Interface)'}
+                              </option>
+                            ))}
+                            <option value="custom">Custom / Manual IP Override...</option>
+                          </select>
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        required
+                        value={targetHost}
+                        onChange={(e) => setTargetHost(e.target.value)}
+                        placeholder="192.168.1.150"
+                        className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                      />
+                      {availableIps.length > 1 && (
+                        <span className="block text-[11px] text-zinc-500 mt-1">
+                          Pick a detected interface above or enter any reachable IP manually (e.g. VLAN 20).
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                        SSH Port
+                      </label>
+                      <input
+                        type="number"
+                        value={port}
+                        onChange={(e) => setPort(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                      />
+                    </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                        SSH Username
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder="root"
+                        className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                        Hostname / Label (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={hostname}
+                        onChange={(e) => setHostname(e.target.value)}
+                        placeholder="srv-node-01"
+                        className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Auth Method Selector */}
                   <div>
-                    <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                      Sudo Password <span className="text-zinc-500 font-normal">(Optional, if user requires sudo password)</span>
+                    <label className="block text-xs font-medium text-zinc-300 mb-2">
+                      Authentication Method
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setAuthType('password')}
+                        className={`flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
+                          authType === 'password'
+                            ? 'bg-sky-500/10 border-sky-500/40 text-sky-300 shadow-xs'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        SSH Password
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAuthType('key')}
+                        className={`flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
+                          authType === 'key'
+                            ? 'bg-sky-500/10 border-sky-500/40 text-sky-300 shadow-xs'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <Key className="w-3.5 h-3.5" />
+                        Private Key (Ed25519/RSA)
+                      </button>
+                    </div>
+                  </div>
+
+                  {authType === 'password' ? (
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                        SSH Password
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                          Private Key PEM Content
+                        </label>
+                        <textarea
+                          rows={4}
+                          required
+                          value={privateKey}
+                          onChange={(e) => setPrivateKey(e.target.value)}
+                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
+                          className="w-full px-3 py-2 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 resize-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                          Sudo Password <span className="text-zinc-500 font-normal">(Optional, if user requires sudo password)</span>
+                        </label>
+                        <input
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••••••"
+                          className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-1">
+                    <label className="block text-xs font-medium text-zinc-300 mb-1.5 flex items-center justify-between">
+                      <span>
+                        ControlPlane Hub WebSocket URL <span className="text-rose-400">*</span>
+                      </span>
+                      <span className="text-[11px] text-zinc-500 font-normal">
+                        Remote agent dials back here
+                      </span>
                     </label>
                     <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••••••"
-                      className="w-full px-3 py-2 text-sm bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                      type="text"
+                      required
+                      value={hubUrl}
+                      onChange={(e) => setHubUrl(e.target.value)}
+                      placeholder="ws://192.168.20.159:5029/agent-hub"
+                      className="w-full px-3 py-2 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
                     />
+                    <p className="text-[11px] text-zinc-500 mt-1">
+                      Must be reachable from the target host (use this server&apos;s LAN IP or DNS name, never localhost).
+                    </p>
                   </div>
-                </div>
+
+                  <div className="pt-1">
+                    <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={insecure}
+                        onChange={(e) => setInsecure(e.target.checked)}
+                        className="w-4 h-4 rounded border-zinc-700 bg-zinc-950 text-sky-500 focus:ring-sky-500"
+                      />
+                      <span>Allow insecure / self-signed TLS certificates (<code className="text-zinc-400">--insecure</code>)</span>
+                    </label>
+                    <p className="text-[11px] text-zinc-500 mt-0.5 ml-6">
+                      Recommended if your cluster or hub uses self-signed certificates or internal CA over HTTPS/WSS.
+                    </p>
+                  </div>
+                </form>
               )}
-
-              <div className="pt-1">
-                <label className="block text-xs font-medium text-zinc-300 mb-1.5 flex items-center justify-between">
-                  <span>
-                    ControlPlane Hub WebSocket URL <span className="text-rose-400">*</span>
-                  </span>
-                  <span className="text-[11px] text-zinc-500 font-normal">
-                    Remote agent dials back here
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={hubUrl}
-                  onChange={(e) => setHubUrl(e.target.value)}
-                  placeholder="ws://192.168.20.159:5029/agent-hub"
-                  className="w-full px-3 py-2 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
-                />
-                <p className="text-[11px] text-zinc-500 mt-1">
-                  Must be reachable from the target host (use this server&apos;s LAN IP or DNS name, never localhost).
-                </p>
-              </div>
-
-              <div className="pt-1">
-                <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={insecure}
-                    onChange={(e) => setInsecure(e.target.checked)}
-                    className="w-4 h-4 rounded border-zinc-700 bg-zinc-950 text-sky-500 focus:ring-sky-500"
-                  />
-                  <span>Allow insecure / self-signed TLS certificates (<code className="text-zinc-400">--insecure</code>)</span>
-                </label>
-                <p className="text-[11px] text-zinc-500 mt-0.5 ml-6">
-                  Recommended if your cluster or hub uses self-signed certificates or internal CA over HTTPS/WSS.
-                </p>
-              </div>
-            </form>
+            </div>
           ) : (
             <div className="space-y-4">
               <AdoptionStepProgress
@@ -832,7 +1085,7 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                 >
                   Cancel
                 </button>
-                {platform === 'linux' || winMethod === 'ssh' ? (
+                {((platform === 'linux' && linuxMethod === 'ssh') || (platform === 'windows' && winMethod === 'ssh')) ? (
                   <button
                     type="submit"
                     form="adopt-form"
@@ -855,6 +1108,21 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
                 >
                   Try Again
                 </button>
+                {effectiveHost && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdoptionResponse(null)
+                      setErrorMessage(null)
+                      if (platform === 'linux') setLinuxMethod('script')
+                      else setWinMethod('powershell')
+                    }}
+                    className="px-4 py-2 text-xs font-medium text-sky-300 bg-sky-950/80 hover:bg-sky-900/80 border border-sky-800/60 rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    <Terminal className="w-3.5 h-3.5" />
+                    <span>Adopt via 1-Click Script</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onClose}
@@ -866,6 +1134,7 @@ export const AdoptNodeModal: React.FC<AdoptNodeModalProps> = ({
             ) : null}
           </div>
         </div>
+
       </div>
     </div>
   )

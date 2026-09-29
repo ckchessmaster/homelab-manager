@@ -11,6 +11,13 @@ import {
   restartOPNsenseService,
   fetchOPNsenseDhcpLeases,
   fetchOPNsenseFirmware,
+  checkOPNsenseFirmware,
+  fetchOPNsenseVitals,
+  fetchOPNsenseHAProxy,
+  fetchOPNsenseAcme,
+  fetchOPNsenseSecurityAlerts,
+  fetchOPNsenseFirewallStats,
+  fetchOPNsenseArp,
   type SaveOPNsenseInstancePayload,
 } from '../../../api/opnsense'
 
@@ -107,5 +114,70 @@ export function useOPNsenseFirmware(id: string | null) {
     queryKey: ['opnsense', 'firmware', id],
     queryFn: () => fetchOPNsenseFirmware(id!),
     enabled: !!id,
+    refetchInterval: 30000,
+  })
+}
+
+export function useCheckOPNsenseFirmware(instanceId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => checkOPNsenseFirmware(instanceId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['opnsense', 'firmware', instanceId] })
+    },
+  })
+}
+
+export function useOPNsenseVitals(id: string | null) {
+  return useQuery({
+    queryKey: ['opnsense', 'vitals', id],
+    queryFn: () => fetchOPNsenseVitals(id!),
+    enabled: !!id,
+    refetchInterval: 10000,
+  })
+}
+
+export function useOPNsenseHAProxy(id: string | null) {
+  return useQuery({
+    queryKey: ['opnsense', 'haproxy', id],
+    queryFn: () => fetchOPNsenseHAProxy(id!),
+    enabled: !!id,
+    refetchInterval: 15000,
+  })
+}
+
+export function useOPNsenseAcme(id: string | null) {
+  return useQuery({
+    queryKey: ['opnsense', 'acme', id],
+    queryFn: () => fetchOPNsenseAcme(id!),
+    enabled: !!id,
+    refetchInterval: 30000,
+  })
+}
+
+export function useOPNsenseSecurityAlerts(id: string | null) {
+  return useQuery({
+    queryKey: ['opnsense', 'security-alerts', id],
+    queryFn: () => fetchOPNsenseSecurityAlerts(id!),
+    enabled: !!id,
+    refetchInterval: 15000,
+  })
+}
+
+export function useOPNsenseFirewallStats(id: string | null) {
+  return useQuery({
+    queryKey: ['opnsense', 'firewall-stats', id],
+    queryFn: () => fetchOPNsenseFirewallStats(id!),
+    enabled: !!id,
+    refetchInterval: 15000,
+  })
+}
+
+export function useOPNsenseArp(id: string | null) {
+  return useQuery({
+    queryKey: ['opnsense', 'arp', id],
+    queryFn: () => fetchOPNsenseArp(id!),
+    enabled: !!id,
+    refetchInterval: 20000,
   })
 }

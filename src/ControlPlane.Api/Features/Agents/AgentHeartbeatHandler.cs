@@ -67,6 +67,15 @@ public class AgentHeartbeatHandler
         await db.SaveChangesAsync(cancellationToken);
         _connectionManager.UpdateHeartbeat(hostId, message);
 
+        if (message.Hardware != null)
+        {
+            var hwService = scope.ServiceProvider.GetService<Features.Hosts.Hardware.IHostHardwareService>();
+            if (hwService != null)
+            {
+                await hwService.ProcessAgentHardwareHeartbeatAsync(hostId, message.Hardware, cancellationToken);
+            }
+        }
+
         _logger.LogDebug(
             "Processed heartbeat for {Hostname} ({HostId}): RebootNeeded={Reboot}, UpgradablePkgs={Pkgs}",
             host.Hostname,

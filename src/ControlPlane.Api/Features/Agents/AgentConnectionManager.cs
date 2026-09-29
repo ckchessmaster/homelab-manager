@@ -10,10 +10,12 @@ public class AgentSession
 {
     public Guid HostId { get; init; }
     public string NodeId { get; init; } = string.Empty;
-    public WebSocket Socket { get; init; } = null!;
+    public WebSocket? Socket { get; init; }
+    public bool IsSimulated { get; init; }
     public DateTimeOffset ConnectedAt { get; init; } = DateTimeOffset.UtcNow;
     public SemaphoreSlim SendLock { get; } = new(1, 1);
     public AgentMetrics? LatestMetrics { get; set; }
+    public AgentHardwareSummary? LatestHardware { get; set; }
     public DateTimeOffset? LastHeartbeatAt { get; set; }
     public string? KernelVersion { get; set; }
     public string? InboundHost { get; init; }
@@ -57,7 +59,7 @@ public class AgentConnectionManager
         {
             try
             {
-                if (oldSession.Socket.State == WebSocketState.Open)
+                if (oldSession.Socket?.State == WebSocketState.Open)
                 {
                     _ = oldSession.Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Replaced by new connection", CancellationToken.None);
                 }
@@ -72,6 +74,27 @@ public class AgentConnectionManager
         _logger.LogInformation("Registered agent session for host {HostId} (Node: {NodeId})", hostId, nodeId);
 
         // Resolve any waiters awaiting reconnection for this host
+        if (_reconnectWaiters.TryRemove(hostId, out var waiter))
+        {
+            waiter.TrySetResult(session);
+        }
+
+        return session;
+    }
+
+    public AgentSession RegisterSimulated(Guid hostId, string nodeId)
+    {
+        var session = new AgentSession
+        {
+            HostId = hostId,
+            NodeId = nodeId,
+            IsSimulated = true,
+            ConnectedAt = DateTimeOffset.UtcNow
+        };
+
+        _sessions[hostId] = session;
+        _logger.LogInformation("Registered simulated agent session for host {HostId} (Node: {NodeId})", hostId, nodeId);
+
         if (_reconnectWaiters.TryRemove(hostId, out var waiter))
         {
             waiter.TrySetResult(session);
@@ -103,7 +126,8 @@ public class AgentConnectionManager
     {
         if (_sessions.TryGetValue(hostId, out var session))
         {
-            return session.Socket.State == WebSocketState.Open;
+            if (session.IsSimulated) return true;
+            return session.Socket != null && session.Socket.State == WebSocketState.Open;
         }
         return false;
     }
@@ -111,7 +135,7 @@ public class AgentConnectionManager
     public IReadOnlyCollection<Guid> GetOnlineHostIds()
     {
         return _sessions
-            .Where(s => s.Value.Socket.State == WebSocketState.Open)
+            .Where(s => s.Value.IsSimulated || (s.Value.Socket != null && s.Value.Socket.State == WebSocketState.Open))
             .Select(s => s.Key)
             .ToList();
     }
@@ -131,6 +155,10 @@ public class AgentConnectionManager
         {
             session.LatestMetrics = heartbeat.Metrics;
             session.LastHeartbeatAt = DateTimeOffset.UtcNow;
+            if (heartbeat.Hardware != null)
+            {
+                session.LatestHardware = heartbeat.Hardware;
+            }
             if (!string.IsNullOrWhiteSpace(heartbeat.KernelVersion))
             {
                 session.KernelVersion = heartbeat.KernelVersion;
@@ -156,9 +184,30 @@ public class AgentConnectionManager
         return null;
     }
 
+    public AgentHardwareSummary? GetLatestHardware(Guid hostId)
+    {
+        if (_sessions.TryGetValue(hostId, out var session))
+        {
+            return session.LatestHardware;
+        }
+        return null;
+    }
+
     public async Task<bool> SendCommandAsync(Guid hostId, AgentCommandEnvelope command, CancellationToken ct = default)
     {
-        if (!_sessions.TryGetValue(hostId, out var session) || session.Socket.State != WebSocketState.Open)
+        if (!_sessions.TryGetValue(hostId, out var session))
+        {
+            _logger.LogWarning("Cannot send command to host {HostId}: agent is not connected", hostId);
+            return false;
+        }
+
+        if (session.IsSimulated)
+        {
+            _logger.LogInformation("Dispatched simulated command {CommandType} to host {HostId}", command.Type, hostId);
+            return true;
+        }
+
+        if (session.Socket == null || session.Socket.State != WebSocketState.Open)
         {
             _logger.LogWarning("Cannot send command to host {HostId}: agent is not connected", hostId);
             return false;
@@ -196,6 +245,11 @@ public class AgentConnectionManager
 
     public async Task<AgentSession> WaitForReconnectAsync(Guid hostId, TimeSpan timeout, CancellationToken ct = default)
     {
+        if (_sessions.TryGetValue(hostId, out var existingSession) && existingSession.IsSimulated)
+        {
+            return existingSession;
+        }
+
         var tcs = _reconnectWaiters.GetOrAdd(hostId, _ => new TaskCompletionSource<AgentSession>(TaskCreationOptions.RunContinuationsAsynchronously));
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

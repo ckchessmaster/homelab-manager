@@ -53,6 +53,30 @@ public static class HostEndpoints
         .WithName("GetHostVitals")
         .WithSummary("Retrieve real-time resource and hardware vitals for a managed host");
 
+        group.MapGet("/{id:guid}/hardware", async (
+            Guid id,
+            [FromQuery] bool? refresh,
+            Features.Hosts.Hardware.IHostHardwareService hardwareService,
+            CancellationToken cancellationToken) =>
+        {
+            var inventory = await hardwareService.GetHardwareInventoryAsync(id, refresh ?? false, cancellationToken);
+            return inventory == null ? Results.NotFound(new { message = $"Host with ID '{id}' was not found." }) : Results.Ok(inventory);
+        })
+        .WithName("GetHostHardwareInventory")
+        .WithSummary("Retrieve physical disk, controller, PSU, and memory health inventory for a host");
+
+        group.MapPost("/{id:guid}/hardware/scan", async (
+            Guid id,
+            Features.Hosts.Hardware.IHostHardwareService hardwareService,
+            CancellationToken cancellationToken) =>
+        {
+            var inventory = await hardwareService.TriggerHardwareScanAsync(id, cancellationToken);
+            return inventory == null ? Results.NotFound(new { message = $"Host with ID '{id}' was not found." }) : Results.Ok(inventory);
+        })
+        .WithName("TriggerHostHardwareScan")
+        .WithSummary("Trigger on-demand hardware and SMART disk inspection scan")
+        .RequireAuthorization(AuthConstants.RequireOperator);
+
         group.MapPost("/", async (
             CreateHostRequest request,
             HostService hostService,

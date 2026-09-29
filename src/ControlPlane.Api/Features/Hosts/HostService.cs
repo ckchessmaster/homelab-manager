@@ -1,6 +1,7 @@
 using System.Net;
 using ControlPlane.Api.Features.Adapters.Idrac;
 using ControlPlane.Api.Features.Agents;
+using ControlPlane.Api.Features.Hosts.Hardware;
 using ControlPlane.Api.Storage;
 using ControlPlane.Api.Storage.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -532,6 +533,36 @@ public class HostService
             }
         }
 
+        string? hwHealth = null;
+        List<string>? hwAlerts = null;
+        if (!string.IsNullOrWhiteSpace(host.HardwareInventoryJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(host.HardwareInventoryJson);
+                if (doc.RootElement.TryGetProperty("OverallHealth", out var hProp) || doc.RootElement.TryGetProperty("overallHealth", out hProp))
+                {
+                    hwHealth = hProp.ValueKind == System.Text.Json.JsonValueKind.String 
+                        ? hProp.GetString() 
+                        : (hProp.ValueKind == System.Text.Json.JsonValueKind.Number ? ((HardwareHealthStatus)hProp.GetInt32()).ToString() : null);
+                }
+                if ((doc.RootElement.TryGetProperty("HealthAlerts", out var aProp) || doc.RootElement.TryGetProperty("healthAlerts", out aProp)) &&
+                    aProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    hwAlerts = new List<string>();
+                    foreach (var item in aProp.EnumerateArray())
+                    {
+                        var s = item.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) hwAlerts.Add(s);
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
         return new HostVitalsDto(
             CpuUsagePct: cpuUsage,
             MemoryUsagePct: memUsage,
@@ -540,7 +571,9 @@ public class HostService
             PowerWatts: power,
             PowerState: powerState,
             HealthStatus: health,
-            Source: source
+            Source: source,
+            HardwareHealth: hwHealth,
+            HardwareAlerts: hwAlerts
         );
     }
 
@@ -553,6 +586,41 @@ public class HostService
         List<string>? detectedIps = null)
     {
         var ips = detectedIps ?? (!string.IsNullOrWhiteSpace(host.IpAddress) ? new List<string> { host.IpAddress } : new List<string>());
+
+        string? hwHealth = null;
+        List<string>? hwAlerts = null;
+        if (!string.IsNullOrWhiteSpace(host.HardwareInventoryJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(host.HardwareInventoryJson);
+                if (doc.RootElement.TryGetProperty("OverallHealth", out var hProp) || doc.RootElement.TryGetProperty("overallHealth", out hProp))
+                {
+                    hwHealth = hProp.ValueKind == System.Text.Json.JsonValueKind.String 
+                        ? hProp.GetString() 
+                        : (hProp.ValueKind == System.Text.Json.JsonValueKind.Number ? ((HardwareHealthStatus)hProp.GetInt32()).ToString() : null);
+                }
+                if ((doc.RootElement.TryGetProperty("HealthAlerts", out var aProp) || doc.RootElement.TryGetProperty("healthAlerts", out aProp)) &&
+                    aProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    hwAlerts = new List<string>();
+                    foreach (var item in aProp.EnumerateArray())
+                    {
+                        var s = item.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) hwAlerts.Add(s);
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        var resolvedVitals = vitals != null && (hwHealth != null || hwAlerts != null)
+            ? vitals with { HardwareHealth = hwHealth, HardwareAlerts = hwAlerts }
+            : vitals;
+
         return new HostResponse(
             Id: host.Id,
             Hostname: host.Hostname,
@@ -576,8 +644,10 @@ public class HostService
             UpdatedAt: host.UpdatedAt,
             Hypervisor: hypervisor,
             HostedVms: hostedVms,
-            Vitals: vitals,
-            DetectedIps: ips
+            Vitals: resolvedVitals,
+            DetectedIps: ips,
+            HardwareHealth: hwHealth,
+            HardwareAlerts: hwAlerts
         );
     }
 }

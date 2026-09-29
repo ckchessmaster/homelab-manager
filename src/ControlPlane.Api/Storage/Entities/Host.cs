@@ -35,6 +35,11 @@ public class Host
     // Runtime Agent State
     public AgentState Agent { get; set; } = new();
 
+    /// <summary>
+    /// Serialized HostHardwareInventoryDto snapshot for offline viewing and standby replication.
+    /// </summary>
+    public string? HardwareInventoryJson { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

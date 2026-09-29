@@ -35,10 +35,10 @@ public class CompositeAuthenticationHandler : AuthenticationHandler<Authenticati
         }
 
         // 1. Check for development bypass mode
-        var bypassAuth = _configuration.GetValue<bool>("AUTH_BYPASS", false);
+        var bypassAuth = _configuration.GetValue<bool>("AUTH_BYPASS", false) || _configuration.GetValue<bool>("DEMO_MODE", false);
         if (bypassAuth)
         {
-            _logger.LogDebug("AUTH_BYPASS is active. Delegating to ApiKey bypass handler.");
+            _logger.LogDebug("AUTH_BYPASS or DEMO_MODE is active. Delegating to ApiKey bypass handler.");
             return await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
         }
 

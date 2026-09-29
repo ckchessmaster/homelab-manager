@@ -98,6 +98,9 @@ public class HostConfiguration : IEntityTypeConfiguration<HostEntity>
                 .HasColumnName("upgradable_packages_count");
         });
 
+        builder.Property(h => h.HardwareInventoryJson)
+            .HasColumnName("hardware_inventory");
+
         builder.HasMany(h => h.UpdateJobs)
             .WithOne(j => j.TargetHost)
             .HasForeignKey(j => j.TargetHostId)

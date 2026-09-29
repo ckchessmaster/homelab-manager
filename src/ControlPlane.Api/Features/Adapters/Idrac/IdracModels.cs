@@ -25,6 +25,13 @@ public record IdracVitalsDto(
     string? BmcFirmwareVersion = null
 );
 
+public record BmcHardwareInventoryDto(
+    List<ControlPlane.Api.Features.Hosts.Hardware.PhysicalDiskDto> Disks,
+    List<ControlPlane.Api.Features.Hosts.Hardware.StorageControllerDto> Controllers,
+    List<ControlPlane.Api.Features.Hosts.Hardware.PowerSupplyDto> PowerSupplies,
+    List<ControlPlane.Api.Features.Hosts.Hardware.MemoryModuleDto> MemoryModules
+);
+
 public record IdracPowerControlRequest(
     string ResetType
 );

@@ -1,6 +1,6 @@
-import { Server, Box, Layers, AlertTriangle, ArrowUpCircle, Cpu, Network, Shield, Router, Wifi } from 'lucide-react'
+import { Server, Box, Layers, AlertTriangle, ArrowUpCircle, Cpu, Network, Shield, Router, Wifi, CheckCircle, AlertCircle } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
-import type { AgentState } from '../../api/hosts'
+import type { AgentState, HardwareHealthStatus } from '../../api/hosts'
 
 export function TargetTypeBadge({ type }: { type: string }) {
   switch (type?.toLowerCase()) {
@@ -178,6 +178,53 @@ export function UpdatesBadge({ count }: { count?: number | null }) {
     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-300 bg-sky-950/60 px-2 py-0.5 rounded-full border border-sky-700/50">
       <ArrowUpCircle className="h-3 w-3 text-sky-400 shrink-0" />
       {count} {count === 1 ? 'update' : 'updates'}
+    </span>
+  )
+}
+
+export function HardwareHealthBadge({
+  status,
+  alerts,
+}: {
+  status?: HardwareHealthStatus | null
+  alerts?: string[] | null
+}) {
+  if (!status || status === 'Unknown') return null
+
+  if (status === 'Ok') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-800/40"
+        title="Hardware Health: OK"
+      >
+        <CheckCircle className="h-3 w-3 text-emerald-400 shrink-0" />
+        Hardware OK
+      </span>
+    )
+  }
+
+  if (status === 'Critical') {
+    const alertTooltip = alerts && alerts.length > 0 ? alerts.join('; ') : 'Critical hardware fault detected'
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-300 bg-rose-950/80 px-2 py-0.5 rounded-full border border-rose-600/60 shadow-xs shadow-rose-900/40"
+        title={alertTooltip}
+      >
+        <AlertCircle className="h-3 w-3 text-rose-400 shrink-0" />
+        Hardware Critical {alerts && alerts.length > 0 ? `(${alerts.length})` : ''}
+      </span>
+    )
+  }
+
+  // Warning / Degraded
+  const alertTooltip = alerts && alerts.length > 0 ? alerts.join('; ') : 'Hardware warning or degraded component'
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-600/50"
+      title={alertTooltip}
+    >
+      <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+      Hardware Warning {alerts && alerts.length > 0 ? `(${alerts.length})` : ''}
     </span>
   )
 }

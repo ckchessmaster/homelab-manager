@@ -12,6 +12,26 @@ spec:
       app.kubernetes.io/name: controlplane-api
       app.kubernetes.io/instance: {{ .Release.Name }}
   egress:
+    {{- if .Values.networkPolicy.cilium.allowAllEgress }}
     - toEntities:
-        - kube-apiserver
+        - all
+    {{- else }}
+    {{- if or .Values.networkPolicy.cilium.toEntities .Values.networkPolicy.cilium.allowClusterNodes }}
+    - toEntities:
+        {{- range .Values.networkPolicy.cilium.toEntities }}
+        - {{ . }}
+        {{- end }}
+        {{- if .Values.networkPolicy.cilium.allowClusterNodes }}
+        - remote-node
+        - host
+        {{- end }}
+    {{- end }}
+    {{- range .Values.networkPolicy.allowedEgressSubnets }}
+    - toCIDR:
+        - {{ . }}
+    {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.cilium.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}

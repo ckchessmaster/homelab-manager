@@ -46,7 +46,7 @@ public class SshBootstrapper : ISshBootstrapper
 
         return new SshConnectionInfo(request.TargetHost, request.Port, request.Username, authMethods.ToArray())
         {
-            Timeout = TimeSpan.FromSeconds(15)
+            Timeout = TimeSpan.FromSeconds(30)
         };
     }
 

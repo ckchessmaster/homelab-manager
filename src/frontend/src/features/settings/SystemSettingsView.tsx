@@ -10,16 +10,18 @@ import {
   Clock,
   Layers,
   HardDrive,
+  Sliders,
 } from 'lucide-react'
 import { SystemLogsView } from '../system/SystemLogsView'
 import { PersonalAccessTokensCard } from '../auth/PersonalAccessTokensCard'
 import { AgentBinariesCard } from './AgentBinariesCard'
+import { HardwareThresholdsCard } from './HardwareThresholdsCard'
 import { useAuthUser } from '../auth/useAuthUser'
 import { getApiKey } from '../../api/client'
 import { fetchSystemInfo, type SystemInfoDto } from '../../api/system'
 import { Badge } from '../../components/ui/badge'
 
-type SettingsSubTab = 'logs' | 'security' | 'agents' | 'storage'
+type SettingsSubTab = 'logs' | 'security' | 'agents' | 'hardware' | 'storage'
 
 export function SystemSettingsView() {
   const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>('logs')
@@ -100,6 +102,19 @@ export function SystemSettingsView() {
 
           <button
             type="button"
+            onClick={() => setActiveSubTab('hardware')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === 'hardware'
+                ? 'bg-sky-500 text-zinc-950 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Hardware Health</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveSubTab('storage')}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
               activeSubTab === 'storage'
@@ -149,7 +164,14 @@ export function SystemSettingsView() {
         </div>
       )}
 
-      {/* Tab 4: Storage & Runtime Architecture */}
+      {/* Tab 4: Hardware Health Thresholds */}
+      {activeSubTab === 'hardware' && (
+        <div className="max-w-4xl mx-auto">
+          <HardwareThresholdsCard />
+        </div>
+      )}
+
+      {/* Tab 5: Storage & Runtime Architecture */}
       {activeSubTab === 'storage' && (
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Runtime Process Diagnostics */}

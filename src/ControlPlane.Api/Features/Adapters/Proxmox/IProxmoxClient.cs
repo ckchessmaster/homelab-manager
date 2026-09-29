@@ -113,4 +113,14 @@ public interface IProxmoxClient
         int vmid,
         bool isLxc = false,
         CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+    /// <summary>
+    /// Lists physical disks on a Proxmox node.
+    /// </summary>
+    Task<List<ProxmoxDiskItem>> GetNodeDisksAsync(string node, CancellationToken ct = default) => Task.FromResult(new List<ProxmoxDiskItem>());
+
+    /// <summary>
+    /// Lists ZFS pools on a Proxmox node.
+    /// </summary>
+    Task<List<ProxmoxZfsPoolItem>> GetNodeZfsPoolsAsync(string node, CancellationToken ct = default) => Task.FromResult(new List<ProxmoxZfsPoolItem>());
 }

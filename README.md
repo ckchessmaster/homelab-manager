@@ -153,7 +153,21 @@ database:
 auth:
   apiKey: "your_controlplane_api_key"
   masterKey: "your_256bit_base64_master_key" # generate with: openssl rand -base64 32
+
+# 5. Network Policy & Cilium Integration (Optional)
+networkPolicy:
+  enabled: true
+  allowedEgressSubnets:
+    - "192.168.0.0/16"
+    - "10.0.0.0/8"
+  cilium:
+    enabled: false               # Enable to generate native CiliumNetworkPolicy
+    allowClusterNodes: false     # Set true if adopting/managing worker nodes in the same cluster via SSH
 ```
+
+> [!NOTE]
+> **Cilium Egress & In-Cluster Node Adoption:**
+> When using Cilium CNI with `networkPolicy.cilium.enabled: true`, egress operates in default-deny mode. If ControlPlane is deployed inside the same Kubernetes cluster whose nodes it manages, worker nodes have identity `remote-node` (and `host`), whereas control plane nodes match `kube-apiserver`. Set `networkPolicy.cilium.allowClusterNodes: true` to allow SSH adoption and agent discovery across in-cluster worker nodes. See [charts/controlplane/README.md](charts/controlplane/README.md) for full configuration details.
 
 > **Tip on Secret Keys:** When using `clientSecretName`, `passwordSecretName`, or `existingSecret`, keys are automatically mapped by standard convention.
 > * **Temporal Client Secret**: Accepts `client-secret`, `clientSecret`, `client_secret`, `secret`, `temporal-client-secret`, `Temporal__Auth__ClientSecret`, or `CLIENT_SECRET`.

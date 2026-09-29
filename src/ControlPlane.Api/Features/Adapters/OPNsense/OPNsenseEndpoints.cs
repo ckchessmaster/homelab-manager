@@ -281,6 +281,179 @@ public static class OPNsenseEndpoints
             }
         });
 
+        group.MapPost("/instances/{id}/firmware/check", async (
+            string id,
+            IOPNsenseClientFactory factory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var (client, config, secret) = await factory.ResolveAsync(id, ct);
+                var fw = await client.CheckFirmwareUpdatesAsync(
+                    config.BaseUrl,
+                    config.ApiKey,
+                    secret,
+                    config.AllowSelfSignedCert,
+                    ct);
+
+                return Results.Ok(fw);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"OPNsense instance '{id}' not found." });
+            }
+        });
+
+        // --- System Vitals & Hardware ---
+
+        group.MapGet("/instances/{id}/vitals", async (
+            string id,
+            IOPNsenseClientFactory factory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var (client, config, secret) = await factory.ResolveAsync(id, ct);
+                var vitals = await client.GetVitalsAsync(
+                    config.BaseUrl,
+                    config.ApiKey,
+                    secret,
+                    config.AllowSelfSignedCert,
+                    ct);
+
+                return Results.Ok(vitals);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"OPNsense instance '{id}' not found." });
+            }
+        });
+
+        // --- HAProxy & Reverse Proxy ---
+
+        group.MapGet("/instances/{id}/haproxy", async (
+            string id,
+            IOPNsenseClientFactory factory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var (client, config, secret) = await factory.ResolveAsync(id, ct);
+                var haproxy = await client.GetHAProxyStatusAsync(
+                    config.BaseUrl,
+                    config.ApiKey,
+                    secret,
+                    config.AllowSelfSignedCert,
+                    ct);
+
+                return Results.Ok(haproxy);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"OPNsense instance '{id}' not found." });
+            }
+        });
+
+        // --- ACME Client (Let's Encrypt) ---
+
+        group.MapGet("/instances/{id}/acme", async (
+            string id,
+            IOPNsenseClientFactory factory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var (client, config, secret) = await factory.ResolveAsync(id, ct);
+                var acme = await client.GetAcmeStatusAsync(
+                    config.BaseUrl,
+                    config.ApiKey,
+                    secret,
+                    config.AllowSelfSignedCert,
+                    ct);
+
+                return Results.Ok(acme);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"OPNsense instance '{id}' not found." });
+            }
+        });
+
+        // --- Security Alerts & IDS ---
+
+        group.MapGet("/instances/{id}/security-alerts", async (
+            string id,
+            IOPNsenseClientFactory factory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var (client, config, secret) = await factory.ResolveAsync(id, ct);
+                var sec = await client.GetSecurityAlertsAsync(
+                    config.BaseUrl,
+                    config.ApiKey,
+                    secret,
+                    config.AllowSelfSignedCert,
+                    ct);
+
+                return Results.Ok(sec);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"OPNsense instance '{id}' not found." });
+            }
+        });
+
+        // --- Firewall Stats & PF States ---
+
+        group.MapGet("/instances/{id}/firewall-stats", async (
+            string id,
+            IOPNsenseClientFactory factory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var (client, config, secret) = await factory.ResolveAsync(id, ct);
+                var fwStats = await client.GetFirewallStatsAsync(
+                    config.BaseUrl,
+                    config.ApiKey,
+                    secret,
+                    config.AllowSelfSignedCert,
+                    ct);
+
+                return Results.Ok(fwStats);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"OPNsense instance '{id}' not found." });
+            }
+        });
+
+        // --- ARP & Neighbor Discovery ---
+
+        group.MapGet("/instances/{id}/arp", async (
+            string id,
+            IOPNsenseClientFactory factory,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var (client, config, secret) = await factory.ResolveAsync(id, ct);
+                var arp = await client.GetArpTableAsync(
+                    config.BaseUrl,
+                    config.ApiKey,
+                    secret,
+                    config.AllowSelfSignedCert,
+                    ct);
+
+                return Results.Ok(arp);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { message = $"OPNsense instance '{id}' not found." });
+            }
+        });
+
         return app;
     }
 }

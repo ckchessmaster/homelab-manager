@@ -46,6 +46,7 @@ public class ControlPlaneMcpTools
     private readonly IHelmUpdateService? _helmUpdateService;
     private readonly IAgentBinarySyncService? _agentBinarySyncService;
     private readonly ISystemLogBuffer? _systemLogBuffer;
+    private readonly Features.Hosts.Hardware.IHostHardwareService? _hostHardwareService;
 
     public ControlPlaneMcpTools(
         ControlPlaneDbContext db,
@@ -65,7 +66,8 @@ public class ControlPlaneMcpTools
         IHomeAssistantClientFactory? homeAssistantClientFactory = null,
         IHelmUpdateService? helmUpdateService = null,
         IAgentBinarySyncService? agentBinarySyncService = null,
-        ISystemLogBuffer? systemLogBuffer = null)
+        ISystemLogBuffer? systemLogBuffer = null,
+        Features.Hosts.Hardware.IHostHardwareService? hostHardwareService = null)
     {
         _db = db;
         _hostService = hostService;
@@ -85,6 +87,7 @@ public class ControlPlaneMcpTools
         _helmUpdateService = helmUpdateService;
         _agentBinarySyncService = agentBinarySyncService;
         _systemLogBuffer = systemLogBuffer;
+        _hostHardwareService = hostHardwareService;
     }
 
     [McpServerTool]
@@ -733,7 +736,7 @@ public class ControlPlaneMcpTools
     }
 
     [McpServerTool]
-    [Description("Query OPNsense firewall gateway status, WAN/LAN health, and active DHCP leases.")]
+    [Description("Query OPNsense firewall gateway status, WAN/LAN health, system vitals, interfaces, and active DHCP leases.")]
     public async Task<object> GetOPNsenseStatus(
         [Description("Optional OPNsense firewall instance ID.")] string? instanceId = null,
         CancellationToken ct = default)
@@ -741,17 +744,46 @@ public class ControlPlaneMcpTools
         if (_opnsenseClientFactory == null) return new { error = "OPNsense factory not available." };
         var (client, config, secret) = await _opnsenseClientFactory.ResolveAsync(instanceId ?? "default", ct);
         var gateways = await client.GetGatewaysAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+        var interfaces = await client.GetInterfacesAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
         var leases = await client.GetDhcpLeasesAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
         var firmware = await client.GetFirmwareStatusAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+        var vitals = await client.GetVitalsAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
         return new
         {
             firewallId = config.Id,
             firewallName = config.Name,
             gateways,
+            interfaces,
+            vitals,
             dhcpLeaseCount = leases.Count,
             dhcpLeases = leases.Take(50),
             firmwareStatus = firmware.Status,
-            productVersion = firmware.Version
+            productVersion = firmware.Version,
+            updatesAvailable = firmware.UpdatesAvailable,
+            needsReboot = firmware.NeedsReboot
+        };
+    }
+
+    [McpServerTool]
+    [Description("Trigger a fresh firmware and update check on an OPNsense firewall and return available package updates.")]
+    public async Task<object> CheckOPNsenseUpdates(
+        [Description("Optional OPNsense firewall instance ID.")] string? instanceId = null,
+        CancellationToken ct = default)
+    {
+        if (_opnsenseClientFactory == null) return new { error = "OPNsense factory not available." };
+        var (client, config, secret) = await _opnsenseClientFactory.ResolveAsync(instanceId ?? "default", ct);
+        var fw = await client.CheckFirmwareUpdatesAsync(config.BaseUrl, config.ApiKey, secret, config.AllowSelfSignedCert, ct);
+        return new
+        {
+            firewallId = config.Id,
+            firewallName = config.Name,
+            version = fw.Version,
+            status = fw.Status,
+            updatesAvailable = fw.UpdatesAvailable,
+            packages = fw.Packages,
+            needsReboot = fw.NeedsReboot,
+            lastCheck = fw.LastCheck,
+            statusMsg = fw.StatusMsg
         };
     }
 
@@ -1580,6 +1612,49 @@ public class ControlPlaneMcpTools
             return new { error = "Agent binary sync service is not available." };
 
         return await _agentBinarySyncService.SyncBinariesAsync(force, ct);
+    }
+
+    [McpServerTool]
+    [Description("Get hardware health and telemetry inventory for a managed host (physical disks, SMART status, wear-out %, storage controllers, PSUs, memory modules/DIMMs, ZFS pools).")]
+    public async Task<object> GetHostHardwareInventory(
+        [Description("Unique GUID of the host.")] Guid? hostId = null,
+        [Description("Force refresh telemetry from agent and adapters instead of using cache.")] bool forceRefresh = false,
+        CancellationToken ct = default)
+    {
+        if (!hostId.HasValue || hostId.Value == Guid.Empty)
+            return new { error = "The 'hostId' parameter is required." };
+
+        if (_hostHardwareService == null)
+            return new { error = "Host hardware service is not available." };
+
+        var inventory = await _hostHardwareService.GetHardwareInventoryAsync(hostId.Value, forceRefresh, ct);
+        if (inventory == null)
+            return new { error = $"Host with ID '{hostId.Value}' not found." };
+
+        return inventory;
+    }
+
+    [McpServerTool]
+    [Description("Trigger an on-demand hardware telemetry scan across host agent, BMC (iDRAC/Redfish), and Proxmox VE hypervisor.")]
+    public async Task<object> TriggerHardwareScan(
+        [Description("Unique GUID of the host.")] Guid? hostId = null,
+        CancellationToken ct = default)
+    {
+        if (!hostId.HasValue || hostId.Value == Guid.Empty)
+            return new { error = "The 'hostId' parameter is required." };
+
+        if (_hostHardwareService == null)
+            return new { error = "Host hardware service is not available." };
+
+        try
+        {
+            var result = await _hostHardwareService.TriggerHardwareScanAsync(hostId.Value, ct);
+            return new { success = true, hostId = hostId.Value, hardware = result };
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, error = ex.Message };
+        }
     }
 }
 

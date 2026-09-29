@@ -81,6 +81,26 @@ public class WindowsAgentManagementTests
     }
 
     [Fact]
+    public async Task AgentEndpoints_ServesLinuxInstallScript_Anonymously()
+    {
+        using var factory = new WindowsAgentAppFactory();
+        var client = factory.CreateClient();
+
+        var installResp = await client.GetAsync("/api/v1/agents/install.sh");
+        Assert.Equal(HttpStatusCode.OK, installResp.StatusCode);
+
+        var scriptContent = await installResp.Content.ReadAsStringAsync();
+        Assert.Contains("controlplane-agent", scriptContent);
+        Assert.Contains("ControlPlane Compute Node Agent Linux Setup", scriptContent);
+        Assert.Contains("--insecure", scriptContent);
+        Assert.Contains("--hub-url", scriptContent);
+        Assert.Contains("--node-id", scriptContent);
+
+        var bootstrapResp = await client.GetAsync("/api/v1/agents/bootstrap.sh");
+        Assert.Equal(HttpStatusCode.OK, bootstrapResp.StatusCode);
+    }
+
+    [Fact]
     public async Task AgentEndpoints_ServesWindowsBinary_Anonymously()
     {
         using var factory = new WindowsAgentAppFactory();
@@ -91,3 +111,4 @@ public class WindowsAgentManagementTests
         Assert.Equal("application/octet-stream", resp.Content.Headers.ContentType?.MediaType);
     }
 }
+
