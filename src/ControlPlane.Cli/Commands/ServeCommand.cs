@@ -228,6 +228,7 @@ public static class ServeCommand
         builder.Services.AddScoped<IUniFiClientFactory, UniFiClientFactory>();
         builder.Services.AddScoped<IOPNsenseClient, OPNsenseClient>();
         builder.Services.AddScoped<IOPNsenseClientFactory, OPNsenseClientFactory>();
+        builder.Services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         builder.Services.AddSingleton<IHelmClient, HelmClient>();
         builder.Services.AddSingleton<IHelmCatalogService, HelmCatalogService>();
         builder.Services.AddMemoryCache();

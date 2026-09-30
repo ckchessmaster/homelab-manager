@@ -69,6 +69,9 @@ export interface InstallHelmReleasePayload {
   createNamespace?: boolean
   wait?: boolean
   timeoutSeconds?: number
+  registryUsername?: string | null
+  registryPassword?: string | null
+  registrySecretName?: string | null
 }
 
 export interface RollbackHelmReleasePayload {

@@ -73,7 +73,11 @@ public record InstallHelmReleaseRequestDto(
     bool Wait = false,
     int TimeoutSeconds = 300,
     bool ReuseValues = false,
-    bool ResetValues = false
+    bool ResetValues = false,
+    string? RegistryUsername = null,
+    string? RegistryPassword = null,
+    string? RegistrySecretName = null,
+    string? RegistryConfigJson = null
 );
 
 public record UpgradeHelmReleaseRequestDto(
@@ -84,7 +88,11 @@ public record UpgradeHelmReleaseRequestDto(
     bool ReuseValues = false,
     bool ResetValues = false,
     bool Wait = false,
-    int TimeoutSeconds = 300
+    int TimeoutSeconds = 300,
+    string? RegistryUsername = null,
+    string? RegistryPassword = null,
+    string? RegistrySecretName = null,
+    string? RegistryConfigJson = null
 );
 
 public record RollbackHelmReleaseRequestDto(

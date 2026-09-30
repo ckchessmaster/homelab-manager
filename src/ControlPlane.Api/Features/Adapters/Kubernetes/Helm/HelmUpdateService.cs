@@ -15,6 +15,7 @@ public class HelmUpdateService : IHelmUpdateService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IMemoryCache _cache;
     private readonly ILogger<HelmUpdateService> _logger;
+    private readonly IRegistryCredentialStore? _credentialStore;
     private readonly ConcurrentDictionary<string, HelmChartUpdateInfoDto> _latestResults = new(StringComparer.OrdinalIgnoreCase);
 
     public const string HttpClientName = "HelmRegistryClient";
@@ -32,11 +33,13 @@ public class HelmUpdateService : IHelmUpdateService
     public HelmUpdateService(
         IHttpClientFactory httpClientFactory,
         IMemoryCache cache,
-        ILogger<HelmUpdateService> logger)
+        ILogger<HelmUpdateService> logger,
+        IRegistryCredentialStore? credentialStore = null)
     {
         _httpClientFactory = httpClientFactory;
         _cache = cache;
         _logger = logger;
+        _credentialStore = credentialStore;
     }
 
     public HelmChartUpdateInfoDto? GetCached(string chartName, string currentVersion)
@@ -570,6 +573,17 @@ public class HelmUpdateService : IHelmUpdateService
             using var request = new HttpRequestMessage(HttpMethod.Get, indexUrl);
             request.Headers.UserAgent.ParseAdd("ControlPlane-HomelabManager/1.0");
 
+            var repoHost = RegistryCredentialStore.NormalizeHost(repoUrl);
+            if (!string.IsNullOrWhiteSpace(repoHost) && _credentialStore != null)
+            {
+                var creds = _credentialStore.TryGetCredentials(repoHost);
+                if (creds != null && !string.IsNullOrWhiteSpace(creds.Value.Password))
+                {
+                    var basicAuth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{creds.Value.Username}:{creds.Value.Password}"));
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
+                }
+            }
+
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode) return (null, null, versions);
 
@@ -703,6 +717,18 @@ public class HelmUpdateService : IHelmUpdateService
 
                         using var tokenReq = new HttpRequestMessage(HttpMethod.Get, tokenUrlBuilder.ToString());
                         tokenReq.Headers.UserAgent.ParseAdd("ControlPlane-HomelabManager/1.0");
+
+                        // If registry credentials are known (e.g. for ghcr.io), supply Basic auth to obtain the bearer token
+                        if (_credentialStore != null)
+                        {
+                            var creds = _credentialStore.TryGetCredentials(registry);
+                            if (creds != null && !string.IsNullOrWhiteSpace(creds.Value.Password))
+                            {
+                                var basicAuth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{creds.Value.Username}:{creds.Value.Password}"));
+                                tokenReq.Headers.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
+                            }
+                        }
+
                         using var tokenResp = await client.SendAsync(tokenReq, ct);
                         if (tokenResp.IsSuccessStatusCode)
                         {
@@ -713,6 +739,23 @@ public class HelmUpdateService : IHelmUpdateService
                             {
                                 token = tProp.GetString();
                             }
+                        }
+                    }
+                }
+                else if (authHeader != null && authHeader.Scheme.Equals("Basic", StringComparison.OrdinalIgnoreCase) && _credentialStore != null)
+                {
+                    var creds = _credentialStore.TryGetCredentials(registry);
+                    if (creds != null && !string.IsNullOrWhiteSpace(creds.Value.Password))
+                    {
+                        using var directReq = new HttpRequestMessage(HttpMethod.Get, tagsUrl);
+                        var basicAuth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{creds.Value.Username}:{creds.Value.Password}"));
+                        directReq.Headers.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
+                        directReq.Headers.UserAgent.ParseAdd("ControlPlane-HomelabManager/1.0");
+                        using var directResp = await client.SendAsync(directReq, ct);
+                        if (directResp.IsSuccessStatusCode)
+                        {
+                            tagsJson = await directResp.Content.ReadAsStringAsync(ct);
+                            goto ParseTags;
                         }
                     }
                 }
@@ -740,6 +783,7 @@ public class HelmUpdateService : IHelmUpdateService
                 tagsJson = await resp.Content.ReadAsStringAsync(ct);
             }
 
+        ParseTags:
             using var doc = JsonDocument.Parse(tagsJson);
             if (doc.RootElement.TryGetProperty("tags", out var tagsProp) && tagsProp.ValueKind == JsonValueKind.Array)
             {

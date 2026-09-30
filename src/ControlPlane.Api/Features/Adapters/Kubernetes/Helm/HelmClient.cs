@@ -10,10 +10,12 @@ namespace ControlPlane.Api.Features.Adapters.Kubernetes.Helm;
 public class HelmClient : IHelmClient
 {
     private readonly ILogger<HelmClient> _logger;
+    private readonly IRegistryCredentialStore? _credentialStore;
 
-    public HelmClient(ILogger<HelmClient> logger)
+    public HelmClient(ILogger<HelmClient> logger, IRegistryCredentialStore? credentialStore = null)
     {
         _logger = logger;
+        _credentialStore = credentialStore;
     }
 
     public static string? FindHelmPath()
@@ -80,39 +82,50 @@ public class HelmClient : IHelmClient
         return null;
     }
 
-    public static string BuildInstallArguments(InstallHelmReleaseRequestDto request, string? tempKubeconfig = null, string? tempValuesFile = null)
+    public static (bool IsOci, string EffectiveChart) ResolveEffectiveChart(string chartName, string? repoUrl)
     {
-        var args = new StringBuilder();
-
-        var isOciRepo = !string.IsNullOrWhiteSpace(request.RepoUrl) && request.RepoUrl.StartsWith("oci://", StringComparison.OrdinalIgnoreCase);
-        var isOciChart = !string.IsNullOrWhiteSpace(request.ChartName) && request.ChartName.StartsWith("oci://", StringComparison.OrdinalIgnoreCase);
+        var isOciRepo = !string.IsNullOrWhiteSpace(repoUrl) && repoUrl.StartsWith("oci://", StringComparison.OrdinalIgnoreCase);
+        var isOciChart = !string.IsNullOrWhiteSpace(chartName) && chartName.StartsWith("oci://", StringComparison.OrdinalIgnoreCase);
 
         string effectiveChart;
         if (isOciChart)
         {
-            effectiveChart = request.ChartName;
+            effectiveChart = chartName;
         }
         else if (isOciRepo)
         {
-            var cleanRepo = request.RepoUrl!.TrimEnd('/');
-            if (cleanRepo.EndsWith($"/{request.ChartName}", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(request.ChartName))
+            var cleanRepo = repoUrl!.TrimEnd('/');
+            if (cleanRepo.EndsWith($"/{chartName}", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(chartName))
             {
                 effectiveChart = cleanRepo;
             }
             else
             {
-                effectiveChart = $"{cleanRepo}/{request.ChartName}";
+                effectiveChart = $"{cleanRepo}/{chartName}";
             }
         }
         else
         {
-            effectiveChart = request.ChartName;
+            effectiveChart = chartName;
         }
+
+        return (isOciRepo || isOciChart, effectiveChart);
+    }
+
+    public static string BuildInstallArguments(
+        InstallHelmReleaseRequestDto request,
+        string? tempKubeconfig = null,
+        string? tempValuesFile = null,
+        string? tempRegistryConfigFile = null)
+    {
+        var args = new StringBuilder();
+
+        var (isOci, effectiveChart) = ResolveEffectiveChart(request.ChartName, request.RepoUrl);
 
         args.Append($"upgrade --install \"{request.ReleaseName}\" \"{effectiveChart}\"");
 
         // Helm does NOT accept --repo for OCI registries; the OCI URL is the chart reference itself
-        if (!isOciRepo && !isOciChart && !string.IsNullOrWhiteSpace(request.RepoUrl))
+        if (!isOci && !string.IsNullOrWhiteSpace(request.RepoUrl))
         {
             args.Append($" --repo \"{request.RepoUrl}\"");
         }
@@ -149,6 +162,28 @@ public class HelmClient : IHelmClient
         if (!string.IsNullOrWhiteSpace(tempValuesFile))
         {
             args.Append($" --values \"{tempValuesFile}\"");
+        }
+
+        if (!string.IsNullOrWhiteSpace(tempRegistryConfigFile))
+        {
+            args.Append($" --registry-config \"{tempRegistryConfigFile}\"");
+        }
+
+        // For non-OCI (classic HTTP/HTTPS) repositories, pass username/password directly
+        if (!isOci)
+        {
+            if (!string.IsNullOrWhiteSpace(request.RegistryUsername))
+            {
+                args.Append($" --username \"{request.RegistryUsername}\"");
+            }
+            if (!string.IsNullOrWhiteSpace(request.RegistryPassword))
+            {
+                args.Append($" --password \"{request.RegistryPassword}\"");
+            }
+            if (!string.IsNullOrWhiteSpace(request.RegistryUsername) || !string.IsNullOrWhiteSpace(request.RegistryPassword))
+            {
+                args.Append(" --pass-credentials");
+            }
         }
 
         if (tempKubeconfig != null)
@@ -401,6 +436,8 @@ public class HelmClient : IHelmClient
         }
 
         var (tempKubeconfig, cleanupKc) = await PrepareKubeconfigFileAsync(kubeconfigYaml, apiServerUrl, token, skipTlsVerify, ct);
+        var (isOci, effectiveChart) = ResolveEffectiveChart(request.ChartName, request.RepoUrl);
+        var (tempRegistryConfigFile, cleanupReg) = await PrepareRegistryConfigFileAsync(request, effectiveChart, isOci, ct);
         string? tempValuesFile = null;
 
         try
@@ -412,7 +449,7 @@ public class HelmClient : IHelmClient
                 SetRestrictedPermissions(tempValuesFile);
             }
 
-            var argsStr = BuildInstallArguments(request, tempKubeconfig, tempValuesFile);
+            var argsStr = BuildInstallArguments(request, tempKubeconfig, tempValuesFile, tempRegistryConfigFile);
 
             _logger.LogInformation("Executing Helm upgrade --install for release '{Release}' in '{Namespace}'...",
                 request.ReleaseName, request.Namespace);
@@ -433,7 +470,7 @@ public class HelmClient : IHelmClient
             else
             {
                 var errorMsg = !string.IsNullOrWhiteSpace(stderr) ? stderr : stdout;
-                errorMsg = SanitizeHelmOutput(errorMsg);
+                errorMsg = SanitizeHelmOutput(errorMsg, request.RegistryPassword);
 
                 // Attempt hook job diagnostic extraction if a Job failed
                 var hookMatch = Regex.Match(errorMsg, @"job\s+([a-zA-Z0-9_-]+)\s+failed", RegexOptions.IgnoreCase);
@@ -485,11 +522,100 @@ public class HelmClient : IHelmClient
         finally
         {
             cleanupKc();
+            cleanupReg();
             if (tempValuesFile != null && File.Exists(tempValuesFile))
             {
                 try { File.Delete(tempValuesFile); } catch { /* ignore */ }
             }
         }
+    }
+
+    private async Task<(string? TempPath, Action Cleanup)> PrepareRegistryConfigFileAsync(
+        InstallHelmReleaseRequestDto request,
+        string effectiveChart,
+        bool isOci,
+        CancellationToken ct)
+    {
+        string? configJson = null;
+
+        if (!string.IsNullOrWhiteSpace(request.RegistryConfigJson))
+        {
+            configJson = request.RegistryConfigJson;
+            _credentialStore?.RegisterDockerConfig(configJson);
+        }
+        else if (isOci && !string.IsNullOrWhiteSpace(request.RegistryUsername) && !string.IsNullOrWhiteSpace(request.RegistryPassword))
+        {
+            var host = RegistryCredentialStore.NormalizeHost(effectiveChart);
+            if (string.IsNullOrWhiteSpace(host) && !string.IsNullOrWhiteSpace(request.RepoUrl))
+            {
+                host = RegistryCredentialStore.NormalizeHost(request.RepoUrl);
+            }
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                host = "ghcr.io";
+            }
+
+            _credentialStore?.RegisterCredentials(host, request.RegistryUsername, request.RegistryPassword);
+            configJson = _credentialStore != null
+                ? _credentialStore.GenerateDockerConfigJson(host, request.RegistryUsername, request.RegistryPassword)
+                : FallbackGenerateDockerConfigJson(host, request.RegistryUsername, request.RegistryPassword);
+        }
+        else if (isOci && _credentialStore != null)
+        {
+            var host = RegistryCredentialStore.NormalizeHost(effectiveChart);
+            if (string.IsNullOrWhiteSpace(host) && !string.IsNullOrWhiteSpace(request.RepoUrl))
+            {
+                host = RegistryCredentialStore.NormalizeHost(request.RepoUrl);
+            }
+
+            if (!string.IsNullOrWhiteSpace(host))
+            {
+                var creds = _credentialStore.TryGetCredentials(host);
+                if (creds != null)
+                {
+                    configJson = _credentialStore.GenerateDockerConfigJson(host, creds.Value.Username, creds.Value.Password);
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(configJson))
+        {
+            var tempFile = Path.Combine(Path.GetTempPath(), $"helm-reg-{Guid.NewGuid():N}.json");
+            await File.WriteAllTextAsync(tempFile, configJson, ct);
+            SetRestrictedPermissions(tempFile);
+            return (tempFile, () =>
+            {
+                try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { /* ignore */ }
+            });
+        }
+
+        return (null, () => { });
+    }
+
+    private static string FallbackGenerateDockerConfigJson(string host, string username, string password)
+    {
+        var authString = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+        return $$"""
+        {
+          "auths": {
+            "{{host}}": {
+              "username": "{{username}}",
+              "password": "{{password}}",
+              "auth": "{{authString}}"
+            },
+            "https://{{host}}": {
+              "username": "{{username}}",
+              "password": "{{password}}",
+              "auth": "{{authString}}"
+            },
+            "https://{{host}}/v2/": {
+              "username": "{{username}}",
+              "password": "{{password}}",
+              "auth": "{{authString}}"
+            }
+          }
+        }
+        """;
     }
 
     public async Task<HelmOperationResultDto> RollbackReleaseAsync(
@@ -685,13 +811,18 @@ public class HelmClient : IHelmClient
         }
     }
 
-    public static string SanitizeHelmOutput(string? output)
+    public static string SanitizeHelmOutput(string? output, string? passwordToMask = null)
     {
         if (string.IsNullOrWhiteSpace(output)) return "";
         var lines = output.Split('\n');
         var filtered = lines.Where(l =>
             !l.Contains("WARNING: Kubernetes configuration file is", StringComparison.OrdinalIgnoreCase));
-        return string.Join('\n', filtered).Trim();
+        var result = string.Join('\n', filtered).Trim();
+        if (!string.IsNullOrWhiteSpace(passwordToMask) && passwordToMask.Length >= 3)
+        {
+            result = result.Replace(passwordToMask, "********");
+        }
+        return result;
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunCommandAsync(

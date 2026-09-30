@@ -837,6 +837,44 @@ public class WorkloadService : IWorkloadService
             var token = rawCluster?.EncryptedToken;
             var skipTls = rawCluster?.SkipTlsVerify ?? true;
 
+            if (!string.IsNullOrWhiteSpace(request.RegistrySecretName))
+            {
+                try
+                {
+                    var k8sAdapter = await _clientFactory.CreateAdapterAsync(clusterId, ct);
+                    var secret = await k8sAdapter.GetSecretAsync(request.Namespace, request.RegistrySecretName, maskValues: false, ct)
+                              ?? await k8sAdapter.GetSecretAsync("default", request.RegistrySecretName, maskValues: false, ct);
+                    if (secret != null && secret.Data != null)
+                    {
+                        string? dcfgJson = null;
+                        if (secret.Data.TryGetValue(".dockerconfigjson", out var d1) && !string.IsNullOrWhiteSpace(d1))
+                            dcfgJson = d1;
+                        else if (secret.Data.TryGetValue("config.json", out var d2) && !string.IsNullOrWhiteSpace(d2))
+                            dcfgJson = d2;
+                        else if (secret.Data.TryGetValue(".dockercfg", out var d3) && !string.IsNullOrWhiteSpace(d3))
+                            dcfgJson = d3;
+
+                        string? u = null, p = null;
+                        if (secret.Data.TryGetValue("username", out var u1)) u = u1;
+                        if (secret.Data.TryGetValue("password", out var p1)) p = p1;
+                        else if (secret.Data.TryGetValue("token", out var p2)) p = p2;
+                        else if (secret.Data.TryGetValue("pat", out var p3)) p = p3;
+
+                        request = request with
+                        {
+                            RegistryConfigJson = request.RegistryConfigJson ?? dcfgJson,
+                            RegistryUsername = request.RegistryUsername ?? u,
+                            RegistryPassword = request.RegistryPassword ?? p
+                        };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve Kubernetes registry secret '{Secret}' in cluster {ClusterId}",
+                        request.RegistrySecretName, clusterId);
+                }
+            }
+
             if (_helmClient != null)
             {
                 return await _helmClient.InstallOrUpgradeReleaseAsync(kubeconfig, url, token, skipTls, request, ct);

@@ -1143,12 +1143,15 @@ public class ControlPlaneMcpTools
     [Description("Install or upgrade a Helm chart on a Kubernetes cluster with optional values YAML.")]
     public async Task<object> install_helm_chart(
         [Description("Release name (e.g. ingress-nginx)")] string releaseName,
-        [Description("Chart name or reference (e.g. ingress-nginx, cert-manager, or repo/chart)")] string chartName,
+        [Description("Chart name or reference (e.g. ingress-nginx, cert-manager, or oci://ghcr.io/org/chart)")] string chartName,
         [Description("Target cluster ID (or null/empty for first active cluster)")] string? clusterId = null,
         [Description("Namespace to install into")] string? namespaceName = "default",
-        [Description("Repository URL if not a standard chart (e.g. https://kubernetes.github.io/ingress-nginx)")] string? repoUrl = null,
+        [Description("Repository URL if not a standard chart (e.g. https://kubernetes.github.io/ingress-nginx or oci://ghcr.io/org)")] string? repoUrl = null,
         [Description("Specific chart version (or null for latest)")] string? version = null,
         [Description("User-supplied values YAML configuration")] string? valuesYaml = null,
+        [Description("Username for private Helm repository or OCI registry authentication")] string? registryUsername = null,
+        [Description("Password or Personal Access Token (PAT) for private Helm repository or OCI registry authentication")] string? registryPassword = null,
+        [Description("Name of existing Kubernetes secret containing registry credentials (e.g. dockerconfigjson)")] string? registrySecretName = null,
         CancellationToken cancellationToken = default)
     {
         if (_workloadService == null)
@@ -1163,7 +1166,10 @@ public class ControlPlaneMcpTools
             RepoUrl: repoUrl,
             Version: version,
             ValuesYaml: valuesYaml,
-            CreateNamespace: true
+            CreateNamespace: true,
+            RegistryUsername: registryUsername,
+            RegistryPassword: registryPassword,
+            RegistrySecretName: registrySecretName
         );
 
         return await _workloadService.InstallOrUpgradeHelmReleaseAsync(clusterId ?? "", req, cancellationToken);

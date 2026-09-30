@@ -13,6 +13,8 @@ import {
   History,
   BookOpen,
   Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import {
   Dialog,
@@ -24,6 +26,7 @@ import {
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { useInstallHelmRelease, useHelmCatalog } from './useHelm'
+import { useSecrets } from '../useKubernetesResources'
 import { CreateResourceModal } from '../CreateResourceModal'
 import { getHelmReleaseDetail, type InstallHelmReleasePayload } from '../../../api/helm'
 
@@ -55,6 +58,12 @@ export function InstallHelmModal({
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [wait, setWait] = useState(false)
   const [timeoutSeconds, setTimeoutSeconds] = useState(300)
+  const [authType, setAuthType] = useState<'none' | 'credentials' | 'secret'>('none')
+  const [registryUsername, setRegistryUsername] = useState('')
+  const [registryPassword, setRegistryPassword] = useState('')
+  const [registrySecretName, setRegistrySecretName] = useState('')
+  const [showAuthSection, setShowAuthSection] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [infoMessage, setInfoMessage] = useState<string | null>(null)
   const [isReloadingLiveValues, setIsReloadingLiveValues] = useState(false)
@@ -62,6 +71,7 @@ export function InstallHelmModal({
 
   const isUpgrade = Boolean(initialData?.releaseName && initialData?.chartName)
   const { data: catalog = [] } = useHelmCatalog()
+  const { data: clusterSecrets = [] } = useSecrets(clusterId, namespace)
   const installMutation = useInstallHelmRelease(clusterId)
 
   useEffect(() => {
@@ -90,6 +100,21 @@ export function InstallHelmModal({
       setValuesYaml(initialValues)
       setReuseValues(initialData?.reuseValues ?? (!initialValues && Boolean(initRel)))
       setResetValues(initialData?.resetValues ?? false)
+
+      setRegistryUsername(initialData?.registryUsername || '')
+      setRegistryPassword(initialData?.registryPassword || '')
+      setRegistrySecretName(initialData?.registrySecretName || '')
+      if (initialData?.registryUsername || initialData?.registryPassword) {
+        setAuthType('credentials')
+        setShowAuthSection(true)
+      } else if (initialData?.registrySecretName) {
+        setAuthType('secret')
+        setShowAuthSection(true)
+      } else {
+        setAuthType('none')
+        setShowAuthSection(false)
+      }
+      setShowPassword(false)
 
       // If opening an upgrade without values, attempt local storage backup or fetch live from cluster
       if (initRel && initNs && !initialValues) {
@@ -185,6 +210,9 @@ export function InstallHelmModal({
         createNamespace: true,
         wait,
         timeoutSeconds,
+        registryUsername: authType === 'credentials' && registryUsername.trim() ? registryUsername.trim() : undefined,
+        registryPassword: authType === 'credentials' && registryPassword.trim() ? registryPassword.trim() : undefined,
+        registrySecretName: authType === 'secret' && registrySecretName.trim() ? registrySecretName.trim() : undefined,
       })
 
       if (result.success) {
@@ -367,6 +395,145 @@ export function InstallHelmModal({
               />
               <Globe className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-3" />
             </div>
+          </div>
+
+          {/* Private Repository & Registry Authentication */}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="text-xs font-medium text-zinc-200">
+                  Private Repository & Registry Authentication
+                </span>
+                <span className="text-[10px] text-zinc-500 font-normal">
+                  {authType === 'credentials'
+                    ? '(Username & Token active)'
+                    : authType === 'secret'
+                    ? `(Secret: ${registrySecretName || 'selected'})`
+                    : '(Optional)'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAuthSection(!showAuthSection)}
+                className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors cursor-pointer"
+              >
+                {showAuthSection ? 'Hide' : authType !== 'none' ? 'Configured' : 'Configure'}
+              </button>
+            </div>
+
+            {showAuthSection && (
+              <div className="space-y-3 pt-2 border-t border-zinc-800/80">
+                <div className="flex flex-wrap items-center gap-4 text-xs">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-zinc-300">
+                    <input
+                      type="radio"
+                      name="helm-auth-type"
+                      checked={authType === 'none'}
+                      onChange={() => setAuthType('none')}
+                      className="text-indigo-600 focus:ring-indigo-500 bg-zinc-900 border-zinc-700"
+                    />
+                    <span>None (Public)</span>
+                  </label>
+
+                  <label className="flex items-center gap-1.5 cursor-pointer text-zinc-300">
+                    <input
+                      type="radio"
+                      name="helm-auth-type"
+                      checked={authType === 'credentials'}
+                      onChange={() => setAuthType('credentials')}
+                      className="text-indigo-600 focus:ring-indigo-500 bg-zinc-900 border-zinc-700"
+                    />
+                    <span>Username & Token / Password</span>
+                  </label>
+
+                  <label className="flex items-center gap-1.5 cursor-pointer text-zinc-300">
+                    <input
+                      type="radio"
+                      name="helm-auth-type"
+                      checked={authType === 'secret'}
+                      onChange={() => setAuthType('secret')}
+                      className="text-indigo-600 focus:ring-indigo-500 bg-zinc-900 border-zinc-700"
+                    />
+                    <span>Cluster Secret</span>
+                  </label>
+                </div>
+
+                {authType === 'credentials' && (
+                  <div className="space-y-2.5 bg-zinc-950/60 p-2.5 rounded border border-zinc-800/80">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-medium text-zinc-300 mb-1">
+                          Registry / Repo Username
+                        </label>
+                        <Input
+                          placeholder="e.g. ckchessmaster or GitHub username"
+                          value={registryUsername}
+                          onChange={(e) => setRegistryUsername(e.target.value)}
+                          className="bg-zinc-900 border-zinc-700 text-zinc-100 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-medium text-zinc-300 mb-1 flex items-center justify-between">
+                          <span>Token / Password</span>
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
+                          >
+                            {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            <span>{showPassword ? 'Hide' : 'Show'}</span>
+                          </button>
+                        </label>
+                        <Input
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="e.g. GitHub PAT (classic) with read:packages"
+                          value={registryPassword}
+                          onChange={(e) => setRegistryPassword(e.target.value)}
+                          className="bg-zinc-900 border-zinc-700 text-zinc-100 text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-zinc-400 leading-normal">
+                      💡 For private GitHub Container Registry (<code className="text-zinc-300 font-mono">ghcr.io</code>) charts, provide your GitHub username and a Personal Access Token with <code className="text-indigo-300 font-mono">read:packages</code> scope.
+                    </p>
+                  </div>
+                )}
+
+                {authType === 'secret' && (
+                  <div className="space-y-2 bg-zinc-950/60 p-2.5 rounded border border-zinc-800/80">
+                    <label className="block text-[11px] font-medium text-zinc-300 mb-1">
+                      Target Secret Name
+                    </label>
+                    <div className="flex gap-2">
+                      <select
+                        value={registrySecretName}
+                        onChange={(e) => setRegistrySecretName(e.target.value)}
+                        className="flex-1 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="">-- Select an existing Secret --</option>
+                        {clusterSecrets.map((s: any) => (
+                          <option key={s.name} value={s.name}>
+                            {s.name} ({s.type || 'Secret'})
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        placeholder="Or type secret name"
+                        value={registrySecretName}
+                        onChange={(e) => setRegistrySecretName(e.target.value)}
+                        className="w-48 bg-zinc-900 border-zinc-700 text-zinc-100 text-xs"
+                      />
+                    </div>
+                    <p className="text-[10px] text-zinc-400">
+                      Uses authentication data from a Kubernetes Secret in namespace <code className="text-zinc-300 font-mono">{namespace}</code> (such as <code className="text-zinc-300 font-mono">kubernetes.io/dockerconfigjson</code>).
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Custom Values YAML */}

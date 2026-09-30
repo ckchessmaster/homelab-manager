@@ -93,6 +93,7 @@ builder.Services.AddScoped<IOPNsenseClient, OPNsenseClient>();
 builder.Services.AddScoped<IOPNsenseClientFactory, OPNsenseClientFactory>();
 builder.Services.AddScoped<IHomeAssistantClient, HomeAssistantClient>();
 builder.Services.AddScoped<IHomeAssistantClientFactory, HomeAssistantClientFactory>();
+builder.Services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
 builder.Services.AddSingleton<IHelmClient, HelmClient>();
 builder.Services.AddSingleton<IHelmCatalogService, HelmCatalogService>();
 builder.Services.AddMemoryCache();

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.6.0
+
+### Added
+* **Private Helm Repositories & OCI Registry Authentication**:
+  * **Private OCI Registry Support (`oci://...`)**: Added first-class support for installing and upgrading Helm charts from private OCI registries (such as GitHub Container Registry `ghcr.io`, Docker Hub, Harbor, Quay, AWS ECR, and Azure ACR). Dynamically synthesizes an isolated temporary Docker config (`--registry-config`) with restricted permissions and cleans it up after execution.
+  * **Classic HTTP/HTTPS Repository Authentication**: Added `--username`, `--password`, and `--pass-credentials` flags when installing from authenticated HTTP/HTTPS Helm repositories (Nexus, Artifactory, ChartMuseum).
+  * **Kubernetes Secret Resolution**: Seamlessly resolves credentials from existing cluster secrets (`kubernetes.io/dockerconfigjson`, `kubernetes.io/dockercfg`, or `Opaque` credentials) so existing `imagePullSecrets` can be linked directly to Helm chart deployments.
+  * **Registry Credential Store (`IRegistryCredentialStore`)**: Introduced a thread-safe registry credential store that caches credentials, discovers host Docker/Helm configurations (`~/.config/helm/registry/config.json`, `~/.docker/config.json`), and authenticates bearer token exchanges (e.g. against `https://ghcr.io/token`) during background chart version and update discovery.
+  * **MCP Operational Tooling**: Enriched the `install_helm_chart` tool with optional `registryUsername`, `registryPassword`, and `registrySecretName` parameters for autonomous AI pair programming.
+  * **Interactive Frontend UI**: Added an expandable **Private Repository & Registry Authentication** card in `<InstallHelmModal />` with one-click selection between Public, Username & Token (with masked input and GHCR PAT guidance), and existing Cluster Secret dropdown selection.
+  * **Security & Credential Sanitization**: Enforced strict masking (`********`) of sensitive tokens and passwords across all process outputs, log streams, and error diagnostics.
+
+---
+
 ## v1.5.2
 
 ### Fixed
