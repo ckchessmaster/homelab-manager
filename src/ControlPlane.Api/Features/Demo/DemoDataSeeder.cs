@@ -2,6 +2,7 @@ using System.Text.Json;
 using ControlPlane.Api.Features.Adapters.Config;
 using ControlPlane.Api.Features.Agents;
 using ControlPlane.Api.Features.Agents.Models;
+using ControlPlane.Api.Features.Hosts;
 using ControlPlane.Api.Features.Hosts.Hardware;
 using ControlPlane.Api.Features.Orchestration;
 using ControlPlane.Api.Storage;
@@ -25,6 +26,7 @@ public class DemoDataSeeder
     public static readonly Guid HostK8sWorker01Id = Guid.Parse("33333333-3333-3333-3333-333333333333");
     public static readonly Guid HostK8sWorker02Id = Guid.Parse("44444444-4444-4444-4444-444444444444");
     public static readonly Guid HostStorageNas01Id = Guid.Parse("55555555-5555-5555-5555-555555555555");
+    public static readonly Guid HostWinSrv01Id = Guid.Parse("66666666-6666-6666-6666-666666666666");
 
     private readonly ControlPlaneDbContext _db;
     private readonly IAdapterConfigService _adapterConfigService;
@@ -93,6 +95,11 @@ public class DemoDataSeeder
         var s5 = _connectionManager.RegisterSimulated(HostStorageNas01Id, "storage-nas-01");
         _connectionManager.UpdateMetrics(HostStorageNas01Id, new AgentMetrics { CpuUsagePct = 12.1, MemoryUsagePct = 82.5, DiskFreePct = 42.0 });
         s5.KernelVersion = "Linux 6.6.20-production+truenas";
+
+        // win-srv-01
+        var s6 = _connectionManager.RegisterSimulated(HostWinSrv01Id, "win-srv-01");
+        _connectionManager.UpdateMetrics(HostWinSrv01Id, new AgentMetrics { CpuUsagePct = 22.0, MemoryUsagePct = 58.0, DiskFreePct = 68.0 });
+        s6.KernelVersion = "Microsoft Windows NT 10.0.20348";
     }
 
     private async Task SeedHostsAsync(CancellationToken ct)
@@ -301,6 +308,40 @@ public class DemoDataSeeder
                     UpgradablePackagesCount = 1
                 },
                 HardwareInventoryJson = JsonSerializer.Serialize(nasHwInventory, JsonOptions)
+            },
+            new()
+            {
+                Id = HostWinSrv01Id,
+                Hostname = "win-srv-01",
+                FriendlyName = "Active Directory & DNS Server (Windows Server 2022)",
+                IpAddress = "192.168.1.15",
+                OsFamily = "windows",
+                TargetType = "proxmox_vm",
+                Proxmox = new ProxmoxTarget { Node = "proxmox", Vmid = 104, InstanceId = "proxmox-default" },
+                NetworkPort = new UnifiPortTarget { SwitchMac = "74:ac:b9:44:55:66", PortNumber = 6 },
+                Agent = new AgentState
+                {
+                    Installed = true,
+                    Version = "1.8.1",
+                    LastSeenAt = DateTimeOffset.UtcNow,
+                    PendingReboot = false,
+                    UpgradablePackagesCount = 2
+                },
+                WindowsLicenseJson = JsonSerializer.Serialize(new WindowsLicenseSummaryDto(
+                    IsEvaluation: true,
+                    Edition: "Windows Server 2022 Standard Evaluation",
+                    Description: "Windows Operating System, TIMEBASED_EVAL channel",
+                    LicenseStatus: "OOBGrace",
+                    GracePeriodMinutes: 5 * 24 * 60,
+                    DaysRemaining: 5,
+                    HoursRemaining: 120,
+                    ExpirationDate: DateTimeOffset.UtcNow.AddDays(5).ToString("o"),
+                    RearmsRemaining: 2,
+                    PartialProductKey: "ABCDE",
+                    IsExpiringSoon: true,
+                    IsCritical: false,
+                    CollectedAt: DateTimeOffset.UtcNow.ToString("o")
+                ), JsonOptions)
             }
         };
 

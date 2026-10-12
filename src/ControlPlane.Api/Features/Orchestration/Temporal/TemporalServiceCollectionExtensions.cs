@@ -103,6 +103,7 @@ public static class TemporalServiceCollectionExtensions
         services.AddScoped<IAgentActivities, AgentActivities>();
         services.AddScoped<IHealthProbeActivities, HealthProbeActivities>();
         services.AddScoped<IUpdateJobActivities, UpdateJobActivities>();
+        services.AddScoped<IWindowsLicenseActivities, WindowsLicenseActivities>();
 
         // Register Zitadel M2M Auth services if enabled
         if (options.Auth.Enabled)
@@ -122,13 +123,15 @@ public static class TemporalServiceCollectionExtensions
         services.AddHostedTemporalWorker(options.TaskQueue)
             .AddWorkflow<Workflows.HostUpgradeWorkflow>()
             .AddWorkflow<Workflows.RollingUpgradeWorkflow>()
+            .AddWorkflow<Workflows.WindowsLicenseRearmWorkflow>()
             .AddWorkflow<SystemPingWorkflow>()
             .AddScopedActivities<Activities.PreflightActivities>()
             .AddScopedActivities<Activities.ProxmoxActivities>()
             .AddScopedActivities<Activities.KubernetesActivities>()
             .AddScopedActivities<Activities.AgentActivities>()
             .AddScopedActivities<Activities.HealthProbeActivities>()
-            .AddScopedActivities<Activities.UpdateJobActivities>();
+            .AddScopedActivities<Activities.UpdateJobActivities>()
+            .AddScopedActivities<Activities.WindowsLicenseActivities>();
 
         services.AddHealthChecks().AddCheck<TemporalHealthCheck>("temporal", tags: ["ready"]);
 

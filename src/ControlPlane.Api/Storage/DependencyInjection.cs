@@ -318,6 +318,14 @@ public static class DependencyInjection
             {
                 // Ignored if column already exists
             }
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE hosts ADD COLUMN windows_license TEXT;", cancellationToken);
+            }
+            catch
+            {
+                // Ignored if column already exists
+            }
             await DbSeeder.SeedStandbyAsync(context, cancellationToken);
             logger.LogInformation("SQLite database schema ensured and seeded.");
         }

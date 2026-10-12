@@ -8,6 +8,11 @@ import { AdaptersView } from './features/adapters/AdaptersView'
 import { WorkflowsView } from './features/orchestration/WorkflowsView'
 import { WorkloadsPage } from './features/workloads/WorkloadsPage'
 import { useHosts } from './features/hosts/useHosts'
+import { usePendingApprovals } from './features/orchestration/usePendingApprovals'
+import { QuickApprovalModal } from './features/orchestration/QuickApprovalModal'
+import { ApprovalToastNotification } from './features/orchestration/ApprovalToastNotification'
+import { WorkflowCanvasModal } from './features/orchestration/canvas/WorkflowCanvasModal'
+import type { JobSummary } from './api/jobs'
 import {
   Server,
   ShieldCheck,
@@ -24,18 +29,24 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 function AuthenticatedApp() {
   const [activeTab, setActiveTab] = useState<NavTab>('hosts')
   const [addHostOpen, setAddHostOpen] = useState(false)
+  const [quickApprovalOpen, setQuickApprovalOpen] = useState(false)
+  const [canvasJob, setCanvasJob] = useState<JobSummary | null>(null)
 
   const { data: allHosts } = useHosts()
+  const { pendingApprovals, pendingCount } = usePendingApprovals()
   const totalHosts = allHosts?.length ?? 0
   const rebootPendingCount = allHosts?.filter((h) => h.agent?.pendingReboot).length ?? 0
 
   return (
-    <Layout
-      activeTab={activeTab}
-      onSelectTab={setActiveTab}
-      totalHosts={totalHosts}
-      rebootPendingCount={rebootPendingCount}
-    >
+    <>
+      <Layout
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        totalHosts={totalHosts}
+        rebootPendingCount={rebootPendingCount}
+        pendingApprovalCount={pendingCount}
+        onOpenApprovals={() => setQuickApprovalOpen(true)}
+      >
       {activeTab === 'hosts' && (
         <div className="space-y-6 w-full max-w-[1700px] mx-auto">
           {/* Sleek Top Metric Strip */}
@@ -121,6 +132,32 @@ function AuthenticatedApp() {
         </ErrorBoundary>
       )}
     </Layout>
+
+    {/* Floating Approval Alert Toast */}
+    <ApprovalToastNotification
+      pendingApprovals={pendingApprovals}
+      onOpenApprovals={() => setQuickApprovalOpen(true)}
+    />
+
+    {/* Quick Approval Modal (accessible from any view) */}
+    <QuickApprovalModal
+      isOpen={quickApprovalOpen}
+      onClose={() => setQuickApprovalOpen(false)}
+      onOpenCanvas={(job) => {
+        setCanvasJob(job)
+      }}
+    />
+
+    {/* Visual DAG Canvas Modal (when launched via Quick Approval) */}
+    {canvasJob && (
+      <WorkflowCanvasModal
+        isOpen={Boolean(canvasJob)}
+        onClose={() => setCanvasJob(null)}
+        job={canvasJob}
+        host={allHosts?.find((h) => h.id === canvasJob.targetHostId) || null}
+      />
+    )}
+  </>
   )
 }
 

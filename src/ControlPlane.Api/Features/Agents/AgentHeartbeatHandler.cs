@@ -76,6 +76,15 @@ public class AgentHeartbeatHandler
             }
         }
 
+        if (message.WindowsLicense != null)
+        {
+            var licenseService = scope.ServiceProvider.GetService<Features.Hosts.WindowsLicense.IWindowsLicenseService>();
+            if (licenseService != null)
+            {
+                await licenseService.ProcessAgentWindowsLicenseHeartbeatAsync(hostId, message.WindowsLicense, cancellationToken);
+            }
+        }
+
         _logger.LogDebug(
             "Processed heartbeat for {Hostname} ({HostId}): RebootNeeded={Reboot}, UpgradablePkgs={Pkgs}",
             host.Hostname,

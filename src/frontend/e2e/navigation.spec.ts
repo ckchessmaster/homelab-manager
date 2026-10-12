@@ -9,7 +9,7 @@ test.describe('Navigation & Shell', () => {
 
   test('renders top header branding and system status', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /ControlPlane/i })).toBeVisible()
-    await expect(page.getByText(/v0\.1\.0-alpha/i)).toBeVisible()
+    await expect(page.getByText(/v1\.8\.1/i)).toBeVisible()
   })
 
   test('switches across sidebar views cleanly', async ({ page }) => {

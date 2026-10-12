@@ -50,18 +50,20 @@ public class DemoModeTests
 
             await seeder.SeedAsync(false, CancellationToken.None);
 
-            // Verify 5 hosts created
+            // Verify 6 hosts created
             var hosts = await db.Hosts.ToListAsync();
-            Assert.Equal(5, hosts.Count);
+            Assert.Equal(6, hosts.Count);
             Assert.Contains(hosts, h => h.Hostname == "pve-node-01");
             Assert.Contains(hosts, h => h.Hostname == "k8s-cp-01");
             Assert.Contains(hosts, h => h.Hostname == "storage-nas-01");
+            Assert.Contains(hosts, h => h.Hostname == "win-srv-01");
 
             // Verify simulated sessions registered
             var onlineHostIds = connectionManager.GetOnlineHostIds();
-            Assert.Equal(5, onlineHostIds.Count);
+            Assert.Equal(6, onlineHostIds.Count);
             Assert.True(connectionManager.IsOnline(DemoDataSeeder.HostPveNode01Id));
             Assert.True(connectionManager.IsOnline(DemoDataSeeder.HostK8sCp01Id));
+            Assert.True(connectionManager.IsOnline(DemoDataSeeder.HostWinSrv01Id));
 
             // Verify jobs seeded
             var jobs = await db.UpdateJobs.ToListAsync();

@@ -1,6 +1,6 @@
-import { Server, Box, Layers, AlertTriangle, ArrowUpCircle, Cpu, Network, Shield, Router, Wifi, CheckCircle, AlertCircle } from 'lucide-react'
+import { Server, Box, Layers, AlertTriangle, ArrowUpCircle, Cpu, Network, Shield, Router, Wifi, CheckCircle, AlertCircle, Clock } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
-import type { AgentState, HardwareHealthStatus } from '../../api/hosts'
+import type { AgentState, HardwareHealthStatus, WindowsLicenseSummary } from '../../api/hosts'
 
 export function TargetTypeBadge({ type }: { type: string }) {
   switch (type?.toLowerCase()) {
@@ -228,3 +228,49 @@ export function HardwareHealthBadge({
     </span>
   )
 }
+
+export function WindowsLicenseBadge({
+  license,
+  onClick,
+}: {
+  license?: WindowsLicenseSummary | null
+  onClick?: () => void
+}) {
+  if (!license || !license.isEvaluation) return null
+
+  const isCritical = license.isCritical || license.daysRemaining <= 3 || license.rearmsRemaining <= 0
+  const isWarning = license.isExpiringSoon || license.daysRemaining <= 14
+
+  let badgeVariant = 'border-zinc-700/60 text-zinc-300 bg-zinc-800/40'
+  let icon = <Clock className="h-3 w-3 text-zinc-400 shrink-0" />
+  let label = `${license.daysRemaining}d eval (${license.rearmsRemaining} rearms left)`
+
+  if (isCritical) {
+    badgeVariant = 'border-rose-600/60 text-rose-300 bg-rose-950/80 shadow-xs shadow-rose-900/40 font-semibold'
+    icon = <AlertCircle className="h-3 w-3 text-rose-400 shrink-0" />
+    if (license.rearmsRemaining <= 0) {
+      label = 'License Expired (0 rearms left)'
+    } else {
+      label = `License Expiring (${license.daysRemaining}d, ${license.rearmsRemaining} rearms)`
+    }
+  } else if (isWarning) {
+    badgeVariant = 'border-amber-600/50 text-amber-300 bg-amber-950/60 font-medium'
+    icon = <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+    label = `License Expiring (${license.daysRemaining}d, ${license.rearmsRemaining} rearms)`
+  }
+
+  const tooltip = `Windows Server Evaluation: ${license.daysRemaining} days remaining (${license.gracePeriodMinutes} mins). Rearms left: ${license.rearmsRemaining}.${license.expirationDate ? ` Expires: ${new Date(license.expirationDate).toLocaleString()}` : ''}`
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${badgeVariant} ${onClick ? 'cursor-pointer hover:brightness-110 transition-all' : ''}`}
+      title={tooltip}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
+      {icon}
+      <span>{label}</span>
+    </span>
+  )
+}
+

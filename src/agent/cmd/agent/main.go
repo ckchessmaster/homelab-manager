@@ -17,6 +17,7 @@ import (
 
 	"controlplane-agent/internal/config"
 	"controlplane-agent/internal/hardware"
+	"controlplane-agent/internal/licensing"
 	"controlplane-agent/internal/lifecycle"
 	"controlplane-agent/internal/metrics"
 	"controlplane-agent/internal/packages"
@@ -27,20 +28,21 @@ import (
 )
 
 var (
-	Version = "1.8.1"
+	Version = "1.9.0"
 )
 
 type HeartbeatPayload struct {
-	Type           string                    `json:"type"`
-	NodeID         string                    `json:"nodeId"`
-	Hostname       string                    `json:"hostname"`
-	AgentVersion   string                    `json:"agentVersion"`
-	KernelVersion  string                    `json:"kernelVersion"`
-	PendingReboot  bool                      `json:"pendingReboot"`
-	PackageManager string                    `json:"packageManager"`
-	Metrics        *metrics.Metrics          `json:"metrics"`
-	PackageSummary *packages.PackageSummary  `json:"packageSummary"`
-	Hardware       *hardware.HardwareSummary `json:"hardware,omitempty"`
+	Type           string                           `json:"type"`
+	NodeID         string                           `json:"nodeId"`
+	Hostname       string                           `json:"hostname"`
+	AgentVersion   string                           `json:"agentVersion"`
+	KernelVersion  string                           `json:"kernelVersion"`
+	PendingReboot  bool                             `json:"pendingReboot"`
+	PackageManager string                           `json:"packageManager"`
+	Metrics        *metrics.Metrics                 `json:"metrics"`
+	PackageSummary *packages.PackageSummary         `json:"packageSummary"`
+	Hardware       *hardware.HardwareSummary        `json:"hardware,omitempty"`
+	WindowsLicense *licensing.WindowsLicenseSummary `json:"windowsLicense,omitempty"`
 }
 
 type CommandEnvelope struct {
@@ -99,6 +101,23 @@ func (hc *HardwareCache) Set(s *hardware.HardwareSummary) {
 	hc.summary = s
 }
 
+type LicenseCache struct {
+	mu      sync.RWMutex
+	summary *licensing.WindowsLicenseSummary
+}
+
+func (lc *LicenseCache) Get() *licensing.WindowsLicenseSummary {
+	lc.mu.RLock()
+	defer lc.mu.RUnlock()
+	return lc.summary
+}
+
+func (lc *LicenseCache) Set(s *licensing.WindowsLicenseSummary) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	lc.summary = s
+}
+
 const (
 	writeWait  = 5 * time.Second
 	pongWait   = 35 * time.Second
@@ -114,6 +133,7 @@ func main() {
 	collector := metrics.NewCollector()
 	pkgInspector := packages.DetectInspector()
 	hwInspector := hardware.DetectInspector()
+	licenseInspector := licensing.DetectInspector()
 	procRunner := runner.NewProcessRunner()
 
 	// Test mode: output vitals to stdout and exit
@@ -125,7 +145,7 @@ func main() {
 	if service.IsWindowsService() {
 		log.Printf("[Agent %s] Running as Windows Service", Version)
 		err := service.RunAsService("ControlPlaneAgent", func(ctx context.Context) error {
-			return runAgentLoop(ctx, cfg, collector, pkgInspector, hwInspector, procRunner)
+			return runAgentLoop(ctx, cfg, collector, pkgInspector, hwInspector, licenseInspector, procRunner)
 		})
 		if err != nil {
 			log.Fatalf("Windows service error: %v", err)
@@ -145,7 +165,7 @@ func main() {
 		cancel()
 	}()
 
-	if err := runAgentLoop(ctx, cfg, collector, pkgInspector, hwInspector, procRunner); err != nil {
+	if err := runAgentLoop(ctx, cfg, collector, pkgInspector, hwInspector, licenseInspector, procRunner); err != nil {
 		log.Printf("[Agent] Agent loop terminated: %v", err)
 	}
 }
@@ -156,6 +176,7 @@ func runAgentLoop(
 	collector metrics.Collector,
 	pkgInspector packages.Inspector,
 	hwInspector hardware.Inspector,
+	licenseInspector licensing.Inspector,
 	procRunner *runner.ProcessRunner,
 ) error {
 	hostname, _ := os.Hostname()
@@ -163,6 +184,7 @@ func runAgentLoop(
 
 	pkgCache := &PackageCache{}
 	hwCache := &HardwareCache{}
+	licenseCache := &LicenseCache{}
 
 	// Initial package inspection in background immediately
 	go func() {
@@ -179,6 +201,15 @@ func runAgentLoop(
 		defer inspectCancel()
 		if s, err := hwInspector.Inspect(inspectCtx); err == nil {
 			hwCache.Set(s)
+		}
+	}()
+
+	// Initial license inspection in background immediately
+	go func() {
+		inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer inspectCancel()
+		if s, err := licenseInspector.Inspect(inspectCtx); err == nil && s != nil {
+			licenseCache.Set(s)
 		}
 	}()
 
@@ -218,6 +249,24 @@ func runAgentLoop(
 		}
 	}()
 
+	// Periodic license inspection every 60 minutes
+	go func() {
+		licTicker := time.NewTicker(60 * time.Minute)
+		defer licTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-licTicker.C:
+				inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 45*time.Second)
+				if s, err := licenseInspector.Inspect(inspectCtx); err == nil && s != nil {
+					licenseCache.Set(s)
+				}
+				inspectCancel()
+			}
+		}
+	}()
+
 	// Outbound persistent connection loop
 	backoff := 1 * time.Second
 	maxBackoff := 15 * time.Second
@@ -239,7 +288,7 @@ func runAgentLoop(
 		}
 
 		sessionStart := time.Now()
-		err := runAgentSession(ctx, targetHubURL, cfg, hostname, collector, pkgCache, hwCache, hwInspector, procRunner, func() {
+		err := runAgentSession(ctx, targetHubURL, cfg, hostname, collector, pkgCache, hwCache, licenseCache, hwInspector, licenseInspector, procRunner, func() {
 			// Successfully connected & registered
 			backoff = 1 * time.Second
 			consecutiveFailures = 0
@@ -291,7 +340,9 @@ func runAgentSession(
 	collector metrics.Collector,
 	pkgCache *PackageCache,
 	hwCache *HardwareCache,
+	licenseCache *LicenseCache,
 	hwInspector hardware.Inspector,
+	licenseInspector licensing.Inspector,
 	procRunner *runner.ProcessRunner,
 	onConnected func(),
 ) error {
@@ -357,7 +408,7 @@ func runAgentSession(
 	})
 
 	// Send initial heartbeat immediately upon connection
-	sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, writeJSON)
+	sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, licenseCache, writeJSON)
 
 	// Periodic heartbeat timer
 	ticker := time.NewTicker(cfg.HeartbeatInterval)
@@ -376,7 +427,7 @@ func runAgentSession(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, writeJSON); err != nil {
+				if err := sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, licenseCache, writeJSON); err != nil {
 					log.Printf("[Agent] Heartbeat transmission failed: %v", err)
 					errChan <- err
 					return
@@ -450,7 +501,17 @@ func runAgentSession(
 					defer cancel()
 					if s, err := hwInspector.Inspect(inspectCtx); err == nil {
 						hwCache.Set(s)
-						_ = sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, writeJSON)
+						_ = sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, licenseCache, writeJSON)
+					}
+				}()
+			} else if base.Type == "CMD_LICENSE_SCAN" {
+				go func() {
+					log.Printf("[Agent] Handling on-demand CMD_LICENSE_SCAN...")
+					inspectCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+					defer cancel()
+					if s, err := licenseInspector.Inspect(inspectCtx); err == nil && s != nil {
+						licenseCache.Set(s)
+						_ = sendHeartbeat(cfg, hostname, collector, pkgCache, hwCache, licenseCache, writeJSON)
 					}
 				}()
 			} else if base.Type == "EXECUTE_COMMAND" {
@@ -489,11 +550,13 @@ func sendHeartbeat(
 	collector metrics.Collector,
 	pkgCache *PackageCache,
 	hwCache *HardwareCache,
+	licenseCache *LicenseCache,
 	writeFn func(interface{}) error,
 ) error {
 	m, _ := collector.Collect()
 	pkg := pkgCache.Get()
 	hw := hwCache.Get()
+	lic := licenseCache.Get()
 
 	pkgManager := ""
 	if pkg != nil {
@@ -511,6 +574,7 @@ func sendHeartbeat(
 		Metrics:        m,
 		PackageSummary: pkg,
 		Hardware:       hw,
+		WindowsLicense: lic,
 	}
 
 	return writeFn(payload)

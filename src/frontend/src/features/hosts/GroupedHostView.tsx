@@ -16,13 +16,15 @@ import {
   Check,
   AlertTriangle,
   GitFork,
+  ShieldAlert,
 } from 'lucide-react'
 import type { Host } from '../../api/hosts'
 import { isBaremetalHost, isProxmoxHost, isKubernetesHost } from '../../api/hosts'
 import type { PlatformFilter } from './HostFilterPills'
 import type { JobSummary } from '../../api/jobs'
+import { isJobAwaitingApproval } from '../orchestration/usePendingApprovals'
 import { Badge } from '../../components/ui/badge'
-import { AgentStatusBadge, RebootBadge, UpdatesBadge, HardwareHealthBadge } from './HostStatusBadge'
+import { AgentStatusBadge, RebootBadge, UpdatesBadge, HardwareHealthBadge, WindowsLicenseBadge } from './HostStatusBadge'
 import { HostVitalsBadge } from './HostVitalsBadge'
 import {
   DropdownMenu,
@@ -205,18 +207,33 @@ export function GroupedHostView({
                 </Badge>
               )}
               {activeJob && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (onViewDag) onViewDag(activeJob)
-                    else onTriggerUpdate(host)
-                  }}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors animate-pulse"
-                  title={`Active DAG: ${activeJob.activeStep || activeJob.status}. Click to view DAG Canvas.`}
-                >
-                  <GitFork className="w-2.5 h-2.5" />
-                  DAG Active
-                </span>
+                isJobAwaitingApproval(activeJob) ? (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (onViewDag) onViewDag(activeJob)
+                      else onTriggerUpdate(host)
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-colors animate-pulse cursor-pointer shadow-xs shadow-amber-950/30"
+                    title={`Approval Required: ${activeJob.activeStep || activeJob.status}. Click to review.`}
+                  >
+                    <ShieldAlert className="w-2.5 h-2.5 text-amber-400" />
+                    Awaiting Approval
+                  </span>
+                ) : (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (onViewDag) onViewDag(activeJob)
+                      else onTriggerUpdate(host)
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors animate-pulse cursor-pointer"
+                    title={`Active DAG: ${activeJob.activeStep || activeJob.status}. Click to view DAG Canvas.`}
+                  >
+                    <GitFork className="w-2.5 h-2.5" />
+                    DAG Active
+                  </span>
+                )
               )}
             </div>
 
@@ -262,6 +279,7 @@ export function GroupedHostView({
             <AgentStatusBadge agent={host.agent} />
             <RebootBadge pending={host.agent.pendingReboot} />
             <UpdatesBadge count={host.agent.upgradablePackagesCount} />
+            <WindowsLicenseBadge license={host.windowsLicense} />
           </div>
 
           {/* Quick Action Buttons */}

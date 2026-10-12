@@ -14,10 +14,12 @@ import {
   RebootBadge,
   UpdatesBadge,
   HardwareHealthBadge,
+  WindowsLicenseBadge,
 } from './HostStatusBadge'
 import { HostVitalsBadge } from './HostVitalsBadge'
 import { useHostVitals } from './useHosts'
 import { HardwareInventoryTab } from './HardwareInventoryTab'
+import { RearmLicenseModal } from './RearmLicenseModal'
 import {
   Server,
   Shield,
@@ -36,6 +38,8 @@ import {
   ArrowRight,
   AlertTriangle,
   HardDrive,
+  KeyRound,
+  Clock,
 } from 'lucide-react'
 import { useState } from 'react'
 import type { Host } from '../../api/hosts'
@@ -75,6 +79,7 @@ export function HostDetailsModal({
   const [fanModalOpen, setFanModalOpen] = useState(false)
   const [isBlinking, setIsBlinking] = useState(false)
   const [rebootConfirmOpen, setRebootConfirmOpen] = useState(false)
+  const [rearmModalOpen, setRearmModalOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'hardware'>('overview')
 
   const bmcPowerMutation = useIdracPowerActionByIp()
@@ -170,6 +175,7 @@ export function HostDetailsModal({
               <AgentStatusBadge agent={host.agent} />
               <RebootBadge pending={host.agent.pendingReboot} />
               <UpdatesBadge count={host.agent.upgradablePackagesCount} />
+              <WindowsLicenseBadge license={host.windowsLicense} onClick={() => setRearmModalOpen(true)} />
             </div>
           </div>
 
@@ -221,6 +227,125 @@ export function HostDetailsModal({
 
           {/* Live Resource Vitals */}
           <HostVitalsBadge vitals={liveVitals || host.vitals} mode="detailed" />
+
+          {/* Windows Evaluation License Management Card */}
+          {(host.osFamily?.toLowerCase().includes('windows') || Boolean(host.windowsLicense)) && (
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <KeyRound className="h-3.5 w-3.5 text-sky-400" />
+                  Windows Evaluation License
+                </h4>
+                {host.windowsLicense && (
+                  <WindowsLicenseBadge license={host.windowsLicense} />
+                )}
+              </div>
+
+              <div className="p-3.5 bg-zinc-950/60 border border-zinc-800 rounded-xl space-y-3">
+                {host.windowsLicense ? (
+                  <>
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-zinc-800/80">
+                      <div>
+                        <span className="font-semibold text-zinc-200">{host.windowsLicense.edition}</span>
+                        <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                          Channel: {host.windowsLicense.licenseStatus}
+                          {host.windowsLicense.partialProductKey ? ` | Key: ...-${host.windowsLicense.partialProductKey}` : ''}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setRearmModalOpen(true)}
+                        disabled={host.windowsLicense.rearmsRemaining <= 0}
+                        className="text-xs h-7 gap-1 border-sky-800/60 bg-sky-950/30 text-sky-300 hover:bg-sky-900/50 hover:text-white cursor-pointer"
+                      >
+                        <KeyRound className="h-3 w-3" />
+                        <span>Rearm License</span>
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                      <div className={`p-2.5 rounded-lg border ${
+                        host.windowsLicense.isCritical
+                          ? 'bg-rose-950/30 border-rose-800/50 text-rose-300'
+                          : host.windowsLicense.isExpiringSoon
+                          ? 'bg-amber-950/30 border-amber-800/50 text-amber-300'
+                          : 'bg-zinc-900/60 border-zinc-800/60 text-zinc-200'
+                      }`}>
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          Time Remaining
+                        </span>
+                        <p className="font-bold text-sm mt-1">
+                          {host.windowsLicense.daysRemaining} days
+                        </p>
+                        <p className="text-[10px] text-zinc-400 mt-0.5">
+                          {host.windowsLicense.hoursRemaining} hours ({host.windowsLicense.gracePeriodMinutes.toLocaleString()} mins)
+                        </p>
+                      </div>
+
+                      <div className={`p-2.5 rounded-lg border ${
+                        host.windowsLicense.rearmsRemaining <= 0
+                          ? 'bg-rose-950/30 border-rose-800/50 text-rose-300'
+                          : host.windowsLicense.rearmsRemaining === 1
+                          ? 'bg-amber-950/30 border-amber-800/50 text-amber-300'
+                          : 'bg-zinc-900/60 border-zinc-800/60 text-zinc-200'
+                      }`}>
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                          <KeyRound className="w-3 h-3" />
+                          Rearms Left
+                        </span>
+                        <p className="font-bold text-sm mt-1">
+                          {host.windowsLicense.rearmsRemaining} / 6
+                        </p>
+                        <p className="text-[10px] text-zinc-400 mt-0.5">
+                          {host.windowsLicense.rearmsRemaining <= 0 ? 'Exhausted' : `${host.windowsLicense.rearmsRemaining - 1} left after next`}
+                        </p>
+                      </div>
+
+                      <div className="p-2.5 rounded-lg border bg-zinc-900/60 border-zinc-800/60 text-zinc-200 col-span-2 sm:col-span-1">
+                        <span className="text-[10px] text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          Expires At
+                        </span>
+                        <p className="font-semibold text-xs mt-1 truncate">
+                          {host.windowsLicense.expirationDate ? new Date(host.windowsLicense.expirationDate).toLocaleDateString() : 'Active Evaluation'}
+                        </p>
+                        <p className="text-[10px] text-zinc-400 mt-0.5 truncate">
+                          {host.windowsLicense.expirationDate ? new Date(host.windowsLicense.expirationDate).toLocaleTimeString() : 'Grace Period'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {host.windowsLicense.rearmsRemaining <= 0 && (
+                      <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-800/50 text-xs text-rose-300 flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium">All evaluation rearm cycles have been used.</p>
+                          <p className="text-[11px] text-rose-300/80 mt-0.5">
+                            Activate Windows with a genuine product key (<code className="font-mono text-zinc-200">slmgr.vbs /ipk &lt;key&gt;</code>) to avoid automated shutdowns.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between text-xs text-zinc-400 py-1">
+                    <span>License telemetry not yet collected for this Windows host.</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRearmModalOpen(true)}
+                      className="text-xs h-7 gap-1"
+                    >
+                      <KeyRound className="h-3 w-3" />
+                      <span>Manage License</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Clean Horizontal Correlation Pipeline */}
           <div className="space-y-2.5">
@@ -588,6 +713,15 @@ export function HostDetailsModal({
           hostId={host.id}
           idracIp={host.idrac?.ipAddress}
           serverName={linkedBmcInstance?.name || host.hostname}
+        />
+      )}
+
+      {/* Windows License Rearm Modal */}
+      {rearmModalOpen && (
+        <RearmLicenseModal
+          host={host}
+          open={rearmModalOpen}
+          onClose={() => setRearmModalOpen(false)}
         />
       )}
     </>

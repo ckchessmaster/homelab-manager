@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using ControlPlane.Api.Features.Orchestration.Temporal.Workflows;
 using ControlPlane.Api.Features.Orchestration.Temporal.Workflows.Models;
 using ControlPlane.Api.Hubs;
@@ -19,6 +20,12 @@ public record StartWorkflowRequest(
     List<string>? ProbeUrls = null,
     string? SnapshotName = null,
     string? K8sNodeName = null,
+    string InitiatedBy = "Operator"
+);
+
+public record StartWindowsLicenseRearmRequest(
+    Guid HostId,
+    bool RebootAfter = false,
     string InitiatedBy = "Operator"
 );
 
@@ -253,6 +260,28 @@ public static class TemporalWorkflowEndpoints
                 state
             ));
         });
+
+        group.MapPost("/windows-license-rearm/start", async (
+            [FromBody] StartWindowsLicenseRearmRequest request,
+            ControlPlane.Api.Features.Hosts.WindowsLicense.IWindowsLicenseService licenseService,
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
+        {
+            var initiatedBy = string.IsNullOrWhiteSpace(request.InitiatedBy) ? (user.Identity?.Name ?? "Operator") : request.InitiatedBy;
+            var result = await licenseService.RearmWindowsLicenseAsync(request.HostId, request.RebootAfter, initiatedBy, ct);
+            if (!result.Success && result.JobId == Guid.Empty)
+            {
+                return Results.BadRequest(new { error = result.Message });
+            }
+            if (!result.Success)
+            {
+                return Results.Conflict(new { error = result.Message, jobId = result.JobId });
+            }
+            return Results.Accepted($"/api/v1/jobs/{result.JobId}", result);
+        })
+        .WithName("StartWindowsLicenseRearmWorkflow")
+        .WithSummary("Trigger a Windows license rearm Temporal workflow")
+        .RequireAuthorization(AuthConstants.RequireOperator);
 
         // Batch Rolling Upgrade Endpoints
         var batchGroup = app.MapGroup("/api/v1/orchestration/temporal/batch")

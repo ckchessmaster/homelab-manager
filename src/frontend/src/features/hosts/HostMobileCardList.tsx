@@ -8,6 +8,7 @@ import {
   RebootBadge,
   UpdatesBadge,
   HardwareHealthBadge,
+  WindowsLicenseBadge,
 } from './HostStatusBadge'
 import { HostVitalsBadge } from './HostVitalsBadge'
 import {
@@ -22,7 +23,9 @@ import {
   Check,
   GitFork,
   Camera,
+  ShieldAlert,
 } from 'lucide-react'
+import { isJobAwaitingApproval } from '../orchestration/usePendingApprovals'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -233,21 +236,37 @@ export function HostMobileCardList({
                 {Boolean(host.agent?.upgradablePackagesCount) && (
                   <UpdatesBadge count={host.agent?.upgradablePackagesCount} />
                 )}
+                <WindowsLicenseBadge license={host.windowsLicense} />
               </div>
 
               {activeJob && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onViewDag(activeJob)
-                  }}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors animate-pulse shrink-0 cursor-pointer"
-                  title={`Active DAG: ${activeJob.activeStep || activeJob.status}. Tap to view DAG Canvas.`}
-                >
-                  <GitFork className="w-2.5 h-2.5" />
-                  DAG Active
-                </button>
+                isJobAwaitingApproval(activeJob) ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onViewDag(activeJob)
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-colors animate-pulse shrink-0 cursor-pointer shadow-xs shadow-amber-950/30"
+                    title={`Approval Required: ${activeJob.activeStep || activeJob.status}. Tap to review.`}
+                  >
+                    <ShieldAlert className="w-2.5 h-2.5 text-amber-400" />
+                    Awaiting Approval
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onViewDag(activeJob)
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors animate-pulse shrink-0 cursor-pointer"
+                    title={`Active DAG: ${activeJob.activeStep || activeJob.status}. Tap to view DAG Canvas.`}
+                  >
+                    <GitFork className="w-2.5 h-2.5" />
+                    DAG Active
+                  </button>
+                )
               )}
             </div>
           </div>

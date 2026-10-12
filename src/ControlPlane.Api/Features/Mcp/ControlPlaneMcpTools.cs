@@ -47,6 +47,7 @@ public class ControlPlaneMcpTools
     private readonly IAgentBinarySyncService? _agentBinarySyncService;
     private readonly ISystemLogBuffer? _systemLogBuffer;
     private readonly Features.Hosts.Hardware.IHostHardwareService? _hostHardwareService;
+    private readonly Features.Hosts.WindowsLicense.IWindowsLicenseService? _windowsLicenseService;
 
     public ControlPlaneMcpTools(
         ControlPlaneDbContext db,
@@ -67,7 +68,8 @@ public class ControlPlaneMcpTools
         IHelmUpdateService? helmUpdateService = null,
         IAgentBinarySyncService? agentBinarySyncService = null,
         ISystemLogBuffer? systemLogBuffer = null,
-        Features.Hosts.Hardware.IHostHardwareService? hostHardwareService = null)
+        Features.Hosts.Hardware.IHostHardwareService? hostHardwareService = null,
+        Features.Hosts.WindowsLicense.IWindowsLicenseService? windowsLicenseService = null)
     {
         _db = db;
         _hostService = hostService;
@@ -88,6 +90,7 @@ public class ControlPlaneMcpTools
         _agentBinarySyncService = agentBinarySyncService;
         _systemLogBuffer = systemLogBuffer;
         _hostHardwareService = hostHardwareService;
+        _windowsLicenseService = windowsLicenseService;
     }
 
     [McpServerTool]
@@ -498,6 +501,60 @@ public class ControlPlaneMcpTools
             targetHostname = host.Hostname,
             targetIp = host.IpAddress,
             message = $"Safe reboot DAG pipeline '{job.PipelineId}' initiated for {host.Hostname}"
+        };
+    }
+
+    [McpServerTool]
+    [Description("Retrieve Windows Server evaluation/activation license status and remaining rearms for a managed host.")]
+    public async Task<object?> GetWindowsLicense(
+        [Description("The GUID of the target Windows host.")] Guid hostId,
+        [Description("Whether to trigger an on-demand license refresh from the agent.")] bool refresh = false,
+        CancellationToken ct = default)
+    {
+        if (_windowsLicenseService == null)
+        {
+            return new { success = false, error = "Windows license service is unavailable." };
+        }
+
+        var license = await _windowsLicenseService.GetWindowsLicenseAsync(hostId, refresh, ct);
+        if (license == null)
+        {
+            return new { success = false, message = "Windows license information not found or target host is not a Windows machine." };
+        }
+
+        return new
+        {
+            success = true,
+            hostId,
+            license
+        };
+    }
+
+    [McpServerTool]
+    [Description("Execute slmgr.vbs /rearm via Temporal workflow on a managed Windows Server node and optionally reboot it.")]
+    public async Task<object> RearmWindowsLicense(
+        [Description("The GUID of the target Windows host.")] Guid hostId,
+        [Description("Whether to reboot the host after executing rearm (recommended to apply grace period).")] bool rebootAfter = false,
+        CancellationToken ct = default)
+    {
+        if (_windowsLicenseService == null)
+        {
+            return new { success = false, error = "Windows license service is unavailable." };
+        }
+
+        var result = await _windowsLicenseService.RearmWindowsLicenseAsync(
+            hostId,
+            rebootAfter,
+            initiatedBy: "AI Agent via MCP",
+            ct: ct);
+
+        return new
+        {
+            success = result.Success,
+            jobId = result.JobId,
+            workflowId = result.WorkflowId,
+            status = result.Status,
+            message = result.Message
         };
     }
 

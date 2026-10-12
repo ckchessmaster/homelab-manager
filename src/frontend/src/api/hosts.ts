@@ -84,6 +84,7 @@ export interface Host {
   detectedIps?: string[] | null
   hardwareHealth?: HardwareHealthStatus | null
   hardwareAlerts?: string[] | null
+  windowsLicense?: WindowsLicenseSummary | null
 }
 
 export interface CreateHostPayload {
@@ -550,6 +551,42 @@ export async function updateHardwareThresholds(thresholds: HardwareThresholds): 
   return apiClient<HardwareThresholds>('/api/v1/system/settings/hardware-thresholds', {
     method: 'PUT',
     body: JSON.stringify(thresholds),
+  })
+}
+
+export interface WindowsLicenseSummary {
+  isEvaluation: boolean
+  edition: string
+  description?: string | null
+  licenseStatus: string
+  gracePeriodMinutes: number
+  daysRemaining: number
+  hoursRemaining: number
+  expirationDate?: string | null
+  rearmsRemaining: number
+  partialProductKey?: string | null
+  isExpiringSoon: boolean
+  isCritical: boolean
+  collectedAt: string
+}
+
+export interface RearmWindowsLicenseResponse {
+  success: boolean
+  message: string
+  jobId?: string | null
+  rearmsRemaining?: number | null
+  daysRemaining?: number | null
+}
+
+export async function getWindowsLicense(hostId: string, refresh = false): Promise<WindowsLicenseSummary | null> {
+  const query = refresh ? '?refresh=true' : ''
+  return apiClient<WindowsLicenseSummary | null>(`/api/v1/hosts/${hostId}/windows-license${query}`)
+}
+
+export async function rearmWindowsLicense(hostId: string, rebootAfter = false): Promise<RearmWindowsLicenseResponse> {
+  return apiClient<RearmWindowsLicenseResponse>(`/api/v1/hosts/${hostId}/windows-license/rearm`, {
+    method: 'POST',
+    body: JSON.stringify({ rebootAfter }),
   })
 }
 

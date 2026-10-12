@@ -150,6 +150,10 @@ namespace ControlPlane.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("hardware_inventory");
 
+                    b.Property<string>("WindowsLicenseJson")
+                        .HasColumnType("text")
+                        .HasColumnName("windows_license");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");

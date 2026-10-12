@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.9.0
+
+### Added
+* **Global Workflow Approval Alerting & Quick-Review System**:
+  * **App Header Indicator (`AppHeader`)**: Added a persistent amber vitals pill with pulsing shield icon visible across all application views on desktop and mobile, displaying active waiting approval counts and opening the review modal directly.
+  * **Navigation Badges (`AppSidebar` & `MobileBottomNav`)**: Dynamic warning badge on the `Workflows & DAGs` sidebar item and pulsing badge dot on mobile bottom navigation whenever an update pipeline reaches a human gate.
+  * **Persistent Approval Toast (`ApprovalToastNotification`)**: Floating high-contrast glassmorphic notification banner with direct "Review & Approve" action and dismissible reminder lifecycle.
+  * **Global Quick Approval Modal (`QuickApprovalModal`)**: Modal accessible from any tab without losing view state, supporting multi-job queues, single-click "Approve Reboot", "Reject & Abort" (with optional reason prompt), batch "Approve All", and deep links to the visual DAG canvas.
+  * **Workflows & DAGs Table Integration (`WorkflowsView`)**: Added dedicated "Awaiting Approval" filter tab, glowing amber status badge, and prominent "Review Approval" row actions.
+  * **Host Inventory Amber Gate Badges (`HostTable`, `HostMobileCardList`, `GroupedHostView`)**: Distinct amber "Awaiting Approval" badges with shield icons on host rows, opening the approval modal on click.
+* **Windows Server License Evaluation & Automatic Rearm Engine**:
+  * **Agent Evaluation Collector**: Added automatic detection of Windows evaluation status, remaining grace days, and rearm counts via `slmgr.vbs` and WMI.
+  * **Durable Rearm Workflow (`IWindowsLicenseRearmWorkflow`)**: Temporal workflow coordinating preflight checks, non-destructive rearm execution, coordinated reboot, and health verification.
+  * **Operator UI & Badges**: Added `WindowsLicenseBadge`, evaluation warnings in Host Inventory, and modal with one-click rearm trigger.
+
+---
+
 ## v1.8.1
 
 ### Fixed

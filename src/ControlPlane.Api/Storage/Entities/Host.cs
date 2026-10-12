@@ -40,6 +40,11 @@ public class Host
     /// </summary>
     public string? HardwareInventoryJson { get; set; }
 
+    /// <summary>
+    /// Serialized WindowsLicenseSummaryDto snapshot for offline viewing and standby replication.
+    /// </summary>
+    public string? WindowsLicenseJson { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

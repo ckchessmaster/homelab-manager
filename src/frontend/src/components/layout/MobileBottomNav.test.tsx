@@ -62,4 +62,19 @@ describe('MobileBottomNav', () => {
     fireEvent.click(screen.getByText('Infrastructure Adapters'))
     expect(onSelectTab).toHaveBeenCalledWith('adapters')
   })
+
+  it('renders pending approval badge dot on workflows tab when pendingApprovalCount > 0', () => {
+    const onSelectTab = vi.fn()
+    const { container } = render(
+      <MobileBottomNav
+        activeTab="hosts"
+        onSelectTab={onSelectTab}
+        pendingApprovalCount={3}
+      />
+    )
+
+    const workflowsButton = screen.getByRole('button', { name: 'Workflows' })
+    expect(workflowsButton).toBeInTheDocument()
+    expect(container.querySelector('.bg-amber-400')).toBeInTheDocument()
+  })
 })

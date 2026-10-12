@@ -16,6 +16,7 @@ interface AppSidebarProps {
   onSelectTab: (tab: NavTab) => void
   totalHosts?: number
   rebootPendingCount?: number
+  pendingApprovalCount?: number
 }
 
 export function AppSidebar({
@@ -23,6 +24,7 @@ export function AppSidebar({
   onSelectTab,
   totalHosts = 0,
   rebootPendingCount = 0,
+  pendingApprovalCount = 0,
 }: AppSidebarProps) {
   const navItems: {
     id: NavTab
@@ -58,8 +60,9 @@ export function AppSidebar({
       id: 'workflows',
       label: 'Workflows & DAGs',
       icon: GitFork,
-      badge: 'M3',
-      badgeVariant: 'default',
+      badge: pendingApprovalCount > 0 ? `${pendingApprovalCount} waiting` : 'M3',
+      badgeVariant: pendingApprovalCount > 0 ? 'warning' : 'default',
+      badgeDot: pendingApprovalCount > 0,
     },
     {
       id: 'adapters',
@@ -87,7 +90,7 @@ export function AppSidebar({
             <h1 className="text-sm font-bold text-zinc-100 tracking-tight flex items-center gap-1.5">
               ControlPlane
             </h1>
-            <span className="text-[10px] text-zinc-500 font-mono">v0.1.0-alpha • M1</span>
+            <span className="text-[10px] text-zinc-500 font-mono">v1.9.0</span>
           </div>
         </div>
       </div>

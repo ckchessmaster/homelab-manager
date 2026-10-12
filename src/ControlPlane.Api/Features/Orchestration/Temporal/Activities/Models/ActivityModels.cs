@@ -45,3 +45,11 @@ public record HealthProbeResult(bool Success, string Message, List<string> Probe
 // Job State Lifecycle Models
 public record UpdateJobStatusInput(Guid JobId, string Status, string? ActiveStep, string? FailureReason = null, Guid? HostId = null);
 public record RecordJobCompletionInput(Guid JobId, string Status, string? FailureReason = null);
+
+// Windows License Rearm Models
+public record WindowsLicensePreflightInput(Guid JobId, Guid HostId, string Hostname);
+public record WindowsLicensePreflightResult(bool Success, int RearmsRemaining, string Edition, string Message);
+public record WindowsLicenseRearmExecutionInput(Guid JobId, Guid HostId, string Hostname);
+public record WindowsLicenseRearmExecutionResult(bool Success, string Message);
+public record WindowsLicenseRefreshInput(Guid JobId, Guid HostId, string Hostname);
+public record WindowsLicenseRefreshResult(bool Success, int RearmsRemaining, int DaysRemaining, string Message);

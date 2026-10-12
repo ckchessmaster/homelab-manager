@@ -15,6 +15,8 @@ import {
   triggerHardwareScan,
   fetchHardwareThresholds,
   updateHardwareThresholds,
+  getWindowsLicense,
+  rearmWindowsLicense,
   type CreateHostPayload,
   type HostFilterParams,
   type ProxmoxProbePayload,
@@ -168,4 +170,26 @@ export function useUpdateHardwareThresholds() {
     },
   })
 }
+
+export function useWindowsLicense(hostId?: string | null, refresh = false) {
+  return useQuery({
+    queryKey: ['windows-license', hostId, refresh],
+    queryFn: () => getWindowsLicense(hostId!, refresh),
+    enabled: Boolean(hostId),
+  })
+}
+
+export function useRearmWindowsLicense() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ hostId, rebootAfter }: { hostId: string; rebootAfter?: boolean }) =>
+      rearmWindowsLicense(hostId, rebootAfter),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['windows-license'] })
+      queryClient.invalidateQueries({ queryKey: JOBS_QUERY_KEY })
+    },
+  })
+}
+
 

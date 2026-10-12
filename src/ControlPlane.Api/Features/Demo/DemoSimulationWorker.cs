@@ -64,7 +64,8 @@ public class DemoSimulationWorker : BackgroundService
             (DemoDataSeeder.HostK8sCp01Id, BaseCpu: 18.0, BaseRam: 52.0, BaseDisk: 64.0),
             (DemoDataSeeder.HostK8sWorker01Id, BaseCpu: 34.0, BaseRam: 68.0, BaseDisk: 55.0),
             (DemoDataSeeder.HostK8sWorker02Id, BaseCpu: 41.0, BaseRam: 62.0, BaseDisk: 59.0),
-            (DemoDataSeeder.HostStorageNas01Id, BaseCpu: 12.0, BaseRam: 82.0, BaseDisk: 42.0)
+            (DemoDataSeeder.HostStorageNas01Id, BaseCpu: 12.0, BaseRam: 82.0, BaseDisk: 42.0),
+            (DemoDataSeeder.HostWinSrv01Id, BaseCpu: 22.0, BaseRam: 58.0, BaseDisk: 68.0)
         };
 
         foreach (var (hostId, baseCpu, baseRam, baseDisk) in hosts)

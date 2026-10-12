@@ -632,6 +632,21 @@ public class HostService
             }
         }
 
+        WindowsLicenseSummaryDto? windowsLicense = null;
+        if (!string.IsNullOrWhiteSpace(host.WindowsLicenseJson))
+        {
+            try
+            {
+                windowsLicense = System.Text.Json.JsonSerializer.Deserialize<WindowsLicenseSummaryDto>(
+                    host.WindowsLicenseJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
         var resolvedVitals = vitals != null && (hwHealth != null || hwAlerts != null)
             ? vitals with { HardwareHealth = hwHealth, HardwareAlerts = hwAlerts }
             : vitals;
@@ -662,7 +677,8 @@ public class HostService
             Vitals: resolvedVitals,
             DetectedIps: ips,
             HardwareHealth: hwHealth,
-            HardwareAlerts: hwAlerts
+            HardwareAlerts: hwAlerts,
+            WindowsLicense: windowsLicense
         );
     }
 }

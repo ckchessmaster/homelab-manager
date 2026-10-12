@@ -7,6 +7,7 @@ import {
   Server,
   Layers,
   Sparkles,
+  ShieldAlert,
 } from 'lucide-react'
 import type { NavTab } from './AppSidebar'
 import { useAuthUser } from '../../features/auth/useAuthUser'
@@ -27,6 +28,8 @@ interface AppHeaderProps {
   onOpenSettings: () => void
   totalHosts?: number
   rebootPendingCount?: number
+  pendingApprovalCount?: number
+  onOpenApprovals?: () => void
 }
 
 export function AppHeader({
@@ -34,6 +37,8 @@ export function AppHeader({
   onOpenSettings,
   totalHosts = 0,
   rebootPendingCount = 0,
+  pendingApprovalCount = 0,
+  onOpenApprovals,
 }: AppHeaderProps) {
   const { authMode } = useAuthUser()
   const [demoResetOpen, setDemoResetOpen] = useState(false)
@@ -134,11 +139,38 @@ export function AppHeader({
               <span>{rebootPendingCount} Reboot Pending</span>
             </div>
           )}
+
+          {/* Workflow Approval Pending Indicator */}
+          {pendingApprovalCount > 0 && (
+            <button
+              type="button"
+              onClick={onOpenApprovals}
+              title={`${pendingApprovalCount} workflow${pendingApprovalCount > 1 ? 's' : ''} awaiting operator reboot approval. Click to review.`}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-[11px] text-amber-300 font-semibold hover:bg-amber-500/25 transition-all cursor-pointer animate-pulse"
+            >
+              <ShieldAlert className="h-3 w-3 text-amber-400" />
+              <span>{pendingApprovalCount} {pendingApprovalCount === 1 ? 'Approval Waiting' : 'Approvals Waiting'}</span>
+            </button>
+          )}
         </div>
+
+        {/* Mobile Workflow Approval Pill */}
+        {pendingApprovalCount > 0 && (
+          <button
+            type="button"
+            onClick={onOpenApprovals}
+            title={`${pendingApprovalCount} approval(s) waiting. Click to review.`}
+            className="lg:hidden flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-[10px] text-amber-300 font-semibold hover:bg-amber-500/25 transition-colors cursor-pointer animate-pulse"
+          >
+            <ShieldAlert className="h-2.5 w-2.5 text-amber-400" />
+            <span>{pendingApprovalCount} Waiting</span>
+          </button>
+        )}
 
         {/* Mobile Demo Mode Pill */}
         {isDemoMode && (
           <button
+            type="button"
             onClick={() => setDemoResetOpen(true)}
             title="Demo Mode active. Click to reset."
             className="lg:hidden flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-400 font-medium hover:bg-amber-500/20 transition-colors cursor-pointer"

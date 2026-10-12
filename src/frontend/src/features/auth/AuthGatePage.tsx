@@ -68,7 +68,7 @@ export const AuthGatePage: React.FC = () => {
           <div>
             <span className="font-bold text-sm tracking-tight text-zinc-100">ControlPlane</span>
             <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-900 border border-zinc-800 text-zinc-400">
-              v0.1.0-alpha
+              v1.9.0
             </span>
           </div>
         </div>

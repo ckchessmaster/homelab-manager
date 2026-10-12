@@ -15,10 +15,12 @@ import {
   Trash2,
   Loader2,
   ArrowUpRight,
+  ShieldAlert,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useJobs } from './useJobs'
 import { usePipelines } from './usePipelines'
+import { isJobAwaitingApproval } from './usePendingApprovals'
 import { LaunchWorkflowModal } from './LaunchWorkflowModal'
 import { useHosts } from '../hosts/useHosts'
 import { Button } from '../../components/ui/button'
@@ -150,7 +152,10 @@ export function WorkflowsView() {
         job.id.toLowerCase().includes(searchTerm.toLowerCase())
 
       const matchesStatus =
-        statusFilter === 'all' || job.status.toLowerCase() === statusFilter.toLowerCase()
+        statusFilter === 'all' ||
+        (statusFilter === 'awaitingapproval'
+          ? isJobAwaitingApproval(job)
+          : job.status.toLowerCase() === statusFilter.toLowerCase())
 
       const pId = job.pipelineId || 'standard-os-upgrade'
       const matchesPipeline =
@@ -204,6 +209,16 @@ export function WorkflowsView() {
   }
 
   const getStatusBadge = (status: string) => {
+    const s = status?.toLowerCase()
+    if (s === 'awaitingapproval') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 animate-pulse">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+          Awaiting Approval
+        </span>
+      )
+    }
+
     switch (status) {
       case 'Pending':
         return (
@@ -516,18 +531,25 @@ export function WorkflowsView() {
 
           <Filter className="w-3.5 h-3.5 text-zinc-500 hidden sm:inline" />
           <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-0.5 text-xs">
-            {['all', 'running', 'completed', 'failed', 'cancelled'].map((st) => (
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'running', label: 'Running' },
+              { id: 'awaitingapproval', label: 'Awaiting Approval' },
+              { id: 'completed', label: 'Completed' },
+              { id: 'failed', label: 'Failed' },
+              { id: 'cancelled', label: 'Cancelled' },
+            ].map(({ id, label }) => (
               <button
-                key={st}
+                key={id}
                 type="button"
-                onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1 rounded-md capitalize transition-colors ${
-                  statusFilter === st
+                onClick={() => setStatusFilter(id)}
+                className={`px-3 py-1 rounded-md transition-colors ${
+                  statusFilter === id
                     ? 'bg-zinc-800 text-zinc-100 font-medium'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                {st}
+                {label}
               </button>
             ))}
           </div>
@@ -743,6 +765,21 @@ export function WorkflowsView() {
                   {/* Actions */}
                   <TableCell className="text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
+                      {isJobAwaitingApproval(job) && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => {
+                            setCanvasJob(job)
+                            setIsCanvasModalOpen(true)
+                          }}
+                          className="text-xs h-7 px-2.5 gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold shadow-xs shadow-amber-950/40 inline-flex items-center shrink-0 cursor-pointer"
+                          title="Review operator approval gate"
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          Review Approval
+                        </Button>
+                      )}
                       {!isAdhoc && (
                         <Button
                           variant="outline"

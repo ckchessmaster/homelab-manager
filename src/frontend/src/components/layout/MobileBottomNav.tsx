@@ -20,6 +20,7 @@ interface MobileBottomNavProps {
   onSelectTab: (tab: NavTab) => void
   totalHosts?: number
   rebootPendingCount?: number
+  pendingApprovalCount?: number
   onOpenSettings?: () => void
 }
 
@@ -28,6 +29,7 @@ export function MobileBottomNav({
   onSelectTab,
   totalHosts = 0,
   rebootPendingCount = 0,
+  pendingApprovalCount = 0,
   onOpenSettings,
 }: MobileBottomNavProps) {
   const [moreOpen, setMoreOpen] = useState(false)
@@ -58,6 +60,7 @@ export function MobileBottomNav({
       id: 'workflows',
       label: 'Workflows',
       icon: GitFork,
+      badgeDot: pendingApprovalCount > 0,
     },
   ]
 
@@ -222,7 +225,7 @@ export function MobileBottomNav({
           </div>
 
           <div className="pt-2 text-center">
-            <span className="text-[10px] font-mono text-zinc-400">ControlPlane v1.4.1</span>
+            <span className="text-[10px] font-mono text-zinc-400">ControlPlane v1.9.0</span>
           </div>
         </SheetBody>
       </Sheet>

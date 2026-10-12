@@ -12,6 +12,25 @@ public class AgentHeartbeatMessage
     public AgentMetrics? Metrics { get; set; }
     public AgentPackageSummary? PackageSummary { get; set; }
     public AgentHardwareSummary? Hardware { get; set; }
+    public AgentWindowsLicenseSummary? WindowsLicense { get; set; }
+}
+
+public class AgentWindowsLicenseSummary
+{
+    public bool IsEvaluation { get; set; }
+    public string Edition { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string LicenseStatus { get; set; } = string.Empty;
+    public long GracePeriodMinutes { get; set; }
+    public int DaysRemaining { get; set; }
+    public int HoursRemaining { get; set; }
+    public string? ExpirationDate { get; set; }
+    public int RearmsRemaining { get; set; }
+    public string? PartialProductKey { get; set; }
+    public bool IsExpiringSoon { get; set; }
+    public bool IsCritical { get; set; }
+    public string? CollectedAt { get; set; }
+    public string? Error { get; set; }
 }
 
 public class AgentMetrics

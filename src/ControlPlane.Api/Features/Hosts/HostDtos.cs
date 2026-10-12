@@ -19,7 +19,25 @@ public record HostResponse(
     HostVitalsDto? Vitals = null,
     List<string>? DetectedIps = null,
     string? HardwareHealth = null,
-    List<string>? HardwareAlerts = null
+    List<string>? HardwareAlerts = null,
+    WindowsLicenseSummaryDto? WindowsLicense = null
+);
+
+public record WindowsLicenseSummaryDto(
+    bool IsEvaluation,
+    string Edition,
+    string? Description,
+    string LicenseStatus,
+    long GracePeriodMinutes,
+    int DaysRemaining,
+    int HoursRemaining,
+    string? ExpirationDate,
+    int RearmsRemaining,
+    string? PartialProductKey,
+    bool IsExpiringSoon,
+    bool IsCritical,
+    string? CollectedAt,
+    string? Error = null
 );
 
 public record HostVitalsDto(

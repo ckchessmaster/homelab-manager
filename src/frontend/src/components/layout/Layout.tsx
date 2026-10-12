@@ -13,6 +13,8 @@ interface LayoutProps {
   onSelectTab: (tab: NavTab) => void
   totalHosts?: number
   rebootPendingCount?: number
+  pendingApprovalCount?: number
+  onOpenApprovals?: () => void
   children: React.ReactNode
 }
 
@@ -21,6 +23,8 @@ export function Layout({
   onSelectTab,
   totalHosts = 0,
   rebootPendingCount = 0,
+  pendingApprovalCount = 0,
+  onOpenApprovals,
   children,
 }: LayoutProps) {
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false)
@@ -41,6 +45,7 @@ export function Layout({
         onSelectTab={onSelectTab}
         totalHosts={totalHosts}
         rebootPendingCount={rebootPendingCount}
+        pendingApprovalCount={pendingApprovalCount}
       />
 
       {/* Main Content Area */}
@@ -50,6 +55,8 @@ export function Layout({
           onOpenSettings={() => setApiKeyModalOpen(true)}
           totalHosts={totalHosts}
           rebootPendingCount={rebootPendingCount}
+          pendingApprovalCount={pendingApprovalCount}
+          onOpenApprovals={onOpenApprovals}
         />
 
         <main className="flex-1 p-3 sm:p-4 md:p-6 pb-20 md:pb-6 overflow-y-auto overflow-x-hidden">
@@ -63,6 +70,7 @@ export function Layout({
         onSelectTab={onSelectTab}
         totalHosts={totalHosts}
         rebootPendingCount={rebootPendingCount}
+        pendingApprovalCount={pendingApprovalCount}
         onOpenSettings={() => setApiKeyModalOpen(true)}
       />
 

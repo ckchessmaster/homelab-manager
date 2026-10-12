@@ -101,6 +101,9 @@ public class HostConfiguration : IEntityTypeConfiguration<HostEntity>
         builder.Property(h => h.HardwareInventoryJson)
             .HasColumnName("hardware_inventory");
 
+        builder.Property(h => h.WindowsLicenseJson)
+            .HasColumnName("windows_license");
+
         builder.HasMany(h => h.UpdateJobs)
             .WithOne(j => j.TargetHost)
             .HasForeignKey(j => j.TargetHostId)

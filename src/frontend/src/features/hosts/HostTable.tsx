@@ -22,10 +22,12 @@ import {
   RebootBadge,
   UpdatesBadge,
   HardwareHealthBadge,
+  WindowsLicenseBadge,
 } from './HostStatusBadge'
 import { HostVitalsBadge } from './HostVitalsBadge'
 import { HostDetailsModal } from './HostDetailsModal'
 import { EditHostModal } from './EditHostModal'
+import { RearmLicenseModal } from './RearmLicenseModal'
 import { HostTerminalDrawer } from './HostTerminalDrawer'
 import { HostMobileCardList } from './HostMobileCardList'
 import { useIsMobile } from '../../hooks/useMediaQuery'
@@ -40,6 +42,7 @@ import { useAuthUser } from '../auth/useAuthUser'
 import { RoleGate } from '../auth/RoleGate'
 import { WorkflowCanvasModal } from '../orchestration/canvas/WorkflowCanvasModal'
 import { useActiveJobsByHost } from '../orchestration/useJobs'
+import { isJobAwaitingApproval } from '../orchestration/usePendingApprovals'
 import type { JobSummary } from '../../api/jobs'
 import {
   Plus,
@@ -55,6 +58,7 @@ import {
   HardDrive,
   Terminal,
   Shield,
+  ShieldAlert,
   Sparkles,
   MoreVertical,
   RotateCcw,
@@ -111,6 +115,7 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
   const [selectedHostIds, setSelectedHostIds] = useState<Set<string>>(new Set())
   const [rebootModalHost, setRebootModalHost] = useState<Host | null>(null)
   const [rebootBulkHosts, setRebootBulkHosts] = useState<Host[] | null>(null)
+  const [rearmModalHost, setRearmModalHost] = useState<Host | null>(null)
   const [workflowModalHost, setWorkflowModalHost] = useState<Host | null>(null)
   const [snapshotModalHost, setSnapshotModalHost] = useState<Host | null>(null)
   const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false)
@@ -672,18 +677,33 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                         <span className="font-semibold text-zinc-100">{host.hostname}</span>
                         <TargetTypeBadge type={host.targetType} />
                         {activeJob && (
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setCanvasJob(activeJob)
-                              setIsCanvasModalOpen(true)
-                            }}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors animate-pulse"
-                            title={`Active DAG: ${activeJob.activeStep || activeJob.status}. Click to view DAG Canvas.`}
-                          >
-                            <GitFork className="w-2.5 h-2.5" />
-                            DAG Active
-                          </span>
+                          isJobAwaitingApproval(activeJob) ? (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setCanvasJob(activeJob)
+                                setIsCanvasModalOpen(true)
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-colors animate-pulse cursor-pointer shadow-xs shadow-amber-950/30"
+                              title={`Approval Required: ${activeJob.activeStep || activeJob.status}. Click to review.`}
+                            >
+                              <ShieldAlert className="w-2.5 h-2.5 text-amber-400" />
+                              Awaiting Approval
+                            </span>
+                          ) : (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setCanvasJob(activeJob)
+                                setIsCanvasModalOpen(true)
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition-colors animate-pulse cursor-pointer"
+                              title={`Active DAG: ${activeJob.activeStep || activeJob.status}. Click to view DAG Canvas.`}
+                            >
+                              <GitFork className="w-2.5 h-2.5" />
+                              DAG Active
+                            </span>
+                          )
                         )}
                       </div>
                       {host.friendlyName && (
@@ -777,7 +797,11 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
                           status={host.hardwareHealth || host.vitals?.hardwareHealth}
                           alerts={host.hardwareAlerts || host.vitals?.hardwareAlerts}
                         />
-                        {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && !host.vitals && !host.hardwareHealth && (
+                        <WindowsLicenseBadge
+                          license={host.windowsLicense}
+                          onClick={() => setRearmModalHost(host)}
+                        />
+                        {!host.agent.pendingReboot && host.agent.upgradablePackagesCount === 0 && !host.vitals && !host.hardwareHealth && !host.windowsLicense && (
                           <span className="text-xs text-zinc-500">Clean</span>
                         )}
                       </>
@@ -1179,6 +1203,18 @@ export function HostTable({ onOpenAddModal }: HostTableProps) {
             setSelectedHostIds(new Set())
           }}
           onSuccess={() => {
+            refetch()
+          }}
+        />
+      )}
+
+      {/* Windows License Rearm Modal */}
+      {rearmModalHost && (
+        <RearmLicenseModal
+          host={rearmModalHost}
+          open={Boolean(rearmModalHost)}
+          onClose={() => setRearmModalHost(null)}
+          onRearmSuccess={() => {
             refetch()
           }}
         />

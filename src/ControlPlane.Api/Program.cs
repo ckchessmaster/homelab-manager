@@ -16,6 +16,7 @@ using ControlPlane.Api.Features.Cluster;
 using ControlPlane.Api.Features.Demo;
 using ControlPlane.Api.Features.Discovery;
 using ControlPlane.Api.Features.Hosts;
+using ControlPlane.Api.Features.Hosts.WindowsLicense;
 using ControlPlane.Api.Features.Jobs;
 using ControlPlane.Api.Features.Mcp;
 using ControlPlane.Api.Features.Orchestration;
@@ -64,6 +65,7 @@ builder.Services.AddScoped<ISshBootstrapper, SshBootstrapper>();
 builder.Services.AddScoped<NodeAdoptionService>();
 builder.Services.AddScoped<HostService>();
 builder.Services.AddScoped<ControlPlane.Api.Features.Hosts.Hardware.IHostHardwareService, ControlPlane.Api.Features.Hosts.Hardware.HostHardwareService>();
+builder.Services.AddScoped<ControlPlane.Api.Features.Hosts.WindowsLicense.IWindowsLicenseService, ControlPlane.Api.Features.Hosts.WindowsLicense.WindowsLicenseService>();
 builder.Services.AddScoped<IHostCorrelationService, HostCorrelationService>();
 builder.Services.Configure<AgentBinarySyncOptions>(builder.Configuration.GetSection(AgentBinarySyncOptions.SectionName));
 builder.Services.AddSingleton<AgentBinaryService>();
@@ -290,6 +292,7 @@ app.MapGet("/api/v1/admin/ping", (ClaimsPrincipal user) => Results.Ok(new
 })).RequireAuthorization(AuthConstants.RequireAdmin);
 
 app.MapHostEndpoints();
+app.MapWindowsLicenseEndpoints();
 app.MapProxmoxEndpoints();
 app.MapSnapshotRetentionEndpoints();
 app.MapNodeAdoptionEndpoints();
