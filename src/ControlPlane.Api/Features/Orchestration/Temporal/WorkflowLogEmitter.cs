@@ -13,6 +13,8 @@ public interface IWorkflowLogEmitter
 {
     Task EmitLogAsync(Guid jobId, string streamType, string logLine, CancellationToken ct = default);
     Task UpdateJobStatusAsync(Guid jobId, string status, string? activeStep, string? failureReason = null, CancellationToken ct = default);
+    Task UpdateJobStatusAsync(Guid jobId, string status, string? activeStep, string? failureReason, Guid? hostId, CancellationToken ct = default)
+        => UpdateJobStatusAsync(jobId, status, activeStep, failureReason, ct);
     Task SetSnapshotIdentifierAsync(Guid jobId, string? snapshotIdentifier, CancellationToken ct = default);
 }
 
@@ -46,17 +48,25 @@ public class WorkflowLogEmitter : IWorkflowLogEmitter
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
 
-            var logEntry = new StepLog
+            var jobExists = await db.UpdateJobs.AnyAsync(j => j.Id == jobId, ct);
+            if (jobExists)
             {
-                JobId = jobId,
-                SequenceId = seq,
-                StreamType = streamType,
-                LogLine = logLine,
-                Timestamp = timestamp
-            };
+                var logEntry = new StepLog
+                {
+                    JobId = jobId,
+                    SequenceId = seq,
+                    StreamType = streamType,
+                    LogLine = logLine,
+                    Timestamp = timestamp
+                };
 
-            db.StepLogs.Add(logEntry);
-            await db.SaveChangesAsync(ct);
+                db.StepLogs.Add(logEntry);
+                await db.SaveChangesAsync(ct);
+            }
+            else
+            {
+                _logger.LogDebug("Job {JobId} not found in update_jobs. Skipping DB step_logs persistence to avoid foreign key violation.", jobId);
+            }
 
             await _hubContext.Clients.Group(jobId.ToString()).ReceiveLogLine(
                 jobId,
@@ -77,11 +87,20 @@ public class WorkflowLogEmitter : IWorkflowLogEmitter
         }
     }
 
-    public async Task UpdateJobStatusAsync(
+    public Task UpdateJobStatusAsync(
         Guid jobId,
         string status,
         string? activeStep,
         string? failureReason = null,
+        CancellationToken ct = default)
+        => UpdateJobStatusAsync(jobId, status, activeStep, failureReason, null, ct);
+
+    public async Task UpdateJobStatusAsync(
+        Guid jobId,
+        string status,
+        string? activeStep,
+        string? failureReason,
+        Guid? hostId,
         CancellationToken ct = default)
     {
         try
@@ -90,7 +109,23 @@ public class WorkflowLogEmitter : IWorkflowLogEmitter
             var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
 
             var job = await db.UpdateJobs.FirstOrDefaultAsync(j => j.Id == jobId, ct);
-            if (job != null)
+            if (job == null && hostId.HasValue && hostId.Value != Guid.Empty)
+            {
+                job = new UpdateJob
+                {
+                    Id = jobId,
+                    TargetHostId = hostId.Value,
+                    PipelineId = "temporal-host-upgrade",
+                    InitiatedBy = "RollingUpgradeWorkflow",
+                    Status = status,
+                    ActiveStep = activeStep,
+                    StartedAt = DateTimeOffset.UtcNow,
+                    FailureReason = failureReason
+                };
+                db.UpdateJobs.Add(job);
+                await db.SaveChangesAsync(ct);
+            }
+            else if (job != null)
             {
                 job.Status = status;
                 job.ActiveStep = activeStep;

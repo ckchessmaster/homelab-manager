@@ -37,6 +37,15 @@ public interface IProxmoxClient
         CancellationToken ct = default);
 
     /// <summary>
+    /// Starts a VM (QEMU) or LXC container. Returns the Proxmox task UPID.
+    /// </summary>
+    Task<string> StartVmAsync(
+        string node,
+        int vmid,
+        bool isLxc = false,
+        CancellationToken ct = default) => Task.FromResult($"UPID:{node}:00000000:00000000:00000000:qmstart:{vmid}:root@pam:");
+
+    /// <summary>
     /// Queries the current status of an asynchronous Proxmox task by its UPID.
     /// </summary>
     Task<ProxmoxTaskStatus> GetTaskStatusAsync(

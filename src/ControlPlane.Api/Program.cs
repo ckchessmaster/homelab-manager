@@ -219,7 +219,15 @@ app.MapGet("/", () => Results.Ok(new
     timestamp = DateTimeOffset.UtcNow
 })).AllowAnonymous();
 
-app.MapHealthChecks("/healthz").AllowAnonymous();
+app.MapHealthChecks("/healthz", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("ready") || r.Tags.Contains("live")
+}).AllowAnonymous();
+
+app.MapHealthChecks("/healthz/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("live")
+}).AllowAnonymous();
 
 app.MapGet("/api/storage/status", async (ControlPlaneDbContext db) =>
 {

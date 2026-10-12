@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
 using System.Text;
+using ControlPlane.Api.Features.Agents.Messaging;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Features.Jobs;
 
 namespace ControlPlane.Api.Features.Agents;
 
-public class AgentCommandExecutor : IAgentCommandExecutor
+public class AgentCommandExecutor : IAgentCommandExecutor, IDisposable
 {
     private class CommandExecutionState
     {
@@ -18,15 +19,48 @@ public class AgentCommandExecutor : IAgentCommandExecutor
     private readonly AgentConnectionManager _connectionManager;
     private readonly ILogger<AgentCommandExecutor> _logger;
     private readonly IServiceProvider? _serviceProvider;
+    private readonly IAgentMessageBus? _messageBus;
 
     public AgentCommandExecutor(
         AgentConnectionManager connectionManager,
         ILogger<AgentCommandExecutor> logger,
-        IServiceProvider? serviceProvider = null)
+        IServiceProvider? serviceProvider = null,
+        IAgentMessageBus? messageBus = null)
     {
         _connectionManager = connectionManager;
         _logger = logger;
         _serviceProvider = serviceProvider;
+        _messageBus = messageBus;
+
+        if (_messageBus != null)
+        {
+            _messageBus.OnJobLogReceived += HandleRemoteJobLogAsync;
+        }
+    }
+
+    private Task HandleRemoteJobLogAsync(JobLogPayload payload)
+    {
+        if (_activeCommands.TryGetValue(payload.JobId, out _))
+        {
+            var frame = new AgentFrameData
+            {
+                JobId = payload.JobId,
+                SequenceId = payload.SequenceId,
+                StreamType = payload.StreamType,
+                LogLine = payload.LogLine,
+                Timestamp = payload.Timestamp
+            };
+            NotifyFrame(Guid.Empty, frame);
+        }
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        if (_messageBus != null)
+        {
+            _messageBus.OnJobLogReceived -= HandleRemoteJobLogAsync;
+        }
     }
 
     public async Task<AgentCommandResult> ExecuteCommandAsync(

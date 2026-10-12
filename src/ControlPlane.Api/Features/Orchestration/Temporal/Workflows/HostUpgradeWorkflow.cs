@@ -103,7 +103,7 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
 
             // Step 0: Set Running status in DB
             await Workflow.ExecuteActivityAsync(
-                (IUpdateJobActivities a) => a.UpdateJobStatusAsync(new UpdateJobStatusInput(input.JobId, "Running", _state.ActiveStep)),
+                (IUpdateJobActivities a) => a.UpdateJobStatusAsync(new UpdateJobStatusInput(input.JobId, "Running", _state.ActiveStep, null, input.HostId)),
                 defaultOptions
             );
 

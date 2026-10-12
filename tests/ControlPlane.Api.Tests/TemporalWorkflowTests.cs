@@ -127,8 +127,21 @@ public class TemporalWorkflowTests : IDisposable
             return Task.FromResult("UPID:node:5678");
         }
 
-        public Task<string> DeleteVmSnapshotAsync(string node, int vmid, string snapname, bool isLxc = false, CancellationToken ct = default) =>
-            Task.FromResult("UPID:node:9999");
+        public bool StartVmInvoked { get; set; }
+        public bool DeleteSnapshotInvoked { get; set; }
+        public List<ProxmoxSnapshotItem> Snapshots { get; set; } = new();
+
+        public Task<string> StartVmAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)
+        {
+            StartVmInvoked = true;
+            return Task.FromResult($"UPID:{node}:start123");
+        }
+
+        public Task<string> DeleteVmSnapshotAsync(string node, int vmid, string snapname, bool isLxc = false, CancellationToken ct = default)
+        {
+            DeleteSnapshotInvoked = true;
+            return Task.FromResult("UPID:node:9999");
+        }
 
         public Task<ProxmoxTaskStatus> GetTaskStatusAsync(string node, string upid, CancellationToken ct = default) =>
             Task.FromResult(new ProxmoxTaskStatus("stopped", "OK", "100", node, "qmsnapshot"));
@@ -143,7 +156,7 @@ public class TemporalWorkflowTests : IDisposable
             Task.FromResult<string?>(null);
 
         public Task<List<ProxmoxSnapshotItem>> ListVmSnapshotsAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default) =>
-            Task.FromResult(new List<ProxmoxSnapshotItem>());
+            Task.FromResult(Snapshots);
 
         public Task<bool> HasVmAuditPermissionAsync(CancellationToken ct = default) =>
             Task.FromResult(true);
@@ -685,5 +698,149 @@ public class TemporalWorkflowTests : IDisposable
         });
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProxmoxActivities_CreateSnapshot_PrunesStaleSnapshot_WhenAlreadyExists()
+    {
+        var db = CreateDbContext();
+        var services = new ServiceCollection();
+        services.AddSingleton(db);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "pve-vm-stale-test",
+            TargetType = "proxmox_vm",
+            Proxmox = new ProxmoxTarget { Node = "node-1", Vmid = 105 }
+        };
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync();
+
+        var proxmoxClient = new TestProxmoxClient();
+        proxmoxClient.Snapshots.Add(new ProxmoxSnapshotItem("pre-rolling-pve-vm-stale-test", null, "old snap"));
+
+        var logEmitter = new TestWorkflowLogEmitter();
+        var activities = new ProxmoxActivities(
+            scopeFactory,
+            logEmitter,
+            NullLogger<ProxmoxActivities>.Instance,
+            proxmoxClient
+        );
+
+        var result = await activities.CreateSnapshotAsync(
+            new ProxmoxSnapshotInput(jobId, hostId, "pve-vm-stale-test", "proxmox_vm", "pre-rolling-pve-vm-stale-test")
+        );
+
+        Assert.True(result.Success);
+        Assert.True(result.Created);
+        Assert.True(proxmoxClient.DeleteSnapshotInvoked);
+        Assert.Contains(logEmitter.Logs, l => l.Line.Contains("Deleting stale snapshot"));
+    }
+
+    [Fact]
+    public async Task ProxmoxActivities_RollbackSnapshot_PowersOnVm_FollowingRollback()
+    {
+        var db = CreateDbContext();
+        var services = new ServiceCollection();
+        services.AddSingleton(db);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "pve-vm-rollback-test",
+            TargetType = "proxmox_vm",
+            Proxmox = new ProxmoxTarget { Node = "node-1", Vmid = 106 }
+        };
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync();
+
+        var proxmoxClient = new TestProxmoxClient();
+        var logEmitter = new TestWorkflowLogEmitter();
+        var activities = new ProxmoxActivities(
+            scopeFactory,
+            logEmitter,
+            NullLogger<ProxmoxActivities>.Instance,
+            proxmoxClient
+        );
+
+        var result = await activities.RollbackSnapshotAsync(
+            new ProxmoxRollbackInput(jobId, hostId, "pre-rolling-pve-vm-rollback-test", "proxmox_vm")
+        );
+
+        Assert.True(result.Success);
+        Assert.True(proxmoxClient.RollbackInvoked);
+        Assert.True(proxmoxClient.StartVmInvoked);
+        Assert.Contains(logEmitter.Logs, l => l.Line.Contains("Powered on VM 106 following rollback"));
+    }
+
+    [Fact]
+    public async Task WorkflowLogEmitter_UpdateJobStatusAsync_CreatesJobIfNotFound_WhenHostIdProvided()
+    {
+        var db = CreateDbContext();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(db);
+        services.AddSignalR();
+        var sp = services.BuildServiceProvider();
+        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+        var hubContext = sp.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+
+        var hostId = Guid.NewGuid();
+        var host = new HostEntity
+        {
+            Id = hostId,
+            Hostname = "host-child-test",
+            IpAddress = "10.0.0.50"
+        };
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync();
+
+        var logEmitter = new WorkflowLogEmitter(
+            scopeFactory,
+            hubContext,
+            NullLogger<WorkflowLogEmitter>.Instance
+        );
+
+        var childJobId = Guid.NewGuid();
+        await logEmitter.UpdateJobStatusAsync(childJobId, "Running", "Preflight Checks", null, hostId);
+
+        var job = await db.UpdateJobs.FirstOrDefaultAsync(j => j.Id == childJobId);
+        Assert.NotNull(job);
+        Assert.Equal("Running", job.Status);
+        Assert.Equal("Preflight Checks", job.ActiveStep);
+        Assert.Equal(hostId, job.TargetHostId);
+    }
+
+    [Fact]
+    public async Task WorkflowLogEmitter_EmitLogAsync_WhenJobDoesNotExist_DoesNotThrow()
+    {
+        var db = CreateDbContext();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(db);
+        services.AddSignalR();
+        var sp = services.BuildServiceProvider();
+        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+        var hubContext = sp.GetRequiredService<IHubContext<JobLogHub, IJobClient>>();
+
+        var logEmitter = new WorkflowLogEmitter(
+            scopeFactory,
+            hubContext,
+            NullLogger<WorkflowLogEmitter>.Instance
+        );
+
+        var nonexistentJobId = Guid.NewGuid();
+        // Emitting a log line for an uncreated job must safely bypass DB insert and not throw FK constraint exception
+        await logEmitter.EmitLogAsync(nonexistentJobId, "system", "Entering pipeline step");
+
+        var logCount = await db.StepLogs.CountAsync(l => l.JobId == nonexistentJobId);
+        Assert.Equal(0, logCount);
     }
 }

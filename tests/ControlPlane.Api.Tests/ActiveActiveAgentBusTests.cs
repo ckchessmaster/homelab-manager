@@ -294,4 +294,41 @@ public class ActiveActiveAgentBusTests
         // hostId2 was seen 90s ago (> 45s threshold) -> offline
         Assert.False(manager.IsOnline(hostId2));
     }
+
+    [Fact]
+    public async Task MultiPod_AgentCommandExecutor_ReceivesRemoteFrames_AndResolvesCommand()
+    {
+        var broker = new TestMessageBusBroker();
+        var busA = new TestMessageBus("pod-a", broker);
+        var busB = new TestMessageBus("pod-b", broker);
+
+        var managerA = new AgentConnectionManager(NullLogger<AgentConnectionManager>.Instance, busA);
+        var managerB = new AgentConnectionManager(NullLogger<AgentConnectionManager>.Instance, busB);
+
+        var executorA = new AgentCommandExecutor(managerA, NullLogger<AgentCommandExecutor>.Instance, null, busA);
+
+        var hostId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+
+        // Agent is connected to Pod B
+        managerB.RegisterSimulated(hostId, "worker-node");
+
+        // Manager A knows host is online via bus
+        managerA.SyncRemotePresence(new[] { (hostId, DateTimeOffset.UtcNow) });
+
+        // Executor A (on Pod A) dispatches command
+        var execTask = executorA.ExecuteCommandAsync(hostId, jobId, "apt", new[] { "upgrade", "-y" }, CancellationToken.None);
+
+        // Remote Pod B publishes stdout log from agent
+        await busB.PublishJobLogAsync(jobId, 1, "stdout", "Upgraded libssl3", DateTimeOffset.UtcNow);
+
+        // Remote Pod B publishes system completion frame
+        await busB.PublishJobLogAsync(jobId, 2, "system", "Command completed successfully with code 0", DateTimeOffset.UtcNow);
+
+        // Executor A should successfully resolve without timing out!
+        var result = await execTask;
+        Assert.True(result.Success);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Upgraded libssl3", result.StandardOutput);
+    }
 }

@@ -20,7 +20,7 @@ public class UpdateJobActivities : IUpdateJobActivities
     public async Task UpdateJobStatusAsync(UpdateJobStatusInput input)
     {
         _logger.LogInformation("Updating job {JobId} status to {Status}, step: {Step}", input.JobId, input.Status, input.ActiveStep);
-        await _logEmitter.UpdateJobStatusAsync(input.JobId, input.Status, input.ActiveStep, input.FailureReason);
+        await _logEmitter.UpdateJobStatusAsync(input.JobId, input.Status, input.ActiveStep, input.FailureReason, input.HostId);
         if (!string.IsNullOrWhiteSpace(input.ActiveStep))
         {
             await _logEmitter.EmitLogAsync(input.JobId, "system", $"[PIPELINE] Entering step: {input.ActiveStep} (State: {input.Status})");

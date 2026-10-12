@@ -26,6 +26,12 @@ public class MockProxmoxClient : IProxmoxClient
         return Task.FromResult($"UPID:{node}:00001236:00ABCDEF:66000000:qmdelsnapshot:{vmid}:root@pam:");
     }
 
+    public Task<string> StartVmAsync(string node, int vmid, bool isLxc = false, CancellationToken ct = default)
+    {
+        var vmType = isLxc ? "vzstart" : "qmstart";
+        return Task.FromResult($"UPID:{node}:00001237:00ABCDEF:66000000:{vmType}:{vmid}:root@pam:");
+    }
+
     public Task<ProxmoxTaskStatus> GetTaskStatusAsync(string node, string upid, CancellationToken ct = default)
     {
         return Task.FromResult(new ProxmoxTaskStatus("stopped", "OK", "100", node, "qmsnapshot", "root@pam", DateTimeOffset.UtcNow.ToUnixTimeSeconds()));

@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	Version = "1.8.0"
+	Version = "1.8.1"
 )
 
 type HeartbeatPayload struct {

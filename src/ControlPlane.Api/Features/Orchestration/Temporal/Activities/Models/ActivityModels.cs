@@ -43,5 +43,5 @@ public record HealthProbeInput(
 public record HealthProbeResult(bool Success, string Message, List<string> ProbeDetails);
 
 // Job State Lifecycle Models
-public record UpdateJobStatusInput(Guid JobId, string Status, string? ActiveStep, string? FailureReason = null);
+public record UpdateJobStatusInput(Guid JobId, string Status, string? ActiveStep, string? FailureReason = null, Guid? HostId = null);
 public record RecordJobCompletionInput(Guid JobId, string Status, string? FailureReason = null);

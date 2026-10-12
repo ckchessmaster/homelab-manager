@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.8.1
+
+### Fixed
+* **Multi-Pod Command Result Resolution (`AgentCommandExecutor`)**:
+  * Added `IAgentMessageBus.OnJobLogReceived` subscription to `AgentCommandExecutor`. When an agent command is forwarded to a peer replica, the originating pod now receives the streamed log frames and `complete` / `exit_code` events across the inter-pod message bus, successfully resolving `WaitForCompletionAsync` without timing out.
+* **Proxmox VM Hypervisor Recovery Following Rollback**:
+  * Implemented `StartVmAsync` across `IProxmoxClient`, `ProxmoxClient`, and `MockProxmoxClient` using Proxmox VE API `POST /api2/json/nodes/{node}/qemu/{vmid}/status/start`.
+  * Updated `ProxmoxActivities.RollbackSnapshotAsync` to automatically power on the virtual machine immediately after `qmrollback` completes, preventing nodes from remaining permanently powered off in stopped state following snapshot restoration.
+* **Hypervisor Snapshot Pruning & Idempotency**:
+  * Enhanced `ProxmoxActivities.CreateSnapshotAsync` to query existing snapshots via `ListVmSnapshotsAsync` and automatically prune pre-existing snapshots bearing identical names before creating a new baseline snapshot, eliminating Proxmox duplicate snapshot errors.
+* **Orchestration Foreign Key Protection & On-the-Fly Job Upsert**:
+  * Added `HostId` parameter to `UpdateJobStatusInput` and forwarded target host ID from `HostUpgradeWorkflow` Step 0.
+  * Enhanced `UpdateJobActivities.UpdateStatusAsync` and `WorkflowLogEmitter` to automatically upsert missing `UpdateJob` database records when `HostId` is available.
+  * Guarded `step_logs` database persistence against unpersisted jobs, preventing PostgreSQL foreign key constraint violations (`FK_step_logs_update_jobs_JobId`) when sub-workflows emit logs before job creation.
+* **Decoupled API Liveness and Readiness Probes**:
+  * Mapped a lightweight dedicated `/healthz/live` endpoint checking process liveness without external database dependencies, preserving pod survival during transient database failovers.
+  * Updated Helm chart `api.livenessProbe` to probe `/healthz/live` while maintaining readiness checks against `/healthz`.
+  * Updated frontend Nginx proxy configuration to forward `/healthz` subpaths cleanly to the API upstream.
+
+---
+
 ## v1.8.0
 
 ### Added

@@ -107,6 +107,25 @@ public class ProxmoxActivities : IProxmoxActivities
                 $"[SNAPSHOT] Creating pre-update hypervisor snapshot '{snapName}' on Proxmox node '{node}' for {(isLxc ? "LXC" : "VM")} {vmid}..."
             );
 
+            try
+            {
+                var existingSnapshots = await client.ListVmSnapshotsAsync(node, vmid, isLxc);
+                if (existingSnapshots.Any(s => string.Equals(s.Name, snapName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    await _logEmitter.EmitLogAsync(
+                        input.JobId,
+                        "system",
+                        $"[SNAPSHOT] Snapshot '{snapName}' already exists on {(isLxc ? "LXC" : "VM")} {vmid}. Deleting stale snapshot before creating new baseline..."
+                    );
+                    var delUpid = await client.DeleteVmSnapshotAsync(node, vmid, snapName, isLxc);
+                    await client.PollTaskCompletionAsync(node, delUpid);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to verify or prune stale snapshot '{SnapName}' on {Node}:{Vmid}: {Message}", snapName, node, vmid, ex.Message);
+            }
+
             var upid = await client.CreateVmSnapshotAsync(node, vmid, snapName, description, isLxc);
             await _logEmitter.EmitLogAsync(input.JobId, "system", $"[SNAPSHOT] Snapshot task accepted (UPID: {upid}). Polling for task completion...");
 
@@ -209,6 +228,19 @@ public class ProxmoxActivities : IProxmoxActivities
             await _logEmitter.EmitLogAsync(input.JobId, "system", $"[ROLLBACK] Rollback task accepted (UPID: {upid}). Polling for task completion...");
 
             await client.PollTaskCompletionAsync(node, upid);
+
+            try
+            {
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[ROLLBACK] Starting {(isLxc ? "LXC" : "VM")} {vmid} after rollback...");
+                var startUpid = await client.StartVmAsync(node, vmid, isLxc);
+                await client.PollTaskCompletionAsync(node, startUpid);
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[ROLLBACK] Powered on {(isLxc ? "LXC" : "VM")} {vmid} following rollback.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to power on {Vmid} after rollback: {Error}", vmid, ex.Message);
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[ROLLBACK] Warning: Failed to automatically start VM after rollback: {ex.Message}");
+            }
 
             var successMsg = $"Automated rollback to snapshot '{snapName}' completed successfully.";
             await _logEmitter.EmitLogAsync(input.JobId, "system", $"[ROLLBACK] {successMsg}");

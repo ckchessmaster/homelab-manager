@@ -119,6 +119,26 @@ public class ProxmoxClient : IProxmoxClient
         return await ExtractTaskUpidAsync(response, ct);
     }
 
+    public async Task<string> StartVmAsync(
+        string node,
+        int vmid,
+        bool isLxc = false,
+        CancellationToken ct = default)
+    {
+        var options = await GetOptionsAsync(ct);
+        ValidateConfiguration(options);
+
+        var vmType = isLxc ? "lxc" : "qemu";
+        var endpoint = $"/nodes/{Uri.EscapeDataString(node)}/{vmType}/{vmid}/status/start";
+
+        _logger.LogInformation("Requesting start for {VmType} {Vmid} on node '{Node}'", vmType, vmid, node);
+
+        using var request = CreateRequest(options, HttpMethod.Post, endpoint);
+        using var response = await SendAsync(options, request, ct);
+
+        return await ExtractTaskUpidAsync(response, ct);
+    }
+
     public async Task<ProxmoxTaskStatus> GetTaskStatusAsync(
         string node,
         string upid,
