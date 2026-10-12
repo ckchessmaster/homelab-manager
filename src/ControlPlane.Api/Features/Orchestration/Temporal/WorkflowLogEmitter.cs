@@ -5,6 +5,8 @@ using ControlPlane.Api.Storage.Entities;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
+using ControlPlane.Api.Features.Agents.Messaging;
+
 namespace ControlPlane.Api.Features.Orchestration.Temporal;
 
 public interface IWorkflowLogEmitter
@@ -19,16 +21,19 @@ public class WorkflowLogEmitter : IWorkflowLogEmitter
     private readonly ConcurrentDictionary<Guid, long> _sequenceCounters = new();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHubContext<JobLogHub, IJobClient> _hubContext;
+    private readonly IAgentMessageBus? _messageBus;
     private readonly ILogger<WorkflowLogEmitter> _logger;
 
     public WorkflowLogEmitter(
         IServiceScopeFactory scopeFactory,
         IHubContext<JobLogHub, IJobClient> hubContext,
-        ILogger<WorkflowLogEmitter> logger)
+        ILogger<WorkflowLogEmitter> logger,
+        IAgentMessageBus? messageBus = null)
     {
         _scopeFactory = scopeFactory;
         _hubContext = hubContext;
         _logger = logger;
+        _messageBus = messageBus;
     }
 
     public async Task EmitLogAsync(Guid jobId, string streamType, string logLine, CancellationToken ct = default)
@@ -60,6 +65,11 @@ public class WorkflowLogEmitter : IWorkflowLogEmitter
                 logLine,
                 timestamp
             );
+
+            if (_messageBus != null)
+            {
+                _ = _messageBus.PublishJobLogAsync(jobId, seq, streamType, logLine, timestamp, ct);
+            }
         }
         catch (Exception ex)
         {
@@ -99,6 +109,11 @@ public class WorkflowLogEmitter : IWorkflowLogEmitter
                 status,
                 activeStep
             );
+
+            if (_messageBus != null)
+            {
+                _ = _messageBus.PublishJobStatusAsync(jobId, status, activeStep, ct);
+            }
         }
         catch (Exception ex)
         {

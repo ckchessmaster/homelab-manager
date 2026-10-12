@@ -1,7 +1,9 @@
+using ControlPlane.Api.Features.Agents.Messaging;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ControlPlane.Api.Storage;
@@ -11,6 +13,18 @@ public static class DependencyInjection
     public static IServiceCollection AddControlPlaneStorage(this IServiceCollection services, IConfiguration config)
     {
         var isStandby = config.GetValue<bool>("STANDBY_MODE", false);
+        string? resolvedPgConnString = null;
+        if (!isStandby)
+        {
+            try
+            {
+                resolvedPgConnString = ResolvePostgresConnectionString(config);
+            }
+            catch
+            {
+                // In fallback or test environments where connection string is absent
+            }
+        }
 
         services.AddDbContext<ControlPlaneDbContext>(options =>
         {
@@ -48,187 +62,220 @@ public static class DependencyInjection
             }
             else
             {
-                var connectionString = config.GetConnectionString("ControlPlaneDatabase")
-                    ?? config.GetConnectionString("PostgresDatabase");
-
-                var uri = config["uri"] ?? config["URI"] ?? config["DATABASE_URL"] ?? config["POSTGRES_URL"];
-
-                var explicitHost = config["Database:Host"]
-                    ?? config["Database__Host"]
-                    ?? config["Database:Server"]
-                    ?? config["Database__Server"]
-                    ?? config["DB_HOST"]
-                    ?? config["POSTGRES_HOST"]
-                    ?? config["host"]
-                    ?? config["HOST"];
-
-                var explicitPort = config["Database:Port"]
-                    ?? config["Database__Port"]
-                    ?? config["DB_PORT"]
-                    ?? config["POSTGRES_PORT"]
-                    ?? config["port"]
-                    ?? config["PORT"];
-
-                var explicitDb = config["Database:Database"]
-                    ?? config["Database__Database"]
-                    ?? config["Database:Name"]
-                    ?? config["Database__Name"]
-                    ?? config["DB_NAME"]
-                    ?? config["POSTGRES_DB"]
-                    ?? config["dbname"]
-                    ?? config["DBNAME"]
-                    ?? config["database"]
-                    ?? config["DATABASE"];
-
-                var explicitUser = config["Database:Username"]
-                    ?? config["Database__Username"]
-                    ?? config["Database:User"]
-                    ?? config["Database__User"]
-                    ?? config["DB_USER"]
-                    ?? config["POSTGRES_USER"]
-                    ?? config["username"]
-                    ?? config["USERNAME"]
-                    ?? config["user"]
-                    ?? config["USER"];
-
-                var pass = config["Database:Password"]
-                    ?? config["Database__Password"]
-                    ?? config["DB_PASSWORD"]
-                    ?? config["POSTGRES_PASSWORD"]
-                    ?? config["password"]
-                    ?? config["PASSWORD"]
-                    ?? config["postgres-password"]
-                    ?? config["db-password"];
-
-                // If password was not found directly, attempt extraction from uri if available
-                if (string.IsNullOrWhiteSpace(pass) && !string.IsNullOrWhiteSpace(uri))
-                {
-                    try
-                    {
-                        var uriBuilder = new Npgsql.NpgsqlConnectionStringBuilder(uri);
-                        if (!string.IsNullOrWhiteSpace(uriBuilder.Password))
-                        {
-                            pass = uriBuilder.Password;
-                        }
-                    }
-                    catch { }
-                }
-
-                if (!string.IsNullOrWhiteSpace(uri) && string.IsNullOrWhiteSpace(explicitHost))
-                {
-                    connectionString = uri;
-                }
-                else if (!string.IsNullOrWhiteSpace(explicitHost))
-                {
-                    // An explicit host was provided (e.g. from ConfigMap or environment).
-                    // Even if an existing connection string was found (e.g. from a default secret),
-                    // the explicit configuration must take precedence.
-                    Npgsql.NpgsqlConnectionStringBuilder builder;
-                    try
-                    {
-                        builder = !string.IsNullOrWhiteSpace(connectionString)
-                            ? new Npgsql.NpgsqlConnectionStringBuilder(connectionString)
-                            : new Npgsql.NpgsqlConnectionStringBuilder();
-                    }
-                    catch
-                    {
-                        builder = new Npgsql.NpgsqlConnectionStringBuilder();
-                    }
-
-                    builder.Host = explicitHost;
-                    if (!string.IsNullOrWhiteSpace(explicitPort) && int.TryParse(explicitPort, out var p))
-                    {
-                        builder.Port = p;
-                    }
-                    else if (builder.Port <= 0)
-                    {
-                        builder.Port = 5432;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(explicitDb))
-                    {
-                        builder.Database = explicitDb;
-                    }
-                    else if (string.IsNullOrWhiteSpace(builder.Database))
-                    {
-                        builder.Database = "controlplane";
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(explicitUser))
-                    {
-                        builder.Username = explicitUser;
-                    }
-                    else if (string.IsNullOrWhiteSpace(builder.Username))
-                    {
-                        builder.Username = "controlplane";
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(pass))
-                    {
-                        builder.Password = pass;
-                    }
-
-                    connectionString = builder.ConnectionString;
-                }
-                else
-                {
-                    // No explicit host provided, fallback to defaults or existing connection string
-                    var host = "controlplane-postgres";
-                    var port = "5432";
-                    var db = "controlplane";
-                    var user = "controlplane";
-
-                    if (string.IsNullOrWhiteSpace(connectionString) || connectionString.Contains("Password=;") || connectionString.EndsWith("Password="))
-                    {
-                        if (!string.IsNullOrWhiteSpace(pass))
-                        {
-                            connectionString = $"Host={host};Port={port};Database={db};Username={user};Password={pass}";
-                        }
-                    }
-                    else if (!string.IsNullOrWhiteSpace(pass))
-                    {
-                        try
-                        {
-                            var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
-                            if (string.IsNullOrWhiteSpace(builder.Password))
-                            {
-                                builder.Password = pass;
-                                connectionString = builder.ConnectionString;
-                            }
-                        }
-                        catch
-                        {
-                            // Keep connectionString as-is if parsing fails
-                        }
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(connectionString))
+                if (string.IsNullOrWhiteSpace(resolvedPgConnString))
                 {
                     throw new InvalidOperationException("Connection string 'ControlPlaneDatabase' or 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:ControlPlaneDatabase.");
                 }
 
-                try
-                {
-                    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
-                    if (builder.KeepAlive == 0) builder.KeepAlive = 15;
-                    if (builder.Timeout < 30) builder.Timeout = 30;
-                    if (builder.CommandTimeout < 60) builder.CommandTimeout = 60;
-                    connectionString = builder.ConnectionString;
-                }
-                catch
-                {
-                    // Keep connectionString as-is if parsing fails
-                }
-
-                options.UseNpgsql(connectionString, npgsql =>
+                options.UseNpgsql(resolvedPgConnString, npgsql =>
                 {
                     npgsql.EnableRetryOnFailure(10, TimeSpan.FromSeconds(30), null);
                 }).UseSnakeCaseNamingConvention();
             }
         });
 
+        if (isStandby || string.IsNullOrWhiteSpace(resolvedPgConnString))
+        {
+            services.AddSingleton<IAgentMessageBus, InMemoryAgentMessageBus>();
+        }
+        else
+        {
+            services.AddSingleton<IAgentMessageBus>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<PostgresAgentMessageBus>>();
+                return new PostgresAgentMessageBus(resolvedPgConnString, logger);
+            });
+            services.AddHostedService<PostgresAgentMessageBusHostedService>();
+        }
+
         return services;
+    }
+
+    public static string ResolvePostgresConnectionString(IConfiguration config)
+    {
+        var connectionString = config.GetConnectionString("ControlPlaneDatabase")
+            ?? config.GetConnectionString("PostgresDatabase");
+
+        var uri = config["uri"] ?? config["URI"] ?? config["DATABASE_URL"] ?? config["POSTGRES_URL"];
+
+        var explicitHost = config["Database:Host"]
+            ?? config["Database__Host"]
+            ?? config["Database:Server"]
+            ?? config["Database__Server"]
+            ?? config["DB_HOST"]
+            ?? config["POSTGRES_HOST"]
+            ?? config["host"]
+            ?? config["HOST"];
+
+        var explicitPort = config["Database:Port"]
+            ?? config["Database__Port"]
+            ?? config["DB_PORT"]
+            ?? config["POSTGRES_PORT"]
+            ?? config["port"]
+            ?? config["PORT"];
+
+        var explicitDb = config["Database:Database"]
+            ?? config["Database__Database"]
+            ?? config["Database:Name"]
+            ?? config["Database__Name"]
+            ?? config["DB_NAME"]
+            ?? config["POSTGRES_DB"]
+            ?? config["dbname"]
+            ?? config["DBNAME"]
+            ?? config["database"]
+            ?? config["DATABASE"];
+
+        var explicitUser = config["Database:Username"]
+            ?? config["Database__Username"]
+            ?? config["Database:User"]
+            ?? config["Database__User"]
+            ?? config["DB_USER"]
+            ?? config["POSTGRES_USER"]
+            ?? config["username"]
+            ?? config["USERNAME"]
+            ?? config["user"]
+            ?? config["USER"];
+
+        var pass = config["Database:Password"]
+            ?? config["Database__Password"]
+            ?? config["DB_PASSWORD"]
+            ?? config["POSTGRES_PASSWORD"]
+            ?? config["password"]
+            ?? config["PASSWORD"]
+            ?? config["postgres-password"]
+            ?? config["db-password"];
+
+        if (string.IsNullOrWhiteSpace(pass) && !string.IsNullOrWhiteSpace(uri))
+        {
+            try
+            {
+                var uriBuilder = new Npgsql.NpgsqlConnectionStringBuilder(uri);
+                if (!string.IsNullOrWhiteSpace(uriBuilder.Password))
+                {
+                    pass = uriBuilder.Password;
+                }
+            }
+            catch { }
+        }
+
+        if (!string.IsNullOrWhiteSpace(uri) && string.IsNullOrWhiteSpace(explicitHost))
+        {
+            connectionString = uri;
+        }
+        else if (!string.IsNullOrWhiteSpace(explicitHost))
+        {
+            Npgsql.NpgsqlConnectionStringBuilder builder;
+            try
+            {
+                builder = !string.IsNullOrWhiteSpace(connectionString)
+                    ? new Npgsql.NpgsqlConnectionStringBuilder(connectionString)
+                    : new Npgsql.NpgsqlConnectionStringBuilder();
+            }
+            catch
+            {
+                builder = new Npgsql.NpgsqlConnectionStringBuilder();
+            }
+
+            builder.Host = explicitHost;
+            if (!string.IsNullOrWhiteSpace(explicitPort) && int.TryParse(explicitPort, out var p))
+            {
+                builder.Port = p;
+            }
+            else if (builder.Port <= 0)
+            {
+                builder.Port = 5432;
+            }
+
+            if (!string.IsNullOrWhiteSpace(explicitDb))
+            {
+                builder.Database = explicitDb;
+            }
+            else if (string.IsNullOrWhiteSpace(builder.Database))
+            {
+                builder.Database = "controlplane";
+            }
+
+            if (!string.IsNullOrWhiteSpace(explicitUser))
+            {
+                builder.Username = explicitUser;
+            }
+            else if (string.IsNullOrWhiteSpace(builder.Username))
+            {
+                builder.Username = "controlplane";
+            }
+
+            if (!string.IsNullOrWhiteSpace(pass))
+            {
+                builder.Password = pass;
+            }
+
+            connectionString = builder.ConnectionString;
+        }
+        else
+        {
+            var host = "controlplane-postgres";
+            var port = "5432";
+            var db = "controlplane";
+            var user = "controlplane";
+
+            if (string.IsNullOrWhiteSpace(connectionString) || connectionString.Contains("Password=;") || connectionString.EndsWith("Password="))
+            {
+                if (!string.IsNullOrWhiteSpace(pass))
+                {
+                    connectionString = $"Host={host};Port={port};Database={db};Username={user};Password={pass}";
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(pass))
+            {
+                try
+                {
+                    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+                    if (string.IsNullOrWhiteSpace(builder.Password))
+                    {
+                        builder.Password = pass;
+                    }
+                    connectionString = builder.ConnectionString;
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("Connection string 'ControlPlaneDatabase' or 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:ControlPlaneDatabase.");
+        }
+
+        try
+        {
+            var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+            if (builder.KeepAlive == 0) builder.KeepAlive = 15;
+            if (builder.Timeout < 30) builder.Timeout = 30;
+            if (builder.CommandTimeout < 60) builder.CommandTimeout = 60;
+            connectionString = builder.ConnectionString;
+        }
+        catch
+        {
+        }
+
+        return connectionString;
+    }
+
+    internal class PostgresAgentMessageBusHostedService : IHostedService
+    {
+        private readonly IAgentMessageBus _bus;
+
+        public PostgresAgentMessageBusHostedService(IAgentMessageBus bus)
+        {
+            _bus = bus;
+        }
+
+        public Task StartAsync(CancellationToken cancellationToken) =>
+            (_bus as IHostedService)?.StartAsync(cancellationToken) ?? Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken) =>
+            (_bus as IHostedService)?.StopAsync(cancellationToken) ?? Task.CompletedTask;
     }
 
     public static async Task InitializeDatabaseAsync(this IApplicationBuilder app, CancellationToken cancellationToken = default)

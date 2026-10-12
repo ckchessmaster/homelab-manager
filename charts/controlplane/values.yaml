@@ -6,7 +6,7 @@ global:
   imagePullSecrets: []
 
 api:
-  replicaCount: 1
+  replicaCount: 2
   image:
     repository: ghcr.io/ckchessmaster/controlplane-api
     pullPolicy: IfNotPresent

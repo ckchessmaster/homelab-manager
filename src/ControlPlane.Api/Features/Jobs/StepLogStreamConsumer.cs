@@ -1,4 +1,5 @@
 using ControlPlane.Api.Features.Agents;
+using ControlPlane.Api.Features.Agents.Messaging;
 using ControlPlane.Api.Features.Agents.Models;
 using ControlPlane.Api.Hubs;
 using ControlPlane.Api.Storage;
@@ -13,18 +14,21 @@ public class StepLogStreamConsumer : IStepLogConsumer
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHubContext<JobLogHub, IJobClient> _hubContext;
     private readonly IAgentCommandExecutor? _commandExecutor;
+    private readonly IAgentMessageBus? _messageBus;
     private readonly ILogger<StepLogStreamConsumer> _logger;
 
     public StepLogStreamConsumer(
         IServiceScopeFactory scopeFactory,
         IHubContext<JobLogHub, IJobClient> hubContext,
         ILogger<StepLogStreamConsumer> logger,
-        IAgentCommandExecutor? commandExecutor = null)
+        IAgentCommandExecutor? commandExecutor = null,
+        IAgentMessageBus? messageBus = null)
     {
         _scopeFactory = scopeFactory;
         _hubContext = hubContext;
         _logger = logger;
         _commandExecutor = commandExecutor;
+        _messageBus = messageBus;
     }
 
     public async Task ConsumeFrameAsync(Guid hostId, AgentFrameData frame, CancellationToken cancellationToken = default)
@@ -78,6 +82,10 @@ public class StepLogStreamConsumer : IStepLogConsumer
                         job.Status = "Completed";
                         job.CompletedAt = DateTimeOffset.UtcNow;
                         _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Completed", null);
+                        if (_messageBus != null)
+                        {
+                            _ = _messageBus.PublishJobStatusAsync(frame.JobId, "Completed", null, cancellationToken);
+                        }
                     }
                     else if ((frame.LogLine.Contains("exited with code", StringComparison.OrdinalIgnoreCase) && !frame.LogLine.Contains("code 0", StringComparison.OrdinalIgnoreCase))
                         || frame.LogLine.Contains("Process error:", StringComparison.OrdinalIgnoreCase)
@@ -88,6 +96,10 @@ public class StepLogStreamConsumer : IStepLogConsumer
                         job.FailureReason = frame.LogLine;
                         job.CompletedAt = DateTimeOffset.UtcNow;
                         _ = _hubContext.Clients.Group(frame.JobId.ToString()).JobStatusChanged(frame.JobId, "Failed", frame.LogLine);
+                        if (_messageBus != null)
+                        {
+                            _ = _messageBus.PublishJobStatusAsync(frame.JobId, "Failed", frame.LogLine, cancellationToken);
+                        }
                     }
                 }
             }
@@ -102,6 +114,11 @@ public class StepLogStreamConsumer : IStepLogConsumer
                 frame.LogLine,
                 frame.Timestamp
             );
+
+            if (_messageBus != null)
+            {
+                _ = _messageBus.PublishJobLogAsync(frame.JobId, frame.SequenceId, frame.StreamType, frame.LogLine, frame.Timestamp, cancellationToken);
+            }
 
             _commandExecutor?.NotifyFrame(hostId, frame);
         }

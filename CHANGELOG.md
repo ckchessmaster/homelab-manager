@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.8.0
+
+### Added
+* **Active-Active Multi-Replica Support (Zero-Broker Inter-Pod Bus via PostgreSQL `LISTEN`/`NOTIFY`)**:
+  * **Inter-Pod Message Bus (`IAgentMessageBus`, `PostgresAgentMessageBus`, `InMemoryAgentMessageBus`)**: Built an asynchronous brokerless communication plane using PostgreSQL's native `LISTEN`/`NOTIFY` on channel `controlplane_bus` for Kubernetes cluster mode, with a clean in-memory fallback for SQLite Standby mode preserving Invariant 1 (Dual-Topology Portability).
+  * **Global Cross-Pod Agent Presence & Liveness Sync**: Updated `AgentConnectionManager` to track remote pod presence alongside local WebSocket sessions. In-flight heartbeats, connections, and disconnections are fanned out immediately across pods. Cold-booting pods automatically seed remote presence on startup via database records so newly launched replicas recognize online agents without waiting.
+  * **Inter-Pod Command Forwarding**: Commands issued via REST, MCP, or UI directed at agents connected to peer pods are transparently routed across the message bus to the owning pod and dispatched to the active WebSocket session, completely eliminating split-brain drops.
+  * **Deterministic Reboot Acknowledgment Fanout**: Reboot commencing signals received from agents are published across the message bus, unblocking `WaitForRebootCommencingAsync` callers on any replica.
+  * **Cross-Pod Real-Time Terminal Streaming (`JobLogHubBridge`)**: Added `JobLogHubBridge` to subscribe to inter-pod `JobLog` and `JobStatus` events, forwarding frames directly to local SignalR `JobLogHub` client groups. Users connected to any pod can watch real-time console logs regardless of which pod the target agent is connected to.
+  * **Production High Availability Scale**: Restored `replicaCount: 2` in production Helm chart with 100% stable fleet connectivity across all 13 node agents.
+
+---
+
 ## v1.7.0
 
 ### Added

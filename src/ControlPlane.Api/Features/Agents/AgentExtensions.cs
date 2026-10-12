@@ -1,3 +1,5 @@
+using ControlPlane.Api.Features.Jobs;
+
 namespace ControlPlane.Api.Features.Agents;
 
 public static class AgentExtensions
@@ -7,6 +9,7 @@ public static class AgentExtensions
         services.AddSingleton<AgentConnectionManager>();
         services.AddSingleton<AgentHeartbeatHandler>();
         services.AddHostedService<AgentLivenessBackgroundService>();
+        services.AddHostedService<JobLogHubBridge>();
         return services;
     }
 

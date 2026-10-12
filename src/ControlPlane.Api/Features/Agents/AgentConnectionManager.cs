@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using ControlPlane.Api.Features.Agents.Messaging;
 using ControlPlane.Api.Features.Agents.Models;
 
 namespace ControlPlane.Api.Features.Agents;
@@ -25,16 +26,27 @@ public class AgentSession
 public class AgentConnectionManager
 {
     private readonly ConcurrentDictionary<Guid, AgentSession> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, RemoteAgentSession> _remoteSessions = new();
     private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentSession>> _reconnectWaiters = new();
     private readonly ConcurrentDictionary<Guid, TaskCompletionSource<string>> _rebootCommencingWaiters = new();
+    private readonly IAgentMessageBus? _messageBus;
     private readonly ILogger<AgentConnectionManager> _logger;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public event Action<Guid, string?>? OnRebootCommencing;
 
-    public AgentConnectionManager(ILogger<AgentConnectionManager> logger)
+    public AgentConnectionManager(
+        ILogger<AgentConnectionManager> logger,
+        IAgentMessageBus? messageBus = null)
     {
         _logger = logger;
+        _messageBus = messageBus;
+
+        if (_messageBus != null)
+        {
+            _messageBus.OnPresenceReceived += HandleRemotePresenceAsync;
+            _messageBus.OnCommandReceived += HandleRemoteCommandAsync;
+        }
     }
 
     public AgentSession? GetSession(Guid hostId)
@@ -71,7 +83,15 @@ public class AgentConnectionManager
             return session;
         });
 
+        _remoteSessions.TryRemove(hostId, out _);
+
         _logger.LogInformation("Registered agent session for host {HostId} (Node: {NodeId})", hostId, nodeId);
+
+        // Notify other pods of local registration
+        if (_messageBus != null)
+        {
+            _ = _messageBus.PublishPresenceAsync(hostId, "Connected");
+        }
 
         // Resolve any waiters awaiting reconnection for this host
         if (_reconnectWaiters.TryRemove(hostId, out var waiter))
@@ -95,6 +115,11 @@ public class AgentConnectionManager
         _sessions[hostId] = session;
         _logger.LogInformation("Registered simulated agent session for host {HostId} (Node: {NodeId})", hostId, nodeId);
 
+        if (_messageBus != null)
+        {
+            _ = _messageBus.PublishPresenceAsync(hostId, "Connected");
+        }
+
         if (_reconnectWaiters.TryRemove(hostId, out var waiter))
         {
             waiter.TrySetResult(session);
@@ -116,6 +141,12 @@ public class AgentConnectionManager
             if (((ICollection<KeyValuePair<Guid, AgentSession>>)_sessions).Remove(new KeyValuePair<Guid, AgentSession>(hostId, currentSession)))
             {
                 _logger.LogInformation("Unregistered agent session for host {HostId}", hostId);
+
+                if (_messageBus != null)
+                {
+                    _ = _messageBus.PublishPresenceAsync(hostId, "Disconnected");
+                }
+
                 return true;
             }
         }
@@ -129,15 +160,26 @@ public class AgentConnectionManager
             if (session.IsSimulated) return true;
             return session.Socket != null && session.Socket.State == WebSocketState.Open;
         }
+
+        if (_remoteSessions.TryGetValue(hostId, out var remote))
+        {
+            return DateTimeOffset.UtcNow - remote.LastSeenAt < TimeSpan.FromSeconds(45);
+        }
+
         return false;
     }
 
     public IReadOnlyCollection<Guid> GetOnlineHostIds()
     {
-        return _sessions
+        var localOnline = _sessions
             .Where(s => s.Value.IsSimulated || (s.Value.Socket != null && s.Value.Socket.State == WebSocketState.Open))
-            .Select(s => s.Key)
-            .ToList();
+            .Select(s => s.Key);
+
+        var remoteOnline = _remoteSessions
+            .Where(r => DateTimeOffset.UtcNow - r.Value.LastSeenAt < TimeSpan.FromSeconds(45))
+            .Select(r => r.Key);
+
+        return localOnline.Union(remoteOnline).ToList();
     }
 
     public void UpdateMetrics(Guid hostId, AgentMetrics? metrics)
@@ -162,6 +204,26 @@ public class AgentConnectionManager
             if (!string.IsNullOrWhiteSpace(heartbeat.KernelVersion))
             {
                 session.KernelVersion = heartbeat.KernelVersion;
+            }
+
+            if (_messageBus != null)
+            {
+                _ = _messageBus.PublishPresenceAsync(hostId, "Heartbeat");
+            }
+        }
+    }
+
+    public void SyncRemotePresence(IEnumerable<(Guid HostId, DateTimeOffset LastSeenAt)> activeHosts)
+    {
+        foreach (var (hostId, lastSeenAt) in activeHosts)
+        {
+            if (!_sessions.ContainsKey(hostId))
+            {
+                _remoteSessions.AddOrUpdate(
+                    hostId,
+                    _ => new RemoteAgentSession(hostId, "remote", lastSeenAt),
+                    (_, existing) => lastSeenAt > existing.LastSeenAt ? new RemoteAgentSession(hostId, existing.PodId, lastSeenAt) : existing
+                );
             }
         }
     }
@@ -195,12 +257,25 @@ public class AgentConnectionManager
 
     public async Task<bool> SendCommandAsync(Guid hostId, AgentCommandEnvelope command, CancellationToken ct = default)
     {
-        if (!_sessions.TryGetValue(hostId, out var session))
+        if (_sessions.TryGetValue(hostId, out var session))
         {
-            _logger.LogWarning("Cannot send command to host {HostId}: agent is not connected", hostId);
-            return false;
+            return await SendLocalCommandAsync(session, hostId, command, ct);
         }
 
+        // Host is not connected to this pod locally. Forward via message bus if available and host is online
+        if (_messageBus != null && IsOnline(hostId))
+        {
+            _logger.LogInformation("Broadcasting command {CommandType} for host {HostId} across pods via message bus", command.Type, hostId);
+            await _messageBus.PublishCommandAsync(hostId, command, ct);
+            return true;
+        }
+
+        _logger.LogWarning("Cannot send command to host {HostId}: agent is not connected on any pod", hostId);
+        return false;
+    }
+
+    private async Task<bool> SendLocalCommandAsync(AgentSession session, Guid hostId, AgentCommandEnvelope command, CancellationToken ct)
+    {
         if (session.IsSimulated)
         {
             _logger.LogInformation("Dispatched simulated command {CommandType} to host {HostId}", command.Type, hostId);
@@ -209,7 +284,7 @@ public class AgentConnectionManager
 
         if (session.Socket == null || session.Socket.State != WebSocketState.Open)
         {
-            _logger.LogWarning("Cannot send command to host {HostId}: agent is not connected", hostId);
+            _logger.LogWarning("Cannot send command to host {HostId}: agent socket is not open", hostId);
             return false;
         }
 
@@ -240,6 +315,48 @@ public class AgentConnectionManager
         finally
         {
             session.SendLock.Release();
+        }
+    }
+
+    private Task HandleRemotePresenceAsync(AgentPresencePayload payload)
+    {
+        if (payload.State is "Connected" or "Heartbeat")
+        {
+            if (!_sessions.ContainsKey(payload.HostId))
+            {
+                _remoteSessions[payload.HostId] = new RemoteAgentSession(payload.HostId, payload.PodId, payload.Timestamp);
+            }
+
+            if (_reconnectWaiters.TryRemove(payload.HostId, out var waiter))
+            {
+                waiter.TrySetResult(new AgentSession
+                {
+                    HostId = payload.HostId,
+                    NodeId = payload.PodId,
+                    IsSimulated = true
+                });
+            }
+        }
+        else if (payload.State == "Disconnected")
+        {
+            _remoteSessions.TryRemove(payload.HostId, out _);
+        }
+        else if (payload.State.StartsWith("RebootCommencing", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = payload.State.Split(':', 2);
+            var jobId = parts.Length > 1 ? parts[1] : null;
+            NotifyRebootCommencing(payload.HostId, jobId, broadcast: false);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleRemoteCommandAsync(AgentCommandPayload payload)
+    {
+        if (_sessions.TryGetValue(payload.TargetHostId, out var session))
+        {
+            _logger.LogInformation("Executing inter-pod forwarded command {CommandType} for host {HostId}", payload.Command.Type, payload.TargetHostId);
+            await SendLocalCommandAsync(session, payload.TargetHostId, payload.Command, CancellationToken.None);
         }
     }
 
@@ -278,7 +395,7 @@ public class AgentConnectionManager
         }
     }
 
-    public void NotifyRebootCommencing(Guid hostId, string? jobId)
+    public void NotifyRebootCommencing(Guid hostId, string? jobId, bool broadcast = true)
     {
         _logger.LogInformation("Agent acknowledged reboot commencing for host {HostId} (Job: {JobId})", hostId, jobId);
         if (_rebootCommencingWaiters.TryRemove(hostId, out var waiter))
@@ -286,6 +403,11 @@ public class AgentConnectionManager
             waiter.TrySetResult(jobId ?? string.Empty);
         }
         OnRebootCommencing?.Invoke(hostId, jobId);
+
+        if (broadcast && _messageBus != null)
+        {
+            _ = _messageBus.PublishPresenceAsync(hostId, $"RebootCommencing:{jobId}");
+        }
     }
 
     public async Task<bool> WaitForRebootCommencingAsync(Guid hostId, TimeSpan timeout, CancellationToken ct = default)

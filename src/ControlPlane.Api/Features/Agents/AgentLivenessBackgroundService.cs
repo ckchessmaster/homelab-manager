@@ -25,6 +25,15 @@ public class AgentLivenessBackgroundService : BackgroundService
     {
         _logger.LogInformation("Agent Liveness background service started");
 
+        try
+        {
+            await CheckLivenessAsync(stoppingToken);
+        }
+        catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Initial agent liveness check failed during startup");
+        }
+
         using var timer = new PeriodicTimer(_checkInterval);
 
         while (!stoppingToken.IsCancellationRequested && await timer.WaitForNextTickAsync(stoppingToken))
@@ -56,6 +65,14 @@ public class AgentLivenessBackgroundService : BackgroundService
         var allHosts = await db.Hosts
             .AsNoTracking()
             .ToListAsync(cancellationToken);
+
+        // Sync presence for any hosts recently seen by peer pods
+        var activeThreshold = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(45);
+        var recentlyActiveHosts = allHosts
+            .Where(h => h.Agent?.Installed == true && h.Agent.LastSeenAt != null && h.Agent.LastSeenAt >= activeThreshold)
+            .Select(h => (h.Id, h.Agent!.LastSeenAt!.Value));
+
+        _connectionManager.SyncRemotePresence(recentlyActiveHosts);
 
         var offlineCandidateHosts = allHosts
             .Where(h => h.Agent?.Installed == true && h.Agent.LastSeenAt != null && h.Agent.LastSeenAt < cutoff)
