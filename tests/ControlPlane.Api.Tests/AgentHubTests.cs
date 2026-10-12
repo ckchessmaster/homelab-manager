@@ -129,21 +129,27 @@ public class AgentHubTests
         var bytes = Encoding.UTF8.GetBytes(json);
         await webSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cts.Token);
 
-        // Allow handler to process
-        await Task.Delay(200);
+        // Allow handler to process with polling loop for busy CI environments
+        HostEntity? updatedHost = null;
+        for (var i = 0; i < 30; i++)
+        {
+            await Task.Delay(100);
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
+            updatedHost = await db.Hosts.FindAsync(hostId);
+            if (updatedHost != null && updatedHost.Agent.Installed)
+            {
+                break;
+            }
+        }
 
         // 4. Verify DB was updated
-        using (var scope = factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
-            var updatedHost = await db.Hosts.FindAsync(hostId);
-            Assert.NotNull(updatedHost);
-            Assert.True(updatedHost.Agent.Installed);
-            Assert.Equal("1.0.0", updatedHost.Agent.Version);
-            Assert.True(updatedHost.Agent.PendingReboot);
-            Assert.Equal(5, updatedHost.Agent.UpgradablePackagesCount);
-            Assert.NotNull(updatedHost.Agent.LastSeenAt);
-        }
+        Assert.NotNull(updatedHost);
+        Assert.True(updatedHost.Agent.Installed);
+        Assert.Equal("1.0.0", updatedHost.Agent.Version);
+        Assert.True(updatedHost.Agent.PendingReboot);
+        Assert.Equal(5, updatedHost.Agent.UpgradablePackagesCount);
+        Assert.NotNull(updatedHost.Agent.LastSeenAt);
 
         // 5. Close socket and verify session unregistered
         await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", cts.Token);
