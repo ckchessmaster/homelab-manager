@@ -41,7 +41,7 @@ public class ControlPlaneDbContextFactory : IDesignTimeDbContextFactory<ControlP
 
             optionsBuilder.UseNpgsql(connectionString, npgsql =>
             {
-                npgsql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
+                npgsql.EnableRetryOnFailure(10, TimeSpan.FromSeconds(30), null);
             }).UseSnakeCaseNamingConvention();
         }
 

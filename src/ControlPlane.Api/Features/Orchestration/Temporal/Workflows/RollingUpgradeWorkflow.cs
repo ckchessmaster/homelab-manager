@@ -70,7 +70,10 @@ public class RollingUpgradeWorkflow : IRollingUpgradeWorkflow
         }
 
         var maxParallelism = Math.Max(1, input.MaxParallelism);
-        var targetQueue = new Queue<RollingHostTarget>(input.TargetHosts);
+        var activeOrchestratorNode = input.ActiveOrchestratorNode;
+
+        var sortedTargets = SortTargetsOrchestratorLast(input.TargetHosts, activeOrchestratorNode);
+        var targetQueue = new Queue<RollingHostTarget>(sortedTargets);
         bool firstHostProcessed = false;
 
         while (targetQueue.Count > 0)
@@ -225,5 +228,28 @@ public class RollingUpgradeWorkflow : IRollingUpgradeWorkflow
             progress.ErrorMessage = reason;
             progress.CompletedAt = Workflow.UtcNow;
         }
+    }
+
+    public static List<RollingHostTarget> SortTargetsOrchestratorLast(
+        IEnumerable<RollingHostTarget> targets,
+        string? activeOrchestratorNode)
+    {
+        var list = new List<RollingHostTarget>(targets);
+        if (string.IsNullOrWhiteSpace(activeOrchestratorNode) || list.Count <= 1)
+        {
+            return list;
+        }
+
+        var orchestratorTarget = list.FirstOrDefault(t =>
+            string.Equals(t.K8sNodeName, activeOrchestratorNode, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(t.Hostname, activeOrchestratorNode, StringComparison.OrdinalIgnoreCase));
+
+        if (orchestratorTarget != null)
+        {
+            list.Remove(orchestratorTarget);
+            list.Add(orchestratorTarget);
+        }
+
+        return list;
     }
 }

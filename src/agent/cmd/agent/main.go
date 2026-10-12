@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	Version = "1.6.0"
+	Version = "1.7.0"
 )
 
 type HeartbeatPayload struct {
@@ -221,6 +221,9 @@ func runAgentLoop(
 	// Outbound persistent connection loop
 	backoff := 1 * time.Second
 	maxBackoff := 15 * time.Second
+	hubURLs := cfg.GetHubURLs()
+	currentHubIdx := 0
+	consecutiveFailures := 0
 
 	for {
 		select {
@@ -230,10 +233,16 @@ func runAgentLoop(
 		default:
 		}
 
+		targetHubURL := cfg.HubURL
+		if len(hubURLs) > 0 {
+			targetHubURL = hubURLs[currentHubIdx]
+		}
+
 		sessionStart := time.Now()
-		err := runAgentSession(ctx, cfg, hostname, collector, pkgCache, hwCache, hwInspector, procRunner, func() {
+		err := runAgentSession(ctx, targetHubURL, cfg, hostname, collector, pkgCache, hwCache, hwInspector, procRunner, func() {
 			// Successfully connected & registered
 			backoff = 1 * time.Second
+			consecutiveFailures = 0
 		})
 
 		if ctx.Err() != nil {
@@ -244,9 +253,17 @@ func runAgentLoop(
 		// If session was connected for more than 10 seconds, reset backoff for fast recovery
 		if time.Since(sessionStart) > 10*time.Second {
 			backoff = 1 * time.Second
+			consecutiveFailures = 0
 		}
 
 		if err != nil {
+			consecutiveFailures++
+			if len(hubURLs) > 1 && consecutiveFailures >= 2 {
+				currentHubIdx = (currentHubIdx + 1) % len(hubURLs)
+				log.Printf("[Agent] Primary hub connection failed; failing over to secondary hub: %s", hubURLs[currentHubIdx])
+				consecutiveFailures = 0
+			}
+
 			// Add slight jitter (0-500ms) to prevent thundering herd
 			jitter := time.Duration(rand.Intn(500)) * time.Millisecond
 			sleepDuration := backoff + jitter
@@ -268,6 +285,7 @@ func runAgentLoop(
 
 func runAgentSession(
 	ctx context.Context,
+	targetHubURL string,
 	cfg *config.Config,
 	hostname string,
 	collector metrics.Collector,
@@ -277,9 +295,9 @@ func runAgentSession(
 	procRunner *runner.ProcessRunner,
 	onConnected func(),
 ) error {
-	u, err := url.Parse(cfg.HubURL)
+	u, err := url.Parse(targetHubURL)
 	if err != nil {
-		return fmt.Errorf("invalid hub url: %w", err)
+		return fmt.Errorf("invalid hub url '%s': %w", targetHubURL, err)
 	}
 
 	headers := make(http.Header)

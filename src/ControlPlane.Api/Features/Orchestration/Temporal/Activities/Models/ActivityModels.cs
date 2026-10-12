@@ -20,6 +20,7 @@ public record KubernetesNodeInput(Guid JobId, Guid HostId, string? NodeName = nu
 public record KubernetesCordonResult(bool Success, bool Cordoned, string? NodeName, string Message);
 public record KubernetesDrainInput(Guid JobId, Guid HostId, string NodeName, int TimeoutSeconds = 180, bool IgnoreDaemonSets = true);
 public record KubernetesDrainResult(bool Success, bool Drained, int EvictedPodCount, string Message);
+public record KubernetesNodeReadyResult(bool Success, bool IsReady, string Message);
 public record KubernetesUncordonResult(bool Success, string? NodeName, string Message);
 
 // Agent Models

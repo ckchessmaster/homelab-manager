@@ -113,4 +113,36 @@ public class RollingUpgradeWorkflowTests
         Assert.Null(progress.CompletedAt);
         Assert.Null(progress.ErrorMessage);
     }
+
+    [Fact]
+    public void SortTargetsOrchestratorLast_MovesActiveOrchestratorNodeToEnd()
+    {
+        var target1 = new RollingHostTarget(Guid.NewGuid(), "node-1", "k8s", "ubuntu", "node-1");
+        var target2 = new RollingHostTarget(Guid.NewGuid(), "node-2", "k8s", "ubuntu", "node-2");
+        var target3 = new RollingHostTarget(Guid.NewGuid(), "node-3", "k8s", "ubuntu", "node-3");
+
+        var targets = new List<RollingHostTarget> { target1, target2, target3 };
+
+        // Active orchestrator is on node-1
+        var sorted = RollingUpgradeWorkflow.SortTargetsOrchestratorLast(targets, "node-1");
+
+        Assert.Equal(3, sorted.Count);
+        Assert.Equal("node-2", sorted[0].Hostname);
+        Assert.Equal("node-3", sorted[1].Hostname);
+        Assert.Equal("node-1", sorted[2].Hostname);
+    }
+
+    [Fact]
+    public void SortTargetsOrchestratorLast_LeavesOrderUnchanged_WhenActiveNodeNotInList()
+    {
+        var target1 = new RollingHostTarget(Guid.NewGuid(), "node-1", "k8s", "ubuntu", "node-1");
+        var target2 = new RollingHostTarget(Guid.NewGuid(), "node-2", "k8s", "ubuntu", "node-2");
+
+        var targets = new List<RollingHostTarget> { target1, target2 };
+
+        var sorted = RollingUpgradeWorkflow.SortTargetsOrchestratorLast(targets, "external-node");
+
+        Assert.Equal("node-1", sorted[0].Hostname);
+        Assert.Equal("node-2", sorted[1].Hostname);
+    }
 }

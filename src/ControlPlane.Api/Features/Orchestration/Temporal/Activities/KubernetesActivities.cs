@@ -121,6 +121,63 @@ public class KubernetesActivities : IKubernetesActivities
     }
 
     [Activity]
+    public async Task<KubernetesNodeReadyResult> AwaitNodeReadyAsync(KubernetesNodeInput input)
+    {
+        if (string.IsNullOrWhiteSpace(input.NodeName))
+        {
+            await _logEmitter.EmitLogAsync(input.JobId, "system", "[K8S] No node name specified; skipping Ready condition check.");
+            return new KubernetesNodeReadyResult(true, true, "Skipped: No node name provided.");
+        }
+
+        using var scope = _scopeFactory.CreateScope();
+        var adapter = _adapter ?? scope.ServiceProvider.GetService<IKubernetesAdapter>();
+        if (adapter == null)
+        {
+            await _logEmitter.EmitLogAsync(input.JobId, "system", "[K8S] Kubernetes adapter unavailable; skipping Ready condition check.");
+            return new KubernetesNodeReadyResult(true, true, "Skipped: Kubernetes adapter unavailable.");
+        }
+
+        await _logEmitter.EmitLogAsync(input.JobId, "system", $"[K8S] Awaiting Kubernetes node '{input.NodeName}' to reach Ready condition (timeout: 180s)...");
+
+        using var heartbeatCts = new CancellationTokenSource();
+        var heartbeatTask = Task.Run(async () =>
+        {
+            while (!heartbeatCts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), heartbeatCts.Token);
+                    ActivityExecutionContext.Current.Heartbeat($"Waiting for node '{input.NodeName}' to report Ready");
+                }
+                catch
+                {
+                    break;
+                }
+            }
+        });
+
+        try
+        {
+            var isReady = await adapter.WaitForNodeReadyAsync(input.NodeName, TimeSpan.FromSeconds(180));
+            if (!isReady)
+            {
+                var timeoutMsg = $"Kubernetes node '{input.NodeName}' failed to report Ready condition within 180 seconds.";
+                await _logEmitter.EmitLogAsync(input.JobId, "system", $"[K8S] Error: {timeoutMsg}");
+                return new KubernetesNodeReadyResult(false, false, timeoutMsg);
+            }
+
+            var successMsg = $"Kubernetes node '{input.NodeName}' is Ready.";
+            await _logEmitter.EmitLogAsync(input.JobId, "system", $"[K8S] {successMsg}");
+            return new KubernetesNodeReadyResult(true, true, successMsg);
+        }
+        finally
+        {
+            heartbeatCts.Cancel();
+            try { await heartbeatTask; } catch { }
+        }
+    }
+
+    [Activity]
     public async Task<KubernetesUncordonResult> UncordonNodeAsync(KubernetesNodeInput input)
     {
         if (string.IsNullOrWhiteSpace(input.NodeName))

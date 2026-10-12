@@ -11,12 +11,24 @@ import (
 
 type Config struct {
 	HubURL            string
+	StandbyHubURL     string
 	Token             string
 	NodeID            string
 	HeartbeatInterval time.Duration
 	TestMetrics       bool
 	Version           string
 	Insecure          bool
+}
+
+func (c *Config) GetHubURLs() []string {
+	urls := []string{}
+	if c.HubURL != "" {
+		urls = append(urls, c.HubURL)
+	}
+	if c.StandbyHubURL != "" && c.StandbyHubURL != c.HubURL {
+		urls = append(urls, c.StandbyHubURL)
+	}
+	return urls
 }
 
 func LoadConfig(version string) (*Config, error) {
@@ -27,6 +39,7 @@ func LoadConfig(version string) (*Config, error) {
 	var intervalSec int
 
 	flag.StringVar(&cfg.HubURL, "hub-url", getEnv("CONTROLPLANE_HUB_URL", "ws://localhost:5000/agent-hub"), "WebSocket URL of the ControlPlane hub")
+	flag.StringVar(&cfg.StandbyHubURL, "standby-hub-url", getEnv("CONTROLPLANE_STANDBY_HUB_URL", ""), "Fallback WebSocket URL of the Standby runner")
 	flag.StringVar(&cfg.Token, "token", getEnv("CONTROLPLANE_TOKEN", ""), "Authentication node token")
 	flag.StringVar(&cfg.NodeID, "node-id", getEnv("CONTROLPLANE_NODE_ID", ""), "Persistent Node ID (UUID)")
 	flag.IntVar(&intervalSec, "heartbeat-interval", 10, "Heartbeat interval in seconds")

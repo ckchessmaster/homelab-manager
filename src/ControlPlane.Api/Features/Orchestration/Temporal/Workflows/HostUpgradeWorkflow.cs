@@ -335,9 +335,26 @@ public class HostUpgradeWorkflow : IHostUpgradeWorkflow
             }
             _state.CompletedSteps.Add(_state.ActiveStep);
 
-            // Step 12: Kubernetes Uncordon (if cordoned earlier)
+            // Step 12: Kubernetes Await Node Ready & Uncordon (if cordoned earlier)
             if (isK8sCordoned && _state.K8sNodeName != null)
             {
+                EnsureNotCancelled();
+
+                _state.ActiveStep = "Await Kubernetes Node Ready";
+                await Workflow.ExecuteActivityAsync(
+                    (IUpdateJobActivities a) => a.UpdateJobStatusAsync(new UpdateJobStatusInput(input.JobId, "Verifying", _state.ActiveStep)),
+                    defaultOptions
+                );
+                var readyResult = await Workflow.ExecuteActivityAsync(
+                    (IKubernetesActivities a) => a.AwaitNodeReadyAsync(new KubernetesNodeInput(input.JobId, input.HostId, _state.K8sNodeName)),
+                    k8sOptions
+                );
+                if (!readyResult.Success)
+                {
+                    throw new ApplicationFailureException(readyResult.Message, nonRetryable: true);
+                }
+                _state.CompletedSteps.Add(_state.ActiveStep);
+
                 EnsureNotCancelled();
 
                 _state.ActiveStep = "Kubernetes Node Uncordon";

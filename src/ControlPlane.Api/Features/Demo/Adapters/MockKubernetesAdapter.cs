@@ -17,6 +17,8 @@ public class MockKubernetesAdapter : IKubernetesAdapter
 
     public Task<bool> UncordonNodeAsync(string nodeName, CancellationToken ct = default) => Task.FromResult(true);
 
+    public Task<bool> WaitForNodeReadyAsync(string nodeName, TimeSpan timeout, CancellationToken ct = default) => Task.FromResult(true);
+
     public Task<K8sDrainResult> DrainNodeAsync(string nodeName, TimeSpan timeout, bool ignoreDaemonSets = true, bool deleteEmptyDirData = true, CancellationToken ct = default, Func<string, Task>? onProgress = null)
     {
         onProgress?.Invoke($"Evicting pods from node {nodeName}...");

@@ -256,7 +256,35 @@ public class KubernetesAdapter : IKubernetesAdapter
         }
     }
 
-    private static bool IsEvictable(V1Pod pod, bool ignoreDaemonSets)
+    public async Task<bool> WaitForNodeReadyAsync(string nodeName, TimeSpan timeout, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Waiting up to {Timeout}s for node '{Node}' to reach Ready condition...", timeout.TotalSeconds, nodeName);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        while (stopwatch.Elapsed < timeout && !ct.IsCancellationRequested)
+        {
+            var status = await GetNodeStatusAsync(nodeName, ct);
+            if (status != null && status.IsReady)
+            {
+                _logger.LogInformation("Node '{Node}' reached Ready condition in {Elapsed:F1}s.", nodeName, stopwatch.Elapsed.TotalSeconds);
+                return true;
+            }
+
+            try
+            {
+                await Task.Delay(3000, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        _logger.LogWarning("Timed out waiting for node '{Node}' to reach Ready condition after {Elapsed:F1}s.", nodeName, stopwatch.Elapsed.TotalSeconds);
+        return false;
+    }
+
+    public static bool IsEvictable(V1Pod pod, bool ignoreDaemonSets)
     {
         // Ignore static / mirror pods (kubelet created)
         if (pod.Metadata?.Annotations != null && pod.Metadata.Annotations.ContainsKey("kubernetes.io/config.mirror"))
@@ -289,6 +317,41 @@ public class KubernetesAdapter : IKubernetesAdapter
             {
                 return false;
             }
+        }
+
+        // Ignore ControlPlane orchestrator pods (must remain alive during node drain to execute
+        // package upgrades and reboot handshakes; surviving replicas on other nodes handle post-reboot uncordon).
+        if (pod.Metadata?.Labels != null)
+        {
+            var isControlPlane = pod.Metadata.Labels.TryGetValue("app.kubernetes.io/part-of", out var partOf) &&
+                                 string.Equals(partOf, "controlplane", StringComparison.OrdinalIgnoreCase);
+            var isApi = pod.Metadata.Labels.TryGetValue("app.kubernetes.io/component", out var comp) &&
+                        string.Equals(comp, "api", StringComparison.OrdinalIgnoreCase);
+
+            if (isControlPlane && isApi)
+            {
+                return false;
+            }
+
+            if (pod.Metadata.Labels.TryGetValue("app", out var app) &&
+                (string.Equals(app, "controlplane-api", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(app, "controlplane", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            if (pod.Metadata.Labels.TryGetValue("app.kubernetes.io/name", out var k8sName) &&
+                string.Equals(k8sName, "controlplane-api", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        if (pod.Metadata?.Name != null &&
+            (pod.Metadata.Name.StartsWith("controlplane-api-", StringComparison.OrdinalIgnoreCase) ||
+             pod.Metadata.Name.StartsWith("controlplane-backend-", StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
         }
 
         // Ignore already succeeded or failed pods

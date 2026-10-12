@@ -208,9 +208,22 @@ public static class DependencyInjection
                     throw new InvalidOperationException("Connection string 'ControlPlaneDatabase' or 'PostgresDatabase' not found. Ensure Aspire has referenced the database resource or provide ConnectionStrings:ControlPlaneDatabase.");
                 }
 
+                try
+                {
+                    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+                    if (builder.KeepAlive == 0) builder.KeepAlive = 15;
+                    if (builder.Timeout < 30) builder.Timeout = 30;
+                    if (builder.CommandTimeout < 60) builder.CommandTimeout = 60;
+                    connectionString = builder.ConnectionString;
+                }
+                catch
+                {
+                    // Keep connectionString as-is if parsing fails
+                }
+
                 options.UseNpgsql(connectionString, npgsql =>
                 {
-                    npgsql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
+                    npgsql.EnableRetryOnFailure(10, TimeSpan.FromSeconds(30), null);
                 }).UseSnakeCaseNamingConvention();
             }
         });

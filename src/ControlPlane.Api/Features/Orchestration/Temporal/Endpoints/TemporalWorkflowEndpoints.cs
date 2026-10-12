@@ -308,7 +308,8 @@ public static class TemporalWorkflowEndpoints
                 AlwaysReboot: request.AlwaysReboot,
                 ProbeUrls: request.ProbeUrls,
                 SnapshotPrefix: request.SnapshotPrefix,
-                InitiatedBy: request.InitiatedBy
+                InitiatedBy: request.InitiatedBy,
+                ActiveOrchestratorNode: Environment.GetEnvironmentVariable("KUBERNETES_NODE_NAME")
             );
 
             var taskQueue = options.Value.TaskQueue;

@@ -12,5 +12,8 @@ public interface IKubernetesActivities
     Task<KubernetesDrainResult> DrainNodeAsync(KubernetesDrainInput input);
 
     [Activity]
+    Task<KubernetesNodeReadyResult> AwaitNodeReadyAsync(KubernetesNodeInput input);
+
+    [Activity]
     Task<KubernetesUncordonResult> UncordonNodeAsync(KubernetesNodeInput input);
 }

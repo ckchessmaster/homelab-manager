@@ -17,7 +17,8 @@ public record RollingUpgradeWorkflowInput(
     bool AlwaysReboot = false,
     List<string>? ProbeUrls = null,
     string? SnapshotPrefix = null,
-    string InitiatedBy = "Operator");
+    string InitiatedBy = "Operator",
+    string? ActiveOrchestratorNode = null);
 
 public class RollingHostProgress
 {

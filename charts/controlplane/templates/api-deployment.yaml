@@ -40,9 +40,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-          {{- $hasEnv := or (and .Values.temporal.auth .Values.temporal.auth.enabled .Values.temporal.auth.secretRef .Values.temporal.auth.secretRef.name) (and .Values.auth.apiKeySecretRef .Values.auth.apiKeySecretRef.name) (and .Values.auth.masterKeySecretRef .Values.auth.masterKeySecretRef.name) .Values.api.extraEnv -}}
-          {{- if $hasEnv }}
           env:
+            - name: KUBERNETES_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             {{- if and .Values.temporal.auth .Values.temporal.auth.enabled .Values.temporal.auth.secretRef .Values.temporal.auth.secretRef.name }}
             - name: Temporal__Auth__ClientSecret
               valueFrom:
@@ -67,7 +69,6 @@ spec:
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "controlplane.configMapName" . }}

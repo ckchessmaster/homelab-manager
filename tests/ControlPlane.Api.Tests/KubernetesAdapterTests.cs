@@ -1311,4 +1311,100 @@ status:
 
         public void NotifyFrame(Guid hostId, AgentFrameData frame) { }
     }
+
+    [Fact]
+    public void IsEvictable_ExemptsControlPlaneApiPods()
+    {
+        // 1. ControlPlane API pod with standard Helm labels
+        var cpPod = new V1Pod
+        {
+            Metadata = new V1ObjectMeta
+            {
+                Name = "controlplane-api-74fbd65b6-xyz",
+                NamespaceProperty = "controlplane",
+                Labels = new Dictionary<string, string>
+                {
+                    ["app.kubernetes.io/part-of"] = "controlplane",
+                    ["app.kubernetes.io/component"] = "api"
+                }
+            },
+            Status = new V1PodStatus { Phase = "Running" }
+        };
+        Assert.False(KubernetesAdapter.IsEvictable(cpPod, ignoreDaemonSets: true));
+
+        // 2. ControlPlane API pod with app name prefix
+        var namedCpPod = new V1Pod
+        {
+            Metadata = new V1ObjectMeta
+            {
+                Name = "controlplane-api-68f7b764c-8pl2q",
+                NamespaceProperty = "default"
+            },
+            Status = new V1PodStatus { Phase = "Running" }
+        };
+        Assert.False(KubernetesAdapter.IsEvictable(namedCpPod, ignoreDaemonSets: true));
+
+        // 3. Regular application pod should be evictable
+        var appPod = new V1Pod
+        {
+            Metadata = new V1ObjectMeta
+            {
+                Name = "my-web-app-554ddb59c4-abcde",
+                NamespaceProperty = "default",
+                Labels = new Dictionary<string, string>
+                {
+                    ["app"] = "my-web-app"
+                }
+            },
+            Status = new V1PodStatus { Phase = "Running" }
+        };
+        Assert.True(KubernetesAdapter.IsEvictable(appPod, ignoreDaemonSets: true));
+
+        // 4. DaemonSet pod should be ignored when ignoreDaemonSets = true
+        var dsPod = new V1Pod
+        {
+            Metadata = new V1ObjectMeta
+            {
+                Name = "cilium-agent-12345",
+                OwnerReferences = new List<V1OwnerReference>
+                {
+                    new() { Kind = "DaemonSet", Name = "cilium" }
+                }
+            },
+            Status = new V1PodStatus { Phase = "Running" }
+        };
+        Assert.False(KubernetesAdapter.IsEvictable(dsPod, ignoreDaemonSets: true));
+    }
+
+    [Fact]
+    public async Task WaitForNodeReadyAsync_ReturnsTrue_WhenNodeIsReady()
+    {
+        var (client, requests) = CreateMockK8s(req =>
+        {
+            if (req.Method == HttpMethod.Get && req.RequestUri!.AbsolutePath.Contains("/api/v1/nodes/worker-01"))
+            {
+                var node = new V1Node
+                {
+                    Metadata = new V1ObjectMeta { Name = "worker-01" },
+                    Status = new V1NodeStatus
+                    {
+                        Conditions = new List<V1NodeCondition>
+                        {
+                            new(status: "True", type: "Ready")
+                        }
+                    }
+                };
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(k8s.KubernetesJson.Serialize(node), Encoding.UTF8, "application/json")
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var isReady = await adapter.WaitForNodeReadyAsync("worker-01", TimeSpan.FromSeconds(5));
+
+        Assert.True(isReady);
+    }
 }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.7.0
+
+### Added
+* **Resilient In-Cluster Upgrades & Deadlock Elimination**:
+  * **Self-Pod Eviction Exemption**: Updated `KubernetesAdapter.IsEvictable` to exempt ControlPlane API pods (`app.kubernetes.io/part-of=controlplane` & `app.kubernetes.io/component=api`) from eviction during `DrainNodeAsync`. Prevents orchestrator suicide during node updates, allowing the active worker to finish package upgrades and trigger host reboots.
+  * **Orchestrator-Last Rolling Update Queue Sorting**: Added `SortTargetsOrchestratorLast` to `RollingUpgradeWorkflow`. Automatically detects the Kubernetes node hosting the orchestrator pod via Downward API `KUBERNETES_NODE_NAME` and moves that node to the end of the batch queue so all other cluster nodes are updated, verified, and uncordoned first.
+  * **Kubernetes Node 'Ready' Condition Gate**: Added `WaitForNodeReadyAsync` in `IKubernetesAdapter` and `AwaitNodeReadyAsync` in `KubernetesActivities`. In `HostUpgradeWorkflow`, explicitly verifies that the rebooted node reaches condition `Ready == True` before restoring scheduling via `UncordonNodeAsync`.
+  * **Database & CloudNativePG Failover Resiliency**: Extended Npgsql EF Core connection resiliency to 10 retries with up to 30-second backoff and configured TCP keepalives (`Keepalive=15`) and increased connection timeouts (`Timeout=30`, `CommandTimeout=60`), preventing database dropouts and workflow aborts during 15–45 second CloudNativePG primary failovers.
+  * **High Availability Helm Chart Primitives**:
+    * Created `api-pdb.yaml` with a `PodDisruptionBudget` (`minAvailable: 1`) protecting ControlPlane API pods.
+    * Increased default `api.replicaCount` to 2 and enabled default `podAntiAffinity` on `kubernetes.io/hostname`.
+    * Injected `KUBERNETES_NODE_NAME` via Downward API into `api-deployment.yaml`.
+  * **Go Compute Node Agent Multi-Hub Fallback**:
+    * Added `CONTROLPLANE_STANDBY_HUB_URL` / `-standby-hub-url` flag and configuration support in `src/agent/internal/config`.
+    * Implemented automatic failover in the agent WebSocket loop to connect to the Standby runner when the in-cluster hub is unreachable during full-cluster maintenance.
+
+---
+
 ## v1.6.0
 
 ### Added
