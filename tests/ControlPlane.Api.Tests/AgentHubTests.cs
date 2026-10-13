@@ -187,6 +187,10 @@ public class AgentHubTests
         Assert.Equal(WebSocketState.Open, socket1.State);
 
         var connManager = factory.Services.GetRequiredService<AgentConnectionManager>();
+        for (int i = 0; i < 50 && !connManager.IsOnline(hostId); i++)
+        {
+            await Task.Delay(10);
+        }
         Assert.True(connManager.IsOnline(hostId));
 
         // Connect socket 2 (reconnection)
