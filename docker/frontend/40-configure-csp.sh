@@ -7,8 +7,9 @@ if [ -n "$OIDC_AUTHORITY" ] || [ -n "$CSP_CONNECT_SRC" ] || [ -n "$CSP_FRAME_SRC
     FRAME_SOURCES="'self'"
 
     if [ -n "$OIDC_AUTHORITY" ]; then
-        CONNECT_SOURCES="$CONNECT_SOURCES $OIDC_AUTHORITY"
-        FRAME_SOURCES="$FRAME_SOURCES $OIDC_AUTHORITY"
+        OIDC_ORIGIN=$(echo "$OIDC_AUTHORITY" | sed -E 's|^(https?://[^/]+).*|\1|')
+        CONNECT_SOURCES="$CONNECT_SOURCES $OIDC_ORIGIN"
+        FRAME_SOURCES="$FRAME_SOURCES $OIDC_ORIGIN"
     fi
 
     if [ -n "$CSP_CONNECT_SRC" ]; then

@@ -2,8 +2,15 @@
 {{- $frameSources := list "'self'" -}}
 {{- $oidcUrl := .Values.oidc.issuerUrl | default .Values.oidc.authority -}}
 {{- if and .Values.oidc.enabled $oidcUrl -}}
-  {{- $connectSources = append $connectSources $oidcUrl -}}
-  {{- $frameSources = append $frameSources $oidcUrl -}}
+  {{- $parsed := urlParse $oidcUrl -}}
+  {{- if and $parsed $parsed.scheme $parsed.host -}}
+    {{- $oidcOrigin := printf "%s://%s" $parsed.scheme $parsed.host -}}
+    {{- $connectSources = append $connectSources $oidcOrigin -}}
+    {{- $frameSources = append $frameSources $oidcOrigin -}}
+  {{- else -}}
+    {{- $connectSources = append $connectSources $oidcUrl -}}
+    {{- $frameSources = append $frameSources $oidcUrl -}}
+  {{- end -}}
 {{- end -}}
 {{- with .Values.frontend.csp -}}
   {{- range .extraConnectSrc }}

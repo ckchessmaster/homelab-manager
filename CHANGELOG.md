@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.10.1
+
+### Fixed
+* **Content Security Policy (CSP) OIDC Origin Scoping**:
+  * Fixed an issue where path-scoped OIDC authority URLs (e.g. `https://authentik.domain.com/application/o/app-slug/`) caused browsers to block OAuth2 token exchange (`/application/o/token/`) and userinfo endpoints (`/application/o/userinfo/`) with Content Security Policy violations.
+  * Updated `charts/controlplane/templates/frontend-configmap.yaml` and `docker/frontend/40-configure-csp.sh` to parse and whitelist the OIDC authority's root origin (`scheme://host[:port]`) in CSP `connect-src` and `frame-src`.
+
+---
+
 ## v1.10.0
 
 ### Added
