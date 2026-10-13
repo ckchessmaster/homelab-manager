@@ -95,7 +95,7 @@ export const AuthGatePage: React.FC = () => {
             <p className="text-xs text-zinc-400 leading-relaxed">
               {authMode === 'api_key'
                 ? 'Enter your ControlPlane API key to access your homelab management plane. API Key mode grants full administrative access.'
-                : 'Authenticate with your identity provider (Zitadel OIDC) to access your clusters, nodes, and workloads.'}
+                : `Authenticate with your identity provider (${getAuthConfig().displayName}) to access your clusters, nodes, and workloads.`}
             </p>
           </div>
 
@@ -170,12 +170,12 @@ export const AuthGatePage: React.FC = () => {
                 {isSubmitting ? (
                   <>
                     <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Redirecting to Zitadel...</span>
+                    <span>Redirecting to {getAuthConfig().displayName}...</span>
                   </>
                 ) : (
                   <>
                     <LogIn className="h-4 w-4" />
-                    <span>Sign In with Zitadel</span>
+                    <span>Sign In with {getAuthConfig().displayName}</span>
                   </>
                 )}
               </Button>
@@ -197,7 +197,7 @@ export const AuthGatePage: React.FC = () => {
                 onClick={() => switchAuthMode?.('oidc')}
                 className="text-xs text-zinc-400 hover:text-sky-400 transition-colors inline-flex items-center gap-1 cursor-pointer"
               >
-                <span>Switch to Zitadel Single Sign-On (OIDC)</span>
+                <span>Switch to {getAuthConfig().displayName}</span>
                 <ArrowRight className="h-3 w-3" />
               </button>
             ) : (

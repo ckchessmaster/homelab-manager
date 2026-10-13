@@ -45,7 +45,7 @@ export function UserProfileDropdown() {
       <button
         onClick={() => login()}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white shadow-sm transition-colors cursor-pointer"
-        title="Sign In with Zitadel"
+        title="Sign In"
       >
         <LogIn className="h-3.5 w-3.5" />
         <span>Sign In</span>
@@ -168,7 +168,7 @@ export function UserProfileDropdown() {
             <div className="px-2 py-1 text-[10px] text-zinc-500">
               {isBypass
                 ? 'Running in local dev/standby bypass mode'
-                : 'Authenticated via Zitadel OIDC (PKCE)'}
+                : 'Authenticated via OIDC (PKCE)'}
             </div>
 
             {!isBypass ? (

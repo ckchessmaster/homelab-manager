@@ -6,7 +6,7 @@ namespace ControlPlane.Api.Security;
 
 /// <summary>
 /// Composite authentication handler that inspects incoming requests and delegates authentication to:
-/// 1. Bearer JWT authentication (Zitadel OpenID Connect) if an Authorization: Bearer token or ?access_token= is present.
+/// 1. Bearer JWT authentication (OpenID Connect / OIDC) if an Authorization: Bearer token or ?access_token= is present.
 /// 2. API Key authentication (X-ControlPlane-Key) if an API key header is present.
 /// 3. Offline Dev/Standby bypass if AUTH_BYPASS or Standby mode is active.
 /// </summary>
@@ -97,7 +97,7 @@ public class CompositeAuthenticationHandler : AuthenticationHandler<Authenticati
     {
         Response.StatusCode = StatusCodes.Status401Unauthorized;
         Response.Headers.Append("WWW-Authenticate", "ApiKey realm=\"ControlPlane\"");
-        Response.Headers.Append("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"Zitadel access token required\"");
+        Response.Headers.Append("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"OIDC access token required\"");
 
         if (!Response.HasStarted)
         {

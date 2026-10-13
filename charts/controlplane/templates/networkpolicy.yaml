@@ -35,7 +35,7 @@ spec:
     # Allow in-cluster egress (PostgreSQL, Temporal, Kubernetes API server, etc.)
     - to:
         - namespaceSelector: {}
-    # Allow outbound HTTPS/HTTP for external services (Zitadel OIDC, OCI Helm registries, Webhooks)
+    # Allow outbound HTTPS/HTTP for external services (OIDC identity providers like Authentik, OCI Helm registries, Webhooks)
     - ports:
         - protocol: TCP
           port: 443

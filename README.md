@@ -106,7 +106,7 @@ temporal:
     enabled: true
     tokenUrl: "https://auth.chriskingdon.com/oauth/v2/token"
     clientId: "homelab-manager-client"
-    scopes: "openid urn:zitadel:iam:org:projects:roles urn:zitadel:iam:org:project:id:392065020537602975:aud"
+    scopes: "openid"
     clientSecretName: "homelab-manager-client-secret"
 
 # 2. ControlPlane UI Ingress (React Frontend + API & WebSockets)
@@ -221,9 +221,7 @@ homelab-manager/
 ├── charts/
 │   └── controlplane/           # Production Kubernetes Helm chart
 ├── deploy/
-│   ├── compose/                # Production Docker Compose stack
-│   ├── k8s/                    # Base Kubernetes manifests and Kustomize environment overlays
-│   └── zitadel/                # Self-hosted Zitadel OIDC bootstrap & setup scripts
+│   └── k8s/                    # Base Kubernetes manifests and Kustomize environment overlays
 ├── docs/                       # Architectural design docs, plans, and roadmap
 ├── src/
 │   ├── Aspire/
@@ -235,7 +233,7 @@ homelab-manager/
 │   │       ├── Workloads/                  # Multi-cluster Kubernetes application engine
 │   │       ├── Helm/                       # Helm catalog and release management
 │   │       ├── Mcp/                        # Built-in Model Context Protocol server tools (40+)
-│   │       ├── Security/                   # Zitadel JWT, RBAC, PAT tokens, and AES-256-GCM encryption
+│   │       ├── Security/                   # Generic OIDC (Authentik/Dex) JWT, RBAC, PAT tokens, and AES-256-GCM encryption
 │   │       ├── SystemLogs/                 # Circular log buffer, real-time query API, and diagnostics
 │   │       ├── Agents/                     # WebSocket agent hub, binary management, and auto-sync
 │   │       ├── Discovery/                  # Dynamic candidate discovery across hypervisors/firewalls

@@ -36,7 +36,7 @@ Guidelines and conventions for writing C# backend code, ASP.NET Core APIs, and .
 * **Resilience:** Configure retry on failure with exponential backoff on Npgsql connections.
 
 ## 5. Security, Authentication & RBAC
-* **Central Identity:** Zitadel OIDC provides JWT Bearer tokens validated by ASP.NET Core `JwtBearerHandler`.
+* **Central Identity:** Generic OIDC (Authentik, Dex) provides JWT Bearer tokens validated by ASP.NET Core `JwtBearerHandler`.
 * **Authorization Policies:** Apply role gates using constants from `ControlPlane.Api.Security.AuthConstants`:
   * `RequireViewer`: Read-only queries (`GET /api/v1/workloads`, `GET /api/v1/hosts`).
   * `RequireOperator`: Operational tasks (`POST /api/v1/workloads/.../restart`, `POST /api/v1/jobs`).

@@ -10,10 +10,14 @@ export interface RoleMappingConfig {
 
 export interface ServerAuthConfig {
   authMode?: AuthMode
-  zitadel?: {
+  oidc?: {
     enabled?: boolean
     authority?: string
     clientId?: string
+    displayName?: string
+    scope?: string
+    roleClaimType?: string
+    nameClaimType?: string
     roles?: RoleMappingConfig
   }
 }

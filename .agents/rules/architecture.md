@@ -23,7 +23,7 @@ These architectural constraints must be adhered to at all times when designing, 
 * **Process Output Streaming:** Output from long-running package managers (`apt`, `dnf`) must be framed monotonically: `(job_id, sequence_id, stream_type, log_line, timestamp)` so that network drops do not duplicate or jumble log streams.
 
 ## 4. Security & Role-Based Access Control (RBAC)
-* **Identity Provider:** Zitadel OIDC provides centralized identity and user directory.
+* **Identity Provider:** Generic OIDC (Authentik, Dex) provides centralized identity and user directory.
 * **Backend RBAC:** ASP.NET Core JWT Bearer authentication validates tokens and extracts roles:
   * `Viewer`: Read-only access to inventory, logs, and telemetry.
   * `Operator`: May initiate maintenance pipelines, restart workloads, and dispatch commands.

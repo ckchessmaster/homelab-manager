@@ -246,20 +246,24 @@ app.MapGet("/api/storage/status", async (ControlPlaneDbContext db) =>
     });
 }).AllowAnonymous();
 
-app.MapGet("/api/v1/auth/config", (Microsoft.Extensions.Options.IOptions<ControlPlane.Api.Security.ZitadelJwtOptions> zitadelOptions, IConfiguration config) =>
+app.MapGet("/api/v1/auth/config", (Microsoft.Extensions.Options.IOptions<ControlPlane.Api.Security.OidcJwtOptions> oidcOptions, IConfiguration config) =>
 {
-    var opts = zitadelOptions.Value;
+    var opts = oidcOptions.Value;
     var enabled = opts.IsConfigured;
     var authMode = config["AUTH_MODE"] ?? config["VITE_AUTH_MODE"] ?? (enabled ? "oidc" : "api_key");
 
     return Results.Ok(new
     {
         authMode,
-        zitadel = new
+        oidc = new
         {
             enabled,
             authority = opts.Authority ?? "",
             clientId = opts.ClientId ?? opts.Audience,
+            displayName = opts.DisplayName,
+            scope = opts.Scope,
+            roleClaimType = opts.RoleClaimType,
+            nameClaimType = opts.NameClaimType,
             roles = new
             {
                 admin = opts.Roles.Admin,

@@ -35,7 +35,7 @@ export function CallbackPage() {
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
-        <p className="text-xs text-zinc-400">Exchanging authorization code with Zitadel...</p>
+        <p className="text-xs text-zinc-400">Exchanging authorization code...</p>
       </div>
     </div>
   )

@@ -8,6 +8,7 @@ export interface AuthConfig {
   mode: AuthMode
   authority: string
   clientId: string
+  displayName: string
   redirectUri: string
   postLogoutRedirectUri: string
   responseType: string
@@ -59,12 +60,15 @@ export function getActiveAuthMode(serverConfig?: ServerAuthConfig | null): AuthM
     return effectiveServer.authMode
   }
 
-  // If Zitadel environment variables are explicitly defined, use OIDC, otherwise default to api_key
-  if (import.meta.env.VITE_ZITADEL_AUTHORITY && import.meta.env.VITE_ZITADEL_CLIENT_ID) {
+  // If OIDC environment variables are explicitly defined, use OIDC, otherwise default to api_key
+  if (
+    (import.meta.env.VITE_OIDC_AUTHORITY || import.meta.env.VITE_OIDC_ISSUER_URL) &&
+    import.meta.env.VITE_OIDC_CLIENT_ID
+  ) {
     return 'oidc'
   }
 
-  if (effectiveServer?.zitadel?.enabled && effectiveServer.zitadel.authority) {
+  if (effectiveServer?.oidc?.enabled && effectiveServer.oidc.authority) {
     return 'oidc'
   }
 
@@ -83,22 +87,35 @@ export function getAuthConfig(serverConfig?: ServerAuthConfig | null): AuthConfi
   const mode = getActiveAuthMode(effectiveServer)
 
   const runtimeWindow = typeof window !== 'undefined' ? (window as any).__CONTROLPLANE_CONFIG__ : null
-  const storedAuthority = typeof window !== 'undefined' ? localStorage.getItem('cp_zitadel_authority') : null
-  const storedClientId = typeof window !== 'undefined' ? localStorage.getItem('cp_zitadel_client_id') : null
+  const storedAuthority = typeof window !== 'undefined' ? localStorage.getItem('cp_oidc_authority') : null
+  const storedClientId = typeof window !== 'undefined' ? localStorage.getItem('cp_oidc_client_id') : null
 
   const authority =
     storedAuthority ||
-    runtimeWindow?.zitadelAuthority ||
-    effectiveServer?.zitadel?.authority ||
-    import.meta.env.VITE_ZITADEL_AUTHORITY ||
+    runtimeWindow?.oidcAuthority ||
+    runtimeWindow?.oidcIssuerUrl ||
+    effectiveServer?.oidc?.authority ||
+    import.meta.env.VITE_OIDC_AUTHORITY ||
+    import.meta.env.VITE_OIDC_ISSUER_URL ||
     'http://localhost:8085'
 
   const clientId =
     storedClientId ||
-    runtimeWindow?.zitadelClientId ||
-    effectiveServer?.zitadel?.clientId ||
-    import.meta.env.VITE_ZITADEL_CLIENT_ID ||
-    '389775242525999110'
+    runtimeWindow?.oidcClientId ||
+    effectiveServer?.oidc?.clientId ||
+    import.meta.env.VITE_OIDC_CLIENT_ID ||
+    'controlplane'
+
+  const displayName =
+    runtimeWindow?.oidcDisplayName ||
+    effectiveServer?.oidc?.displayName ||
+    import.meta.env.VITE_OIDC_DISPLAY_NAME ||
+    'Single Sign-On (OIDC)'
+
+  const scope =
+    effectiveServer?.oidc?.scope ||
+    import.meta.env.VITE_OIDC_SCOPE ||
+    'openid profile email groups'
 
   // Bypass mode is active in OIDC if explicitly set via flag/query param
   const hasBypassFlag =
@@ -117,10 +134,11 @@ export function getAuthConfig(serverConfig?: ServerAuthConfig | null): AuthConfi
     mode,
     authority,
     clientId,
+    displayName,
     redirectUri: `${origin}/auth/callback`,
     postLogoutRedirectUri: origin,
     responseType: 'code',
-    scope: 'openid profile email urn:zitadel:iam:org:project:roles',
+    scope,
     isBypass,
   }
 }

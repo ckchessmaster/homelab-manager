@@ -33,28 +33,28 @@ public class TemporalAuthAndHealthTests
     }
 
     [Fact]
-    public async Task ZitadelTokenProvider_WhenAuthDisabled_ReturnsNull()
+    public async Task TemporalOAuth2TokenProvider_WhenAuthDisabled_ReturnsNull()
     {
         var options = Options.Create(new TemporalOptions
         {
             Auth = new TemporalAuthOptions { Enabled = false }
         });
 
-        var provider = new ZitadelTokenProvider(
+        var provider = new TemporalOAuth2TokenProvider(
             new HttpClient(),
             options,
-            NullLogger<ZitadelTokenProvider>.Instance);
+            NullLogger<TemporalOAuth2TokenProvider>.Instance);
 
         var token = await provider.GetAccessTokenAsync();
         Assert.Null(token);
     }
 
     [Fact]
-    public async Task ZitadelTokenProvider_WhenAuthEnabled_FetchesTokenAndCachesResponse()
+    public async Task TemporalOAuth2TokenProvider_WhenAuthEnabled_FetchesTokenAndCachesResponse()
     {
         var jsonPayload = JsonSerializer.Serialize(new
         {
-            access_token = "mock-zitadel-m2m-token-12345",
+            access_token = "mock-oauth2-m2m-token-12345",
             token_type = "Bearer",
             expires_in = 3600
         });
@@ -73,23 +73,23 @@ public class TemporalAuthAndHealthTests
                 TokenUrl = "https://auth.homelab.local/oauth/v2/token",
                 ClientId = "client-id-abc",
                 ClientSecret = "client-secret-xyz",
-                Scopes = "openid urn:zitadel:iam:org:projects:roles"
+                Scopes = "openid"
             }
         });
 
-        var provider = new ZitadelTokenProvider(
+        var provider = new TemporalOAuth2TokenProvider(
             httpClient,
             options,
-            NullLogger<ZitadelTokenProvider>.Instance);
+            NullLogger<TemporalOAuth2TokenProvider>.Instance);
 
         // First call should execute HTTP request
         var token1 = await provider.GetAccessTokenAsync();
-        Assert.Equal("mock-zitadel-m2m-token-12345", token1);
+        Assert.Equal("mock-oauth2-m2m-token-12345", token1);
         Assert.Equal(1, mockHandler.CallCount);
 
         // Second call within expiry should return cached token without second HTTP request
         var token2 = await provider.GetAccessTokenAsync();
-        Assert.Equal("mock-zitadel-m2m-token-12345", token2);
+        Assert.Equal("mock-oauth2-m2m-token-12345", token2);
         Assert.Equal(1, mockHandler.CallCount);
     }
 

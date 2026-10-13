@@ -21,7 +21,7 @@ Use this skill when interacting with, maintaining, or extending the **Homelab Or
 
 | Mode | Database | Orchestrator | Primary Role |
 | :--- | :--- | :--- | :--- |
-| **Cluster Mode** | PostgreSQL (in-cluster) | ASP.NET Core API (`ControlPlane.Api`) | Normal operations, multi-user UI, background workers, Zitadel OIDC RBAC. |
+| **Cluster Mode** | PostgreSQL (in-cluster) | ASP.NET Core API (`ControlPlane.Api`) | Normal operations, multi-user UI, background workers, Generic OIDC (Authentik) RBAC. |
 | **Standby Runner Mode** | SQLite (`standby-state.db`) | Single-binary CLI (`ControlPlane.Cli`) | Autonomous out-of-band takeover when Kubernetes control plane or nodes are rebooting. |
 
 ### Topology Invariants

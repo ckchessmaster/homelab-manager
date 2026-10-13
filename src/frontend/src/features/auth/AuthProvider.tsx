@@ -9,7 +9,7 @@ import {
   getServerAuthConfig,
 } from './authConfig'
 import type { AuthState, ServerAuthConfig, UserProfile, UserRole } from './AuthTypes'
-import { ROLE_HIERARCHY, parseZitadelRoles, hasRequiredRole, getHighestRole } from './roleUtils'
+import { ROLE_HIERARCHY, parseOidcRoles, hasRequiredRole, getHighestRole } from './roleUtils'
 import { getApiKey, setApiKey, setAuthTokenProvider } from '../../api/client'
 
 interface AuthProviderProps {
@@ -135,11 +135,12 @@ function OidcBridge({
 
   const effectiveRoles = useMemo(() => {
     if (!auth.isAuthenticated || !auth.user) return []
-    return parseZitadelRoles(
+    return parseOidcRoles(
       auth.user.profile as Record<string, unknown>,
-      serverConfig?.zitadel?.roles
+      serverConfig?.oidc?.roles,
+      serverConfig?.oidc?.roleClaimType || 'groups'
     )
-  }, [auth.isAuthenticated, auth.user, serverConfig?.zitadel?.roles])
+  }, [auth.isAuthenticated, auth.user, serverConfig?.oidc?.roles, serverConfig?.oidc?.roleClaimType])
 
   const activeRole = useMemo(() => {
     return getHighestRole(effectiveRoles)
@@ -153,7 +154,7 @@ function OidcBridge({
         auth.user.profile.name ||
         (auth.user.profile.preferred_username as string) ||
         auth.user.profile.email ||
-        'Zitadel User',
+        'OIDC User',
       email: auth.user.profile.email || '',
       roles: effectiveRoles,
     }

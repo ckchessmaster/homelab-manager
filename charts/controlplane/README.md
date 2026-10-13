@@ -30,7 +30,7 @@ helm upgrade --install controlplane oci://ghcr.io/ckchessmaster/charts/controlpl
 ### Network Policies & Cilium Integration
 
 ControlPlane communicates with many heterogeneous infrastructure components:
-- In-cluster dependencies: PostgreSQL, Temporal, Zitadel OIDC
+- In-cluster / external dependencies: PostgreSQL, Temporal, Generic OIDC (Authentik, etc.)
 - Kubernetes API Server: Node drain, workload introspection, pod eviction
 - Out-of-cluster homelab appliances: Proxmox VE hypervisors, Ubiquiti UniFi switches, OPNsense firewalls, Dell iDRAC BMCs
 - Compute nodes: SSH bootstrapping, outbound agent WebSockets

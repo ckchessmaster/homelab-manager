@@ -8,20 +8,20 @@ namespace ControlPlane.Api.Features.Orchestration.Temporal;
 
 /// <summary>
 /// Hosted service that outputs diagnostic information during application startup regarding the
-/// active Temporal server endpoint, target namespace, task queue, and Zitadel authentication status,
-/// and primes the active Temporal client with an initial Zitadel M2M token if authentication is enabled.
+/// active Temporal server endpoint, target namespace, task queue, and OAuth2 authentication status,
+/// and primes the active Temporal client with an initial OAuth2 M2M token if authentication is enabled.
 /// </summary>
 public class TemporalStartupDiagnosticsService : IHostedService
 {
     private readonly IOptions<TemporalOptions> _options;
     private readonly ILogger<TemporalStartupDiagnosticsService> _logger;
-    private readonly IZitadelTokenProvider? _tokenProvider;
+    private readonly ITemporalTokenProvider? _tokenProvider;
     private readonly ITemporalClient? _client;
 
     public TemporalStartupDiagnosticsService(
         IOptions<TemporalOptions> options,
         ILogger<TemporalStartupDiagnosticsService> logger,
-        IZitadelTokenProvider? tokenProvider = null,
+        ITemporalTokenProvider? tokenProvider = null,
         ITemporalClient? client = null)
     {
         _options = options;
@@ -47,17 +47,17 @@ public class TemporalStartupDiagnosticsService : IHostedService
                 if (!string.IsNullOrWhiteSpace(initialToken))
                 {
                     _client.Connection.ApiKey = initialToken;
-                    _logger.LogInformation("[Temporal Engine] Primed active Temporal connection with initial Zitadel M2M token.");
+                    _logger.LogInformation("[Temporal Engine] Primed active Temporal connection with initial OAuth2 M2M token.");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[Temporal Engine] Could not prime initial Zitadel M2M token. Background refresh will retry.");
+                _logger.LogWarning(ex, "[Temporal Engine] Could not prime initial OAuth2 M2M token. Background refresh will retry.");
             }
         }
 
         var authStatus = opts.Auth.Enabled
-            ? $"Enabled (Zitadel M2M via {opts.Auth.TokenUrl}, ClientId: {opts.Auth.ClientId})"
+            ? $"Enabled (OAuth2 M2M via {opts.Auth.TokenUrl}, ClientId: {opts.Auth.ClientId})"
             : "Disabled (Insecure / Dev)";
 
         _logger.LogInformation(

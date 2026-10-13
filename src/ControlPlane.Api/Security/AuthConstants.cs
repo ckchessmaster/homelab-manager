@@ -24,6 +24,7 @@ public static class AuthConstants
     public const string AdminPolicy = "AdminPolicy";
     public const string OperatorPolicy = "OperatorPolicy";
 
-    // Zitadel Project Roles Claim Type
-    public const string ZitadelRolesClaimType = "urn:zitadel:iam:org:project:roles";
+    // Standard OIDC Claim Types
+    public const string DefaultRoleClaimType = "groups";
+    public const string DefaultNameClaimType = "preferred_username";
 }

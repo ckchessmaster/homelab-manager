@@ -6,29 +6,31 @@ export const ROLE_HIERARCHY: Record<UserRole, UserRole[]> = {
   Viewer: ['Viewer'],
 }
 
-export function parseZitadelRoles(
+export function parseOidcRoles(
   profile?: Record<string, unknown>,
-  roleMapping?: RoleMappingConfig
+  roleMapping?: RoleMappingConfig,
+  roleClaimType = 'groups'
 ): UserRole[] {
   if (!profile) return []
 
-  const directRoles = profile['roles'] as string[] | undefined
   const found = new Set<string>()
 
-  // Check any project roles claim (e.g. urn:zitadel:iam:org:project:roles or urn:zitadel:iam:org:project:{projectId}:roles)
-  Object.keys(profile).forEach((key) => {
-    if (key.startsWith('urn:zitadel:iam:org:project') && key.endsWith('roles')) {
-      const val = profile[key]
-      if (val && typeof val === 'object' && !Array.isArray(val)) {
-        Object.keys(val).forEach((r) => found.add(r.toLowerCase()))
-      } else if (Array.isArray(val)) {
-        val.forEach((r) => typeof r === 'string' && found.add(r.toLowerCase()))
-      }
-    }
-  })
+  // Check the configured role/group claim (default: "groups")
+  const claimValue = profile[roleClaimType]
+  if (Array.isArray(claimValue)) {
+    claimValue.forEach((r) => typeof r === 'string' && found.add(r.toLowerCase()))
+  } else if (typeof claimValue === 'string') {
+    found.add(claimValue.toLowerCase())
+  }
 
-  if (Array.isArray(directRoles)) {
-    directRoles.forEach((r) => typeof r === 'string' && found.add(r.toLowerCase()))
+  // Also check standard "roles" claim if distinct from roleClaimType
+  if (roleClaimType !== 'roles') {
+    const directRoles = profile['roles']
+    if (Array.isArray(directRoles)) {
+      directRoles.forEach((r) => typeof r === 'string' && found.add(r.toLowerCase()))
+    } else if (typeof directRoles === 'string') {
+      found.add(directRoles.toLowerCase())
+    }
   }
 
   const adminMatch = roleMapping?.admin?.length

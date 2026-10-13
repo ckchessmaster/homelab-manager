@@ -15,11 +15,11 @@ public static class DependencyInjection
             options.BypassAuth = configuration.GetValue<bool>("AUTH_BYPASS", false) || configuration.GetValue<bool>("DEMO_MODE", false);
         });
 
-        services.Configure<ZitadelJwtOptions>(configuration.GetSection(ZitadelJwtOptions.SectionName));
-        services.AddTransient<IClaimsTransformation, ZitadelRoleClaimsTransformation>();
+        services.Configure<OidcJwtOptions>(configuration.GetSection(OidcJwtOptions.SectionName));
+        services.AddTransient<IClaimsTransformation, OidcRoleClaimsTransformation>();
         services.AddScoped<Features.Security.Tokens.ApiTokenService>();
 
-        var zitadelOptions = configuration.GetSection(ZitadelJwtOptions.SectionName).Get<ZitadelJwtOptions>() ?? new ZitadelJwtOptions();
+        var oidcOptions = configuration.GetSection(OidcJwtOptions.SectionName).Get<OidcJwtOptions>() ?? new OidcJwtOptions();
 
         services.AddAuthentication(options =>
         {
@@ -38,37 +38,42 @@ public static class DependencyInjection
             })
         .AddJwtBearer(AuthConstants.JwtBearerScheme, options =>
         {
-            if (!string.IsNullOrWhiteSpace(zitadelOptions.Authority))
+            if (!string.IsNullOrWhiteSpace(oidcOptions.Authority))
             {
-                options.Authority = zitadelOptions.Authority;
-                options.RequireHttpsMetadata = zitadelOptions.RequireHttpsMetadata;
-                options.Audience = zitadelOptions.Audience;
-                if (!string.IsNullOrWhiteSpace(zitadelOptions.MetadataAddress))
+                options.Authority = oidcOptions.Authority;
+                options.RequireHttpsMetadata = oidcOptions.RequireHttpsMetadata;
+                options.Audience = oidcOptions.Audience;
+                if (!string.IsNullOrWhiteSpace(oidcOptions.MetadataAddress))
                 {
-                    options.MetadataAddress = zitadelOptions.MetadataAddress;
+                    options.MetadataAddress = oidcOptions.MetadataAddress;
                 }
 
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidIssuer = zitadelOptions.ValidIssuer ?? zitadelOptions.Authority,
-                    ValidateAudience = !string.IsNullOrWhiteSpace(zitadelOptions.Audience) && zitadelOptions.Audience != "*",
-                    ValidAudience = zitadelOptions.Audience != "*" ? zitadelOptions.Audience : null,
-                    ValidAudiences = zitadelOptions.ValidAudiences,
+                    ValidIssuer = oidcOptions.ValidIssuer ?? oidcOptions.Authority,
+                    ValidateAudience = !string.IsNullOrWhiteSpace(oidcOptions.Audience) && oidcOptions.Audience != "*",
+                    ValidAudience = oidcOptions.Audience != "*" ? oidcOptions.Audience : null,
+                    ValidAudiences = oidcOptions.ValidAudiences,
                     ValidateLifetime = true,
                     AudienceValidator = (audiences, _, _) =>
                     {
-                        if (string.IsNullOrWhiteSpace(zitadelOptions.Audience) || zitadelOptions.Audience == "*")
+                        if (string.IsNullOrWhiteSpace(oidcOptions.Audience) || oidcOptions.Audience == "*")
                             return true;
 
                         if (audiences == null || !audiences.Any())
                             return false;
 
-                        return audiences.Any(aud =>
-                            string.Equals(aud, zitadelOptions.Audience, StringComparison.OrdinalIgnoreCase) ||
-                            (zitadelOptions.ValidAudiences?.Any(v => string.Equals(v, aud, StringComparison.OrdinalIgnoreCase)) ?? false) ||
-                            aud.Contains("controlplane", StringComparison.OrdinalIgnoreCase)
-                        );
+                        var accepted = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { oidcOptions.Audience };
+                        if (!string.IsNullOrWhiteSpace(oidcOptions.ClientId))
+                            accepted.Add(oidcOptions.ClientId);
+                        if (oidcOptions.ValidAudiences != null)
+                        {
+                            foreach (var a in oidcOptions.ValidAudiences)
+                                accepted.Add(a);
+                        }
+
+                        return audiences.Any(aud => accepted.Contains(aud) || aud.Contains("controlplane", StringComparison.OrdinalIgnoreCase));
                     }
                 };
             }

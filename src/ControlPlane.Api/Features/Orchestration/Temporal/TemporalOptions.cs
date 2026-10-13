@@ -68,5 +68,5 @@ public class TemporalAuthOptions
     /// <summary>
     /// OAuth2 Scopes requested for the access token.
     /// </summary>
-    public string Scopes { get; set; } = "openid urn:zitadel:iam:org:projects:roles";
+    public string Scopes { get; set; } = "openid";
 }

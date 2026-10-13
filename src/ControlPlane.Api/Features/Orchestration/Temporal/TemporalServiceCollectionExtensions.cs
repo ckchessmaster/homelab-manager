@@ -105,10 +105,10 @@ public static class TemporalServiceCollectionExtensions
         services.AddScoped<IUpdateJobActivities, UpdateJobActivities>();
         services.AddScoped<IWindowsLicenseActivities, WindowsLicenseActivities>();
 
-        // Register Zitadel M2M Auth services if enabled
+        // Register OAuth2 M2M Auth services if enabled
         if (options.Auth.Enabled)
         {
-            services.AddHttpClient<ControlPlane.Api.Features.Orchestration.Temporal.Auth.IZitadelTokenProvider, ControlPlane.Api.Features.Orchestration.Temporal.Auth.ZitadelTokenProvider>();
+            services.AddHttpClient<ControlPlane.Api.Features.Orchestration.Temporal.Auth.ITemporalTokenProvider, ControlPlane.Api.Features.Orchestration.Temporal.Auth.TemporalOAuth2TokenProvider>();
             services.AddHostedService<ControlPlane.Api.Features.Orchestration.Temporal.Auth.TemporalTokenRefreshService>();
         }
 

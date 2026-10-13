@@ -112,7 +112,7 @@ export const ApiKeyHeaderMenu: React.FC<ApiKeyHeaderMenuProps> = ({ onOpenSettin
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/60 text-left transition-colors cursor-pointer"
             >
               <ArrowRight className="h-3.5 w-3.5 text-sky-400" />
-              <span>Switch to OIDC (Zitadel)</span>
+              <span>Switch to Single Sign-On (OIDC)</span>
             </button>
           </div>
 

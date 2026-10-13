@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.10.0
+
+### Added
+* **Generic OpenID Connect (OIDC) Authentication & IdP Agnostic Architecture**:
+  * **Backend JWT Authentication Engine (`OidcJwtOptions`, `OidcRoleClaimsTransformation`)**: Completely migrated from Zitadel-specific authentication to generic OpenID Connect. Added configuration options supporting any standard OIDC identity provider (Authentik, Dex, Keycloak, etc.) via `Oidc:Authority` / `Oidc:IssuerUrl`. The audience automatically falls back to `ClientId` if unspecified.
+  * **Configurable Claims & Strict Role Transformation**: Implemented `OidcRoleClaimsTransformation` to extract roles from configurable claims (`Oidc:RoleClaimType`, default `groups`) and map custom IdP groups (e.g. `admin`, `authentik Admins`) to canonical ControlPlane roles (`Admin`, `Operator`, `Viewer`). Username resolution maps cleanly to `Oidc:NameClaimType` (`preferred_username`).
+  * **Generic Temporal M2M OAuth2 Token Provider (`ITemporalTokenProvider`, `TemporalOAuth2TokenProvider`)**: Replaced Zitadel-coupled token acquisition with a generic OAuth2 `client_credentials` provider for Temporal workflow orchestrator communication.
+  * **Frontend OIDC PKCE Integration (`authConfig`, `roleUtils`, `AuthProvider`)**: Standardized frontend authentication on generic `VITE_OIDC_*` variables with dynamic fallback to `/api/v1/auth/config`. Updated role mapping utilities and login button branding.
+  * **Lightweight Dex Identity Provider for Local Development (`ControlPlane.AppHost`)**: Replaced the legacy Zitadel container stack and YARP proxy in Aspire with a single-container Dex identity provider (`dexidp/dex:v2.41.1`) pre-configured with local test users (`admin`, `operator`, `viewer`) and direct Authentik proxy compatibility.
+  * **Production Helm Chart Modernization (`charts/controlplane`)**: Updated chart configuration from Zitadel to `oidc.*`, updated frontend CSP script injection, defaulted `oidc.audience` fallback, and removed legacy compose directory.
+
+---
+
 ## v1.9.0
 
 ### Added

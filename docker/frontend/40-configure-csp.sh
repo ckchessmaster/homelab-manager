@@ -2,13 +2,13 @@
 set -e
 
 # Dynamically scope Content-Security-Policy connect-src and frame-src if an authority or extra origins are configured
-if [ -n "$ZITADEL_AUTHORITY" ] || [ -n "$CSP_CONNECT_SRC" ] || [ -n "$CSP_FRAME_SRC" ]; then
+if [ -n "$OIDC_AUTHORITY" ] || [ -n "$CSP_CONNECT_SRC" ] || [ -n "$CSP_FRAME_SRC" ]; then
     CONNECT_SOURCES="'self' ws: wss:"
     FRAME_SOURCES="'self'"
 
-    if [ -n "$ZITADEL_AUTHORITY" ]; then
-        CONNECT_SOURCES="$CONNECT_SOURCES $ZITADEL_AUTHORITY"
-        FRAME_SOURCES="$FRAME_SOURCES $ZITADEL_AUTHORITY"
+    if [ -n "$OIDC_AUTHORITY" ]; then
+        CONNECT_SOURCES="$CONNECT_SOURCES $OIDC_AUTHORITY"
+        FRAME_SOURCES="$FRAME_SOURCES $OIDC_AUTHORITY"
     fi
 
     if [ -n "$CSP_CONNECT_SRC" ]; then

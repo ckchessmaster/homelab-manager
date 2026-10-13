@@ -44,7 +44,7 @@ ControlPlane is an asynchronous, resilient homelab orchestration platform. It is
 | **Frontend** | React, TypeScript, Vite | **React 19**, TypeScript 5.x, Vite, Tailwind CSS, shadcn/ui, TanStack Query. |
 | **Terminal Canvas** | xterm.js & SignalR | ANSI color rendering, streaming stdout/stderr framing with monotonic sequence numbers. |
 | **Node Agent** | Go | **Go 1.22+**, statically compiled (`CGO_ENABLED=0`), <15MB binary size, <10MB RSS. |
-| **Authentication & RBAC** | Zitadel OIDC / JWT Bearer | Zitadel PKCE for Frontend; ASP.NET Core JWT Bearer validation; composite RBAC (`Viewer`, `Operator`, `Admin`); `AUTH_BYPASS=true` for local development. |
+| **Authentication & RBAC** | Generic OIDC (Authentik, Dex) / JWT Bearer | OIDC PKCE for Frontend; ASP.NET Core JWT Bearer validation; composite RBAC (`Viewer`, `Operator`, `Admin`); `AUTH_BYPASS=true` for local development. |
 | **Infrastructure Adapters** | Proxmox, K8s, UniFi, OPNsense, Redfish/iDRAC, Home Assistant | Modular adapters in `Features/Adapters/` with unified config management (`IAdapterConfigService`). |
 | **System Observability** | In-Memory Circular Buffer (2,500) | `Features/SystemLogs/` with live streaming API, multi-level filtering, and UI viewer. |
 | **Packaging & CI/CD** | Docker, Helm, GitHub Actions | Multi-stage OCI Dockerfiles, Helm chart (`charts/controlplane`), Kustomize overlays (`deploy/k8s`), and GitHub Actions workflows (`.github/workflows/`). |
@@ -65,9 +65,7 @@ homelab-manager/
 ├── charts/
 │   └── controlplane/           # Production Kubernetes Helm chart
 ├── deploy/
-│   ├── compose/                # Production Docker Compose stack
-│   ├── k8s/                    # Base Kubernetes manifests and Kustomize environment overlays
-│   └── zitadel/                # Self-hosted Zitadel OIDC bootstrap & setup scripts
+│   └── k8s/                    # Base Kubernetes manifests and Kustomize environment overlays
 ├── docs/
 │   ├── initial-overview.md     # Technical Design Document (system specifications)
 │   ├── mcp-server.md           # Model Context Protocol server documentation
@@ -82,7 +80,7 @@ homelab-manager/
 │   │       ├── Workloads/                  # Multi-cluster Kubernetes application engine
 │   │       ├── Helm/                       # Helm catalog and release management
 │   │       ├── Mcp/                        # Built-in Model Context Protocol server tools (40+)
-│   │       ├── Security/                   # Zitadel JWT, RBAC, PAT tokens, and AES-256-GCM encryption
+│   │       ├── Security/                   # Generic OIDC (Authentik/Dex) JWT, RBAC, PAT tokens, and AES-256-GCM encryption
 │   │       ├── SystemLogs/                 # Circular log buffer, query API, and diagnostics
 │   │       ├── Agents/                     # WebSocket agent hub, binary management, and auto-sync
 │   │       ├── Discovery/                  # Dynamic candidate discovery across hypervisors/firewalls
@@ -120,7 +118,7 @@ homelab-manager/
 ### React 19 & Frontend Standards
 * **Design System Governance:** Strictly follow `/DESIGN_SYSTEM.md`. Use `zinc-950` canvas base, `zinc-900` surfaces, `zinc-800` borders, `sky-500` brand accent, and semantic-only health colors. Never use pure black (`#000000`) or card grids for lists exceeding 6 items. Use `<MetricStrip />`, `<TableToolbar />`, and `<InspectorSheet />`.
 * **Visual Excellence:** The UI must look modern, sleek, and high-quality. Use Tailwind CSS with dark mode support, subtle glassmorphism, clean badge states, and responsive layouts.
-* **Authentication:** Use `react-oidc-context` with Zitadel PKCE. Gate privileged UI components behind `<RequireRole role="Operator">` or `<RequireRole role="Admin">`.
+* **Authentication:** Use `react-oidc-context` with standard OIDC PKCE. Gate privileged UI components behind `<RequireRole role="Operator">` or `<RequireRole role="Admin">`.
 * **Terminal Streaming:** Encapsulate `xterm.js` inside a dedicated React component with ResizeObserver, auto-scroll toggle, and ANSI color theme matching the application theme.
 * **Mobile-First Responsiveness & Touch Ergonomics:** All views, drawers, toolbars, and components MUST support mobile viewports (<768px). Use bottom navigation (`<MobileBottomNav />`) on mobile with "More" drawer; split DataTables (`>=768px`) into compact list cards (`<768px`); enforce minimum 44×44px touch targets on interactive elements; respect safe-area insets (`env(safe-area-inset-bottom)`).
 * **Automated Frontend Testing:** Co-locate unit/component tests (`*.test.tsx`) using Vitest and `@testing-library/react` with mock coverage. End-to-end user flows must be tested in Playwright across desktop and mobile device profiles (`Pixel 7`, `iPhone 14`).

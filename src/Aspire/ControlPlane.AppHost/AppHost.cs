@@ -1,12 +1,18 @@
-using Aspire.Hosting.Yarp.Transforms;
-
 var builder = DistributedApplication.CreateBuilder(args);
 
 var apiKey = builder.AddParameter("api-key", secret: true);
 var masterKey = builder.AddParameter("master-key", secret: true);
 var enableMcpServer = builder.AddParameter("enable-mcp-server", "true");
-var zitadelMasterKey = builder.AddParameter("zitadel-masterkey", "MasterkeyNeedsToHave32Characters", secret: true);
-var zitadelClientId = builder.AddParameter("zitadel-client-id", "389775242525999110");
+
+var externalOidcAuthority = builder.Configuration["Oidc:Authority"]
+    ?? builder.Configuration["oidc-authority"]
+    ?? builder.Configuration["OIDC_AUTHORITY"];
+
+var oidcClientId = builder.Configuration["Oidc:ClientId"]
+    ?? builder.Configuration["oidc-client-id"]
+    ?? builder.Configuration["OIDC_CLIENT_ID"]
+    ?? "controlplane";
+
 var isDemoEnabled = string.Equals(Environment.GetEnvironmentVariable("DEMO_MODE"), "true", StringComparison.OrdinalIgnoreCase)
     || string.Equals(builder.Configuration["DEMO_MODE"], "true", StringComparison.OrdinalIgnoreCase)
     || string.Equals(builder.Configuration["demo-mode"], "true", StringComparison.OrdinalIgnoreCase)
@@ -23,7 +29,6 @@ var postgres = builder.AddPostgres("postgres")
 
 var controlPlaneDb = postgres.AddDatabase("ControlPlaneDatabase", "controlplane");
 var temporalDb = postgres.AddDatabase("TemporalDatabase", "temporal");
-var zitadelDb = postgres.AddDatabase("ZitadelDatabase", "zitadel");
 
 var externalTemporalEndpoint = builder.Configuration["Temporal:Endpoint"]
     ?? builder.Configuration["Temporal:Address"]
@@ -40,83 +45,45 @@ if (string.IsNullOrWhiteSpace(externalTemporalEndpoint))
         .WithHttpEndpoint(port: 8233, targetPort: 8233, name: "ui");
 }
 
-var bootstrapDir = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "../../../docker/compose/zitadel/bootstrap"));
-Directory.CreateDirectory(bootstrapDir);
+// Local mock OIDC provider (Dex) when no external OIDC / Authentik authority is specified
+IResourceBuilder<ContainerResource>? dex = null;
+string oidcAuthority;
 
-var zitadelApi = builder.AddContainer("zitadel-api", "ghcr.io/zitadel/zitadel")
-    .WithArgs("start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled")
-    .WithEnvironment("ZITADEL_MASTERKEY", zitadelMasterKey)
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_HOST", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.Host))
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_PORT", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.Port))
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_DATABASE", "zitadel")
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_USER_USERNAME", "postgres")
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_USER_PASSWORD", postgres.Resource.PasswordParameter)
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE", "disable")
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME", "postgres")
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgres.Resource.PasswordParameter)
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
-    .WithEnvironment("ZITADEL_EXTERNALDOMAIN", "localhost")
-    .WithEnvironment("ZITADEL_EXTERNALPORT", "8085")
-    .WithEnvironment("ZITADEL_EXTERNALSECURE", "false")
-    .WithEnvironment("ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED", "false")
-    .WithEnvironment("ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH", "/zitadel/bootstrap/login-client.pat")
-    .WithEnvironment("ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME", "login-client")
-    .WithEnvironment("ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME", "Automatically Initialized IAM_LOGIN_CLIENT")
-    .WithEnvironment("ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE", "2035-01-01T00:00:00Z")
-    .WithEnvironment("ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED", "true")
-    .WithEnvironment("ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI", "http://localhost:8085/ui/v2/login/")
-    .WithEnvironment("ZITADEL_OIDC_DEFAULTLOGINURLV2", "http://localhost:8085/ui/v2/login/login?authRequest=")
-    .WithEnvironment("ZITADEL_OIDC_DEFAULTLOGOUTURLV2", "http://localhost:8085/ui/v2/login/logout?post_logout_redirect=")
-    .WithBindMount(bootstrapDir, "/zitadel/bootstrap")
-    .WithHttpEndpoint(targetPort: 8080, name: "http")
-    .WithHttpHealthCheck("/debug/healthz")
-    .WithReference(zitadelDb)
-    .WaitFor(zitadelDb);
+if (string.IsNullOrWhiteSpace(externalOidcAuthority))
+{
+    var dexConfigPath = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "dex/config.yaml"));
+    dex = builder.AddContainer("dex", "ghcr.io/dexidp/dex", "v2.41.1")
+        .WithArgs("dex", "serve", "/etc/dex/cfg/config.yaml")
+        .WithBindMount(dexConfigPath, "/etc/dex/cfg/config.yaml", isReadOnly: true)
+        .WithHttpEndpoint(port: 8085, targetPort: 5556, name: "http");
 
-var zitadelLogin = builder.AddContainer("zitadel-login", "ghcr.io/zitadel/zitadel-login")
-    .WithReference(zitadelApi.GetEndpoint("http"))
-    .WithEnvironment("ZITADEL_API_URL", zitadelApi.GetEndpoint("http"))
-    .WithEnvironment("NEXT_PUBLIC_BASE_PATH", "/ui/v2/login")
-    .WithEnvironment("ZITADEL_SERVICE_USER_TOKEN_FILE", "/zitadel/bootstrap/login-client.pat")
-    .WithEnvironment("CUSTOM_REQUEST_HEADERS", "x-zitadel-instance-host:localhost:8085,x-zitadel-public-host:localhost:8085")
-    .WithBindMount(bootstrapDir, "/zitadel/bootstrap", isReadOnly: true)
-    .WithHttpEndpoint(targetPort: 3000, name: "http")
-    .WaitFor(zitadelApi);
-
-var zitadel = builder.AddYarp("zitadel")
-    .WithHttpEndpoint(port: 8085, targetPort: 8085, name: "http")
-    .WithConfiguration(yarp =>
-    {
-        var loginCluster = yarp.AddCluster(zitadelLogin.GetEndpoint("http"));
-        var apiCluster = yarp.AddCluster(zitadelApi.GetEndpoint("http"));
-
-        yarp.AddRoute("/ui/v2/login", loginCluster)
-            .WithTransformUseOriginalHostHeader(true)
-            .WithTransformRequestHeader("x-zitadel-instance-host", "localhost:8085", append: false)
-            .WithTransformRequestHeader("x-zitadel-public-host", "localhost:8085", append: false);
-        yarp.AddRoute("/ui/v2/login/{**catch-all}", loginCluster)
-            .WithTransformUseOriginalHostHeader(true)
-            .WithTransformRequestHeader("x-zitadel-instance-host", "localhost:8085", append: false)
-            .WithTransformRequestHeader("x-zitadel-public-host", "localhost:8085", append: false);
-        yarp.AddRoute("/{**catch-all}", apiCluster)
-            .WithTransformUseOriginalHostHeader(true)
-            .WithTransformRequestHeader("x-zitadel-instance-host", "localhost:8085", append: false)
-            .WithTransformRequestHeader("x-zitadel-public-host", "localhost:8085", append: false);
-    });
+    oidcAuthority = "http://localhost:8085/dex";
+}
+else
+{
+    oidcAuthority = externalOidcAuthority;
+}
 
 var api = builder.AddProject<Projects.ControlPlane_Api>("api")
     .WithReference(controlPlaneDb)
     .WaitFor(controlPlaneDb)
-    .WaitFor(zitadel)
     .WithHttpEndpoint(port: 5029, targetPort: 5029, isProxied: false)
     .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:5029")
     .WithEnvironment("ControlPlane__ApiKey", apiKey)
     .WithEnvironment("CONTROLPLANE_MASTER_KEY", masterKey)
     .WithEnvironment("ENABLE_MCP_SERVER", enableMcpServer)
-    .WithEnvironment("Zitadel__Authority", zitadel.GetEndpoint("http"))
-    .WithEnvironment("Zitadel__Audience", "controlplane")
-    .WithEnvironment("Zitadel__ValidAudiences__0", zitadelClientId)
+    .WithEnvironment("Oidc__Authority", oidcAuthority)
+    .WithEnvironment("Oidc__Audience", "controlplane")
+    .WithEnvironment("Oidc__ClientId", oidcClientId)
+    .WithEnvironment("Oidc__DisplayName", string.IsNullOrWhiteSpace(externalOidcAuthority) ? "Single Sign-On (Dex)" : "Authentik")
+    .WithEnvironment("Oidc__RoleClaimType", "groups")
+    .WithEnvironment("Oidc__RequireHttpsMetadata", string.IsNullOrWhiteSpace(externalOidcAuthority) ? "false" : "true")
     .WithEnvironment("DEMO_MODE", isDemoEnabled ? "true" : "false");
+
+if (dex != null)
+{
+    api.WaitFor(dex);
+}
 
 if (temporal != null)
 {
@@ -140,17 +107,23 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["Temporal:Auth:TokenUrl"]))
        .WithEnvironment("Temporal__Auth__TokenUrl", builder.Configuration["Temporal:Auth:TokenUrl"]!)
        .WithEnvironment("Temporal__Auth__ClientId", builder.Configuration["Temporal:Auth:ClientId"] ?? "")
        .WithEnvironment("Temporal__Auth__ClientSecret", builder.Configuration["Temporal:Auth:ClientSecret"] ?? "")
-       .WithEnvironment("Temporal__Auth__Scopes", builder.Configuration["Temporal:Auth:Scopes"] ?? "openid urn:zitadel:iam:org:projects:roles");
+       .WithEnvironment("Temporal__Auth__Scopes", builder.Configuration["Temporal:Auth:Scopes"] ?? "openid");
 }
 
-builder.AddViteApp("frontend", "../../frontend")
+var frontend = builder.AddViteApp("frontend", "../../frontend")
     .WithNpm(install: false)
     .WithHttpEndpoint(port: 5173, targetPort: 5173, isProxied: false)
     .WithReference(api)
     .WaitFor(api)
-    .WithEnvironment("VITE_ZITADEL_AUTHORITY", zitadel.GetEndpoint("http"))
-    .WithEnvironment("VITE_ZITADEL_CLIENT_ID", zitadelClientId)
+    .WithEnvironment("VITE_OIDC_AUTHORITY", oidcAuthority)
+    .WithEnvironment("VITE_OIDC_CLIENT_ID", oidcClientId)
+    .WithEnvironment("VITE_OIDC_DISPLAY_NAME", string.IsNullOrWhiteSpace(externalOidcAuthority) ? "Single Sign-On (Dex)" : "Authentik")
     .WithEnvironment("VITE_DEMO_MODE", isDemoEnabled ? "true" : "false")
     .WithExternalHttpEndpoints();
+
+if (dex != null)
+{
+    frontend.WaitFor(dex);
+}
 
 builder.Build().Run();

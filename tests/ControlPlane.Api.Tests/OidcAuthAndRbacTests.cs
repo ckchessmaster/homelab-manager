@@ -17,11 +17,11 @@ using Xunit;
 
 namespace ControlPlane.Api.Tests;
 
-public class ZitadelAuthAndRbacTests
+public class OidcAuthAndRbacTests
 {
     private const string TestSigningKey = "ThisIsASecretKeyForTestingTokens123456!";
 
-    private static string GenerateJwt(string username, string[]? zitadelRoles = null, string? zitadelRolesJson = null)
+    private static string GenerateJwt(string username, string[]? groups = null, string? groupsJson = null)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.UTF8.GetBytes(TestSigningKey);
@@ -31,18 +31,19 @@ public class ZitadelAuthAndRbacTests
             new(ClaimTypes.NameIdentifier, username),
             new(ClaimTypes.Name, username),
             new(JwtRegisteredClaimNames.Sub, username),
+            new("preferred_username", username),
             new(JwtRegisteredClaimNames.Iss, "https://issuer.example.com"),
             new(JwtRegisteredClaimNames.Aud, "controlplane")
         };
 
-        if (zitadelRolesJson != null)
+        if (groupsJson != null)
         {
-            claims.Add(new Claim(AuthConstants.ZitadelRolesClaimType, zitadelRolesJson));
+            claims.Add(new Claim(AuthConstants.DefaultRoleClaimType, groupsJson));
         }
-        else if (zitadelRoles != null)
+        else if (groups != null)
         {
-            var json = "[\"" + string.Join("\",\"", zitadelRoles) + "\"]";
-            claims.Add(new Claim(AuthConstants.ZitadelRolesClaimType, json));
+            var json = "[\"" + string.Join("\",\"", groups) + "\"]";
+            claims.Add(new Claim(AuthConstants.DefaultRoleClaimType, json));
         }
 
         var tokenDescriptor = new SecurityTokenDescriptor
@@ -111,27 +112,11 @@ public class ZitadelAuthAndRbacTests
     }
 
     [Fact]
-    public async Task RoleClaimsTransformation_ExtractsRoles_FromZitadelJsonObject()
+    public async Task RoleClaimsTransformation_ExtractsRoles_FromGroupsJsonArray()
     {
-        var transformation = new ZitadelRoleClaimsTransformation(NullLogger<ZitadelRoleClaimsTransformation>.Instance);
+        var transformation = new OidcRoleClaimsTransformation(NullLogger<OidcRoleClaimsTransformation>.Instance);
         var identity = new ClaimsIdentity("TestAuth");
-        identity.AddClaim(new Claim(AuthConstants.ZitadelRolesClaimType, "{\"admin\": {\"123\": \"org\"}, \"operator\": {\"123\": \"org\"}}"));
-        var principal = new ClaimsPrincipal(identity);
-
-        var result = await transformation.TransformAsync(principal);
-
-        var roles = result.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
-        Assert.Contains(AuthConstants.RoleAdmin, roles);
-        Assert.Contains(AuthConstants.RoleOperator, roles);
-        Assert.Contains(AuthConstants.RoleViewer, roles); // Admin inherits Viewer
-    }
-
-    [Fact]
-    public async Task RoleClaimsTransformation_ExtractsRoles_FromZitadelJsonArray()
-    {
-        var transformation = new ZitadelRoleClaimsTransformation(NullLogger<ZitadelRoleClaimsTransformation>.Instance);
-        var identity = new ClaimsIdentity("TestAuth");
-        identity.AddClaim(new Claim(AuthConstants.ZitadelRolesClaimType, "[\"operator\"]"));
+        identity.AddClaim(new Claim(AuthConstants.DefaultRoleClaimType, "[\"operator\"]"));
         var principal = new ClaimsPrincipal(identity);
 
         var result = await transformation.TransformAsync(principal);
@@ -140,6 +125,35 @@ public class ZitadelAuthAndRbacTests
         Assert.Contains(AuthConstants.RoleOperator, roles);
         Assert.Contains(AuthConstants.RoleViewer, roles); // Operator inherits Viewer
         Assert.DoesNotContain(AuthConstants.RoleAdmin, roles);
+    }
+
+    [Fact]
+    public async Task RoleClaimsTransformation_ExtractsRoles_FromGroupsSingleString()
+    {
+        var transformation = new OidcRoleClaimsTransformation(NullLogger<OidcRoleClaimsTransformation>.Instance);
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim(AuthConstants.DefaultRoleClaimType, "admin"));
+        var principal = new ClaimsPrincipal(identity);
+
+        var result = await transformation.TransformAsync(principal);
+
+        var roles = result.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+        Assert.Contains(AuthConstants.RoleAdmin, roles);
+        Assert.Contains(AuthConstants.RoleOperator, roles);
+        Assert.Contains(AuthConstants.RoleViewer, roles); // Admin inherits Operator and Viewer
+    }
+
+    [Fact]
+    public async Task RoleClaimsTransformation_SetsNameClaim_FromPreferredUsername()
+    {
+        var transformation = new OidcRoleClaimsTransformation(NullLogger<OidcRoleClaimsTransformation>.Instance);
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("preferred_username", "authentik-user"));
+        var principal = new ClaimsPrincipal(identity);
+
+        var result = await transformation.TransformAsync(principal);
+
+        Assert.Equal("authentik-user", result.Identity?.Name);
     }
 
     [Fact]
@@ -159,7 +173,7 @@ public class ZitadelAuthAndRbacTests
     {
         using var factory = new RbacTestAppFactory();
         var client = factory.CreateClient();
-        var token = GenerateJwt("viewer-user", new[] { "viewer" });
+        var token = GenerateJwt("viewer-user", ["viewer"]);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // 1. Read hosts should succeed
@@ -182,7 +196,7 @@ public class ZitadelAuthAndRbacTests
     {
         using var factory = new RbacTestAppFactory();
         var client = factory.CreateClient();
-        var token = GenerateJwt("operator-user", new[] { "operator" });
+        var token = GenerateJwt("operator-user", ["operator"]);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // 1. Delete host should be forbidden (requires Admin)
@@ -199,7 +213,7 @@ public class ZitadelAuthAndRbacTests
     {
         using var factory = new RbacTestAppFactory();
         var client = factory.CreateClient();
-        var token = GenerateJwt("admin-user", new[] { "admin" });
+        var token = GenerateJwt("admin-user", ["admin"]);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var pingResponse = await client.GetAsync("/api/v1/admin/ping");
@@ -221,7 +235,7 @@ public class ZitadelAuthAndRbacTests
     }
 
     [Fact]
-    public async Task GetAuthConfig_ReturnsZitadelConfigurationAndCustomRoleMappings()
+    public async Task GetAuthConfig_ReturnsOidcConfigurationAndCustomRoleMappings()
     {
         using var factory = new RbacTestAppFactory();
         var client = factory.CreateClient();
@@ -230,18 +244,20 @@ public class ZitadelAuthAndRbacTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
-        Assert.True(json.TryGetProperty("zitadel", out var zitadel));
-        Assert.True(zitadel.TryGetProperty("roles", out var roles));
+        Assert.True(json.TryGetProperty("oidc", out var oidc));
+        Assert.True(oidc.TryGetProperty("roles", out var roles));
         Assert.True(roles.TryGetProperty("admin", out var adminRoles));
         Assert.Contains("admin", adminRoles.EnumerateArray().Select(e => e.GetString()));
+        Assert.True(oidc.TryGetProperty("roleClaimType", out var roleClaimType));
+        Assert.Equal("groups", roleClaimType.GetString());
     }
 
     [Fact]
     public async Task CustomRoleMapping_AllowsCustomRoleNames()
     {
-        var options = new ZitadelJwtOptions
+        var options = new OidcJwtOptions
         {
-            Roles = new ZitadelRoleMappingOptions
+            Roles = new OidcRoleMappingOptions
             {
                 Admin = ["homelab-admins", "superadmin"],
                 Operator = ["devops-team"],
@@ -249,13 +265,13 @@ public class ZitadelAuthAndRbacTests
             }
         };
 
-        var transform = new ZitadelRoleClaimsTransformation(
-            NullLogger<ZitadelRoleClaimsTransformation>.Instance,
+        var transform = new OidcRoleClaimsTransformation(
+            NullLogger<OidcRoleClaimsTransformation>.Instance,
             Microsoft.Extensions.Options.Options.Create(options)
         );
 
         var identity = new ClaimsIdentity("TestAuth");
-        identity.AddClaim(new Claim(AuthConstants.ZitadelRolesClaimType, "[\"homelab-admins\"]"));
+        identity.AddClaim(new Claim(AuthConstants.DefaultRoleClaimType, "[\"homelab-admins\"]"));
         var principal = new ClaimsPrincipal(identity);
 
         var transformed = await transform.TransformAsync(principal);

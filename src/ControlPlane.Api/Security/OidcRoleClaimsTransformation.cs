@@ -2,26 +2,25 @@ using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
-
 using Microsoft.Extensions.Options;
 
 namespace ControlPlane.Api.Security;
 
 /// <summary>
-/// Transforms incoming Zitadel JWT claims into standard ASP.NET Core Role claims (ClaimTypes.Role).
-/// Zitadel emits project roles under 'urn:zitadel:iam:org:project:roles' as either a JSON object or array.
+/// Transforms incoming OIDC JWT claims into standard ASP.NET Core Role claims (ClaimTypes.Role) and Name claims (ClaimTypes.Name).
+/// Uses strict configurable claim types: RoleClaimType (defaults to 'groups') and NameClaimType (defaults to 'preferred_username').
 /// </summary>
-public class ZitadelRoleClaimsTransformation : IClaimsTransformation
+public class OidcRoleClaimsTransformation : IClaimsTransformation
 {
-    private readonly ILogger<ZitadelRoleClaimsTransformation> _logger;
-    private readonly ZitadelJwtOptions _options;
+    private readonly ILogger<OidcRoleClaimsTransformation> _logger;
+    private readonly OidcJwtOptions _options;
 
-    public ZitadelRoleClaimsTransformation(
-        ILogger<ZitadelRoleClaimsTransformation> logger,
-        IOptions<ZitadelJwtOptions>? options = null)
+    public OidcRoleClaimsTransformation(
+        ILogger<OidcRoleClaimsTransformation> logger,
+        IOptions<OidcJwtOptions>? options = null)
     {
         _logger = logger;
-        _options = options?.Value ?? new ZitadelJwtOptions();
+        _options = options?.Value ?? new OidcJwtOptions();
     }
 
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
@@ -38,22 +37,17 @@ public class ZitadelRoleClaimsTransformation : IClaimsTransformation
 
         var extractedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // 1. Process Zitadel project roles claim: urn:zitadel:iam:org:project:roles or urn:zitadel:iam:org:project:{projectId}:roles
-        foreach (var claim in principal.Claims.Where(c => 
-            c.Type.StartsWith("urn:zitadel:iam:org:project", StringComparison.OrdinalIgnoreCase) &&
-            c.Type.EndsWith("roles", StringComparison.OrdinalIgnoreCase)))
+        // 1. Process strict configured RoleClaimType (defaults to "groups")
+        var roleClaimType = string.IsNullOrWhiteSpace(_options.RoleClaimType)
+            ? AuthConstants.DefaultRoleClaimType
+            : _options.RoleClaimType;
+
+        foreach (var claim in principal.FindAll(c => c.Type.Equals(roleClaimType, StringComparison.OrdinalIgnoreCase)))
         {
             ExtractRolesFromClaimValue(claim.Value, extractedRoles);
         }
 
-        // 2. Process standard role/roles claims if present
-        foreach (var claim in principal.FindAll(c => c.Type.Equals("role", StringComparison.OrdinalIgnoreCase) ||
-                                                     c.Type.Equals("roles", StringComparison.OrdinalIgnoreCase)))
-        {
-            ExtractRolesFromClaimValue(claim.Value, extractedRoles);
-        }
-
-        // 3. Inject normalized ClaimTypes.Role claims
+        // 2. Inject normalized ClaimTypes.Role claims
         foreach (var rawRole in extractedRoles)
         {
             var normalized = NormalizeRoleName(rawRole);
@@ -64,7 +58,7 @@ public class ZitadelRoleClaimsTransformation : IClaimsTransformation
             }
         }
 
-        // 4. Role hierarchy: Admin implies Operator and Viewer; Operator implies Viewer
+        // 3. Role hierarchy: Admin implies Operator and Viewer; Operator implies Viewer
         if (existingRoles.Contains(AuthConstants.RoleAdmin))
         {
             if (existingRoles.Add(AuthConstants.RoleOperator))
@@ -78,6 +72,22 @@ public class ZitadelRoleClaimsTransformation : IClaimsTransformation
                 identity.AddClaim(new Claim(ClaimTypes.Role, AuthConstants.RoleViewer));
         }
 
+        // 4. Map NameClaimType (defaults to "preferred_username") if ClaimTypes.Name is not set
+        var nameClaimType = string.IsNullOrWhiteSpace(_options.NameClaimType)
+            ? AuthConstants.DefaultNameClaimType
+            : _options.NameClaimType;
+
+        if (principal.FindFirst(ClaimTypes.Name) == null)
+        {
+            var preferredNameClaim = principal.FindFirst(c => c.Type.Equals(nameClaimType, StringComparison.OrdinalIgnoreCase))
+                                  ?? principal.FindFirst("preferred_username")
+                                  ?? principal.FindFirst("email");
+            if (preferredNameClaim != null && !string.IsNullOrWhiteSpace(preferredNameClaim.Value))
+            {
+                identity.AddClaim(new Claim(ClaimTypes.Name, preferredNameClaim.Value));
+            }
+        }
+
         return Task.FromResult(principal);
     }
 
@@ -87,28 +97,7 @@ public class ZitadelRoleClaimsTransformation : IClaimsTransformation
             return;
 
         var trimmed = claimValue.Trim();
-        if (trimmed.StartsWith('{'))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(trimmed);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var prop in doc.RootElement.EnumerateObject())
-                    {
-                        if (!string.IsNullOrWhiteSpace(prop.Name))
-                        {
-                            targetSet.Add(prop.Name);
-                        }
-                    }
-                }
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse JSON object in role claim: {ClaimValue}", claimValue);
-            }
-        }
-        else if (trimmed.StartsWith('['))
+        if (trimmed.StartsWith('['))
         {
             try
             {
@@ -133,8 +122,30 @@ public class ZitadelRoleClaimsTransformation : IClaimsTransformation
                 _logger.LogWarning(ex, "Failed to parse JSON array in role claim: {ClaimValue}", claimValue);
             }
         }
+        else if (trimmed.StartsWith('{'))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(trimmed);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        if (!string.IsNullOrWhiteSpace(prop.Name))
+                        {
+                            targetSet.Add(prop.Name);
+                        }
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse JSON object in role claim: {ClaimValue}", claimValue);
+            }
+        }
         else
         {
+            // Plain single string (e.g. "admin" or "authentik Admins")
             targetSet.Add(trimmed);
         }
     }

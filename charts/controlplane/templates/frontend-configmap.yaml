@@ -1,8 +1,9 @@
 {{- $connectSources := list "'self'" "ws:" "wss:" -}}
 {{- $frameSources := list "'self'" -}}
-{{- if and .Values.zitadel.enabled .Values.zitadel.authority -}}
-  {{- $connectSources = append $connectSources .Values.zitadel.authority -}}
-  {{- $frameSources = append $frameSources .Values.zitadel.authority -}}
+{{- $oidcUrl := .Values.oidc.issuerUrl | default .Values.oidc.authority -}}
+{{- if and .Values.oidc.enabled $oidcUrl -}}
+  {{- $connectSources = append $connectSources $oidcUrl -}}
+  {{- $frameSources = append $frameSources $oidcUrl -}}
 {{- end -}}
 {{- with .Values.frontend.csp -}}
   {{- range .extraConnectSrc }}

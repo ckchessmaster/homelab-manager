@@ -9,7 +9,7 @@ Standards for writing client-side web code for the ControlPlane Single-Page Appl
 * **Styling:** Tailwind CSS with modern design tokens (neutral dark modes, glassmorphism, accent badges).
 * **Component Library:** shadcn/ui patterns (Radix UI primitives wrapped in Tailwind).
 * **Icons:** Lucide React (`lucide-react`).
-* **Authentication:** `react-oidc-context` (Zitadel OIDC with PKCE) and local development bypass.
+* **Authentication:** `react-oidc-context` (Generic OIDC with PKCE, e.g. Authentik, Dex) and local development bypass.
 * **Server State:** TanStack Query (`@tanstack/react-query`) for API fetching, caching, polling, and mutations.
 * **Terminal Streaming:** `@xterm/xterm` with `@xterm/addon-fit` for ANSI terminal log streaming.
 * **Real-Time Client:** `@microsoft/signalr` for WebSocket hub subscriptions.
@@ -30,7 +30,7 @@ Standards for writing client-side web code for the ControlPlane Single-Page Appl
 * Path aliases: `@/` mapped to `src/`.
 * `src/components/`: Reusable primitives (`Button`, `Table`, `Badge`, `Modal`, `Terminal`).
 * `src/features/`: Feature-scoped components and hooks:
-  * `auth/`: Zitadel OIDC integration, `useAuth()` hook, `<RequireRole role="...">` gate, user profile menu.
+  * `auth/`: Generic OIDC (Authentik/Dex) integration, `useAuth()` hook, `<RequireRole role="...">` gate, user profile menu.
   * `hosts/`: Host inventory table, grouped inventory chips, adoption modal, host details drawer.
   * `adapters/`: Unified Adapters Hub (Proxmox, Kubernetes, UniFi, OPNsense, iDRAC/Redfish, Home Assistant instances, connection testing, credentials modals).
   * `workloads/`: Multi-cluster Kubernetes applications and workloads view, deployment scaling dialog, rollout restart trigger.

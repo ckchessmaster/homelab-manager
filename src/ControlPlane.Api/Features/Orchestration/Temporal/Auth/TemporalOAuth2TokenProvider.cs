@@ -5,20 +5,20 @@ using Microsoft.Extensions.Options;
 
 namespace ControlPlane.Api.Features.Orchestration.Temporal.Auth;
 
-public class ZitadelTokenProvider : IZitadelTokenProvider
+public class TemporalOAuth2TokenProvider : ITemporalTokenProvider
 {
     private readonly HttpClient _httpClient;
     private readonly IOptions<TemporalOptions> _options;
-    private readonly ILogger<ZitadelTokenProvider> _logger;
+    private readonly ILogger<TemporalOAuth2TokenProvider> _logger;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
     private string? _cachedToken;
     private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
 
-    public ZitadelTokenProvider(
+    public TemporalOAuth2TokenProvider(
         HttpClient httpClient,
         IOptions<TemporalOptions> options,
-        ILogger<ZitadelTokenProvider> logger)
+        ILogger<TemporalOAuth2TokenProvider> logger)
     {
         _httpClient = httpClient;
         _options = options;
@@ -50,11 +50,11 @@ public class ZitadelTokenProvider : IZitadelTokenProvider
 
             if (string.IsNullOrWhiteSpace(auth.TokenUrl))
             {
-                _logger.LogError("Temporal Zitadel auth is enabled but TokenUrl is not configured.");
+                _logger.LogError("Temporal OAuth2 auth is enabled but TokenUrl is not configured.");
                 return null;
             }
 
-            _logger.LogInformation("Requesting fresh M2M client credentials token from Zitadel ({TokenUrl})...", auth.TokenUrl);
+            _logger.LogInformation("Requesting fresh M2M client credentials token from OAuth2 provider ({TokenUrl})...", auth.TokenUrl);
 
             var parameters = new Dictionary<string, string>
             {
@@ -77,14 +77,14 @@ public class ZitadelTokenProvider : IZitadelTokenProvider
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(ct);
-                _logger.LogError("Failed to obtain Zitadel M2M token. Status: {StatusCode}, Body: {Body}", response.StatusCode, errorBody);
+                _logger.LogError("Failed to obtain OAuth2 M2M token. Status: {StatusCode}, Body: {Body}", response.StatusCode, errorBody);
                 return null;
             }
 
             var tokenResponse = await response.Content.ReadFromJsonAsync<TokenResponse>(ct);
             if (tokenResponse == null || string.IsNullOrWhiteSpace(tokenResponse.AccessToken))
             {
-                _logger.LogError("Zitadel token response did not contain an access_token.");
+                _logger.LogError("OAuth2 token response did not contain an access_token.");
                 return null;
             }
 
@@ -92,12 +92,12 @@ public class ZitadelTokenProvider : IZitadelTokenProvider
             var expiresIn = tokenResponse.ExpiresIn > 0 ? tokenResponse.ExpiresIn : 3600;
             _expiresAt = DateTimeOffset.UtcNow.AddSeconds(expiresIn);
 
-            _logger.LogInformation("Successfully acquired Zitadel M2M token for Temporal (expires in {ExpiresIn}s).", expiresIn);
+            _logger.LogInformation("Successfully acquired OAuth2 M2M token for Temporal (expires in {ExpiresIn}s).", expiresIn);
             return _cachedToken;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error retrieving Zitadel M2M token from {TokenUrl}", auth.TokenUrl);
+            _logger.LogError(ex, "Unexpected error retrieving OAuth2 M2M token from {TokenUrl}", auth.TokenUrl);
             return null;
         }
         finally

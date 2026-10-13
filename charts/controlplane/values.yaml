@@ -84,7 +84,7 @@ frontend:
     tag: ""
 
   # Content Security Policy (CSP) scoping.
-  # When zitadel.enabled is true, zitadel.authority is automatically included in connect-src and frame-src.
+  # When oidc.enabled is true, oidc.authority is automatically included in connect-src and frame-src.
   csp:
     # Additional origins allowed in connect-src (e.g. Sentry, external metrics, custom APIs)
     extraConnectSrc: []
@@ -173,20 +173,28 @@ temporal:
     secretRef:
       name: ""
       key: "clientSecret"
-    scopes: "openid urn:zitadel:iam:org:projects:roles"
+    scopes: "openid"
 
-zitadel:
+oidc:
   enabled: false
-  authority: "http://localhost:8085"
-  # SPA Client ID used by the UI for PKCE authentication (defaults to audience if empty)
-  clientId: ""
-  # JWT token audience validation (can match clientId or project ID)
+  # Issuer URL / Authority (in Authentik: Provider -> OpenID Configuration -> Issuer URL)
+  # e.g. "https://authentik.homelab.local/application/o/controlplane/"
+  authority: ""
+  # Or alias: issuerUrl: ""
+  # SPA Client ID used by the UI for PKCE authentication
+  clientId: "controlplane"
+  # JWT token audience validation (in Authentik, defaults to ClientId if not specified in Advanced Settings)
   audience: ""
+  displayName: "Single Sign-On"
+  roleClaimType: "groups"
+  nameClaimType: "preferred_username"
+  scope: "openid profile email groups"
   requireHttpsMetadata: true
-  # Custom Role Mapping: Map raw IdP roles or groups to ControlPlane canonical roles
+  # Custom Role Mapping: Map raw IdP roles or groups (e.g. Authentik groups) to ControlPlane canonical roles
   roles:
     admin:
       - "admin"
+      - "authentik Admins"
     operator:
       - "operator"
     viewer:

@@ -30,20 +30,24 @@ data:
   Temporal__Auth__ClientId: {{ .Values.temporal.auth.clientId | quote }}
   Temporal__Auth__Scopes: {{ .Values.temporal.auth.scopes | quote }}
   {{- end }}
-  {{- if .Values.zitadel.enabled }}
-  Zitadel__Authority: {{ .Values.zitadel.authority | quote }}
-  Zitadel__ClientId: {{ .Values.zitadel.clientId | default .Values.zitadel.audience | default "controlplane" | quote }}
-  Zitadel__Audience: {{ .Values.zitadel.audience | default .Values.zitadel.clientId | default "controlplane" | quote }}
-  Zitadel__RequireHttpsMetadata: {{ .Values.zitadel.requireHttpsMetadata | quote }}
-  {{- if .Values.zitadel.roles }}
-  {{- range $i, $role := .Values.zitadel.roles.admin }}
-  Zitadel__Roles__Admin__{{ $i }}: {{ $role | quote }}
+  {{- if .Values.oidc.enabled }}
+  Oidc__Authority: {{ .Values.oidc.issuerUrl | default .Values.oidc.authority | quote }}
+  Oidc__ClientId: {{ .Values.oidc.clientId | default .Values.oidc.audience | default "controlplane" | quote }}
+  Oidc__Audience: {{ .Values.oidc.audience | default .Values.oidc.clientId | default "controlplane" | quote }}
+  Oidc__DisplayName: {{ .Values.oidc.displayName | default "Single Sign-On" | quote }}
+  Oidc__RoleClaimType: {{ .Values.oidc.roleClaimType | default "groups" | quote }}
+  Oidc__NameClaimType: {{ .Values.oidc.nameClaimType | default "preferred_username" | quote }}
+  Oidc__Scope: {{ .Values.oidc.scope | default "openid profile email groups" | quote }}
+  Oidc__RequireHttpsMetadata: {{ .Values.oidc.requireHttpsMetadata | quote }}
+  {{- if .Values.oidc.roles }}
+  {{- range $i, $role := .Values.oidc.roles.admin }}
+  Oidc__Roles__Admin__{{ $i }}: {{ $role | quote }}
   {{- end }}
-  {{- range $i, $role := .Values.zitadel.roles.operator }}
-  Zitadel__Roles__Operator__{{ $i }}: {{ $role | quote }}
+  {{- range $i, $role := .Values.oidc.roles.operator }}
+  Oidc__Roles__Operator__{{ $i }}: {{ $role | quote }}
   {{- end }}
-  {{- range $i, $role := .Values.zitadel.roles.viewer }}
-  Zitadel__Roles__Viewer__{{ $i }}: {{ $role | quote }}
+  {{- range $i, $role := .Values.oidc.roles.viewer }}
+  Oidc__Roles__Viewer__{{ $i }}: {{ $role | quote }}
   {{- end }}
   {{- end }}
   {{- end }}
