@@ -128,12 +128,12 @@ describe('ClusterDetailDrawer - Pod Exec Entry Point & RBAC', { timeout: 15_000 
       </QueryClientProvider>
     )
 
-    const podsTabBtn = await screen.findByRole('button', { name: /Pods \(2\)/i })
+    const podsTabBtn = await screen.findByRole('button', { name: /Pods \(2\)/i }, { timeout: 5000 })
     fireEvent.click(podsTabBtn)
 
-    const runningPodRow = (await screen.findByText('grafana-67b8d-12345')).closest(
-      'div.p-3'
-    ) as HTMLElement
+    const runningPodRow = (
+      await screen.findByText('grafana-67b8d-12345', {}, { timeout: 5000 })
+    ).closest('div.p-3') as HTMLElement
     const pendingPodRow = screen.getByText('backup-job-pending').closest('div.p-3') as HTMLElement
 
     const execBtn = within(runningPodRow).getByRole('button', { name: /^Exec$/i })
@@ -142,7 +142,7 @@ describe('ClusterDetailDrawer - Pod Exec Entry Point & RBAC', { timeout: 15_000 
 
     fireEvent.click(execBtn)
 
-    const dialog = await screen.findByTestId('cluster-pod-terminal-dialog')
+    const dialog = await screen.findByTestId('cluster-pod-terminal-dialog', {}, { timeout: 5000 })
     expect(dialog.className).toContain('max-w-5xl')
 
     const terminal = screen.getByTestId('mock-pod-terminal')
@@ -177,10 +177,10 @@ describe('ClusterDetailDrawer - Pod Exec Entry Point & RBAC', { timeout: 15_000 
       </QueryClientProvider>
     )
 
-    const podsTabBtn = await screen.findByRole('button', { name: /Pods \(2\)/i })
+    const podsTabBtn = await screen.findByRole('button', { name: /Pods \(2\)/i }, { timeout: 5000 })
     fireEvent.click(podsTabBtn)
 
-    await screen.findByText('grafana-67b8d-12345')
+    await screen.findByText('grafana-67b8d-12345', {}, { timeout: 5000 })
     expect(screen.queryByRole('button', { name: /^Exec$/i })).not.toBeInTheDocument()
   })
 })

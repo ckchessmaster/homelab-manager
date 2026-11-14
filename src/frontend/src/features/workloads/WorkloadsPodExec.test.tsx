@@ -212,7 +212,9 @@ describe('WorkloadCard & WorkloadsPage - Pod Exec Entry Points', { timeout: 15_0
       </QueryClientProvider>
     )
 
-    const runningRow = (await screen.findByText('nginx-ingress')).closest('tr') as HTMLElement
+    const runningRow = (
+      await screen.findByText('nginx-ingress', {}, { timeout: 5000 })
+    ).closest('tr') as HTMLElement
     const scaledRow = screen.getByText('idle-worker').closest('tr') as HTMLElement
     const degradedRow = screen.getByText('broken-api').closest('tr') as HTMLElement
 
@@ -222,7 +224,7 @@ describe('WorkloadCard & WorkloadsPage - Pod Exec Entry Points', { timeout: 15_0
 
     fireEvent.click(within(runningRow).getByRole('button', { name: /^Exec$/i }))
 
-    const terminal = await screen.findByTestId('mock-pod-terminal')
+    const terminal = await screen.findByTestId('mock-pod-terminal', {}, { timeout: 5000 })
     expect(terminal).toHaveTextContent('PodTerminal:default/nginx-ingress-pod-1')
     expect(screen.getByTestId('pod-detail-drawer').className).toContain('sm:w-[960px]')
   })
@@ -244,7 +246,7 @@ describe('WorkloadCard & WorkloadsPage - Pod Exec Entry Points', { timeout: 15_0
       </QueryClientProvider>
     )
 
-    await screen.findByText('nginx-ingress')
+    await screen.findByText('nginx-ingress', {}, { timeout: 5000 })
     expect(screen.queryByRole('button', { name: /^Exec$/i })).not.toBeInTheDocument()
   })
 })

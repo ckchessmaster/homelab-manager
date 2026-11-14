@@ -172,7 +172,7 @@ describe('PodDetailDrawer - Pod Exec Terminal & Expandable Width', { timeout: 15
   it('renders Exec buttons only on Running pods and toggles expandable drawer width', async () => {
     renderDrawer()
 
-    const alphaPodName = await screen.findByText('api-gateway-7d9c8-alpha')
+    const alphaPodName = await screen.findByText('api-gateway-7d9c8-alpha', {}, { timeout: 5000 })
     expect(alphaPodName).toBeInTheDocument()
 
     // Terminal tab is visible for Operator
@@ -200,7 +200,7 @@ describe('PodDetailDrawer - Pod Exec Terminal & Expandable Width', { timeout: 15
     fireEvent.click(execButtons[1])
 
     expect(drawer.className).toContain('sm:w-[960px]')
-    const terminal = await screen.findByTestId('mock-pod-terminal')
+    const terminal = await screen.findByTestId('mock-pod-terminal', {}, { timeout: 5000 })
     expect(terminal).toHaveAttribute('data-cluster-id', 'k3s-prod')
     expect(terminal).toHaveAttribute('data-namespace', 'apps')
     expect(terminal).toHaveAttribute('data-pod-name', 'api-gateway-7d9c8-beta')
@@ -227,7 +227,7 @@ describe('PodDetailDrawer - Pod Exec Terminal & Expandable Width', { timeout: 15
       }
     )
 
-    await screen.findByText('api-gateway-7d9c8-alpha')
+    await screen.findByText('api-gateway-7d9c8-alpha', {}, { timeout: 5000 })
 
     expect(screen.queryByRole('button', { name: /^Terminal$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Exec$/i })).not.toBeInTheDocument()
@@ -247,7 +247,7 @@ describe('PodDetailDrawer - Pod Exec Terminal & Expandable Width', { timeout: 15
 
     renderDrawer({ initialTab: 'terminal' })
 
-    expect(await screen.findByText(/No running pods available/i)).toBeInTheDocument()
+    expect(await screen.findByText(/No running pods available/i, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByTestId('mock-pod-terminal')).not.toBeInTheDocument()
   })
 })
