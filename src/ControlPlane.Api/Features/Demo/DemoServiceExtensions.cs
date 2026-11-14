@@ -46,6 +46,8 @@ public static class DemoServiceExtensions
             services.AddSingleton<MockKubernetesAdapter>();
             services.AddScoped<IKubernetesAdapter>(sp => sp.GetRequiredService<MockKubernetesAdapter>());
             services.AddScoped<IKubernetesClientFactory, MockKubernetesClientFactory>();
+            services.AddSingleton<DemoPodExecService>(sp => new DemoPodExecService(sp.GetRequiredService<MockKubernetesAdapter>()));
+            services.AddScoped<IPodExecService>(sp => sp.GetRequiredService<DemoPodExecService>());
 
             services.AddSingleton<MockUniFiClient>();
             services.AddScoped<IUniFiClient>(sp => sp.GetRequiredService<MockUniFiClient>());

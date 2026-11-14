@@ -117,6 +117,7 @@ builder.Services.AddScoped<IKubernetesAdapter>(sp =>
     var factory = sp.GetRequiredService<IKubernetesClientFactory>();
     return factory.CreateAdapterAsync().GetAwaiter().GetResult();
 });
+builder.Services.AddScoped<IPodExecService, KubernetesPodExecService>();
 
 builder.Services.AddControlPlaneDemoMode(builder.Configuration);
 
