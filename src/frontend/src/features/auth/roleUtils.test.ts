@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { parseOidcRoles, getHighestRole, hasRequiredRole, ROLE_HIERARCHY } from './roleUtils'
+import {
+  parseOidcRoles,
+  getHighestRole,
+  hasRequiredRole,
+  canUserExecPods,
+  ROLE_HIERARCHY,
+} from './roleUtils'
 
 describe('roleUtils - parseOidcRoles', () => {
   it('returns empty array when profile is undefined', () => {
@@ -73,5 +79,23 @@ describe('roleUtils - parseOidcRoles', () => {
     }
     const roles = parseOidcRoles(profile, undefined, 'groups')
     expect(roles).toEqual(ROLE_HIERARCHY.Operator)
+  })
+})
+
+describe('roleUtils - canUserExecPods', () => {
+  it('allows Admin and Operator by default and denies Viewer', () => {
+    expect(canUserExecPods({ isAdmin: true, isOperator: true })).toBe(true)
+    expect(canUserExecPods({ isAdmin: false, isOperator: true })).toBe(true)
+    expect(canUserExecPods({ isAdmin: false, isOperator: false })).toBe(false)
+  })
+
+  it('restricts to Admin when podExecRequireAdmin is true', () => {
+    expect(canUserExecPods({ isAdmin: true, isOperator: true }, true)).toBe(true)
+    expect(canUserExecPods({ isAdmin: false, isOperator: true }, true)).toBe(false)
+  })
+
+  it('honors explicit canExecPods override on AuthState', () => {
+    expect(canUserExecPods({ isAdmin: false, isOperator: true, canExecPods: false })).toBe(false)
+    expect(canUserExecPods({ isAdmin: false, isOperator: false, canExecPods: true })).toBe(true)
   })
 })

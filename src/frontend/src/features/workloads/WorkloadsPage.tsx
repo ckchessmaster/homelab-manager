@@ -20,6 +20,7 @@ import {
   Copy,
   Pencil,
   Terminal,
+  SquareTerminal,
   MoreHorizontal,
   ChevronsUpDown,
   ArrowUpCircle,
@@ -61,7 +62,13 @@ import { HelmReleasesView } from './helm/HelmReleasesView'
 import { ConfigSecretsView } from './ConfigSecretsView'
 import { CreateResourceModal } from './CreateResourceModal'
 import { useAuthUser } from '../auth/useAuthUser'
-import { isSystemCriticalNamespace, type WorkloadSummary } from '../../api/workloads'
+import { canUserExecPods } from '../auth/roleUtils'
+import {
+  hasRunningWorkloadPods,
+  isSystemCriticalNamespace,
+  type PodDetailTab,
+  type WorkloadSummary,
+} from '../../api/workloads'
 
 const MAIN_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job']
 const STANDARD_KINDS = [
@@ -120,7 +127,7 @@ export function WorkloadsPage() {
   // Modals & Drawers
   const [scalingWorkload, setScalingWorkload] = useState<WorkloadSummary | null>(null)
   const [inspectPodsWorkload, setInspectPodsWorkload] = useState<WorkloadSummary | null>(null)
-  const [drawerInitialTab, setDrawerInitialTab] = useState<'pods' | 'logs' | 'revisions' | 'env'>('pods')
+  const [drawerInitialTab, setDrawerInitialTab] = useState<PodDetailTab>('pods')
   const [editorDrawerOpen, setEditorDrawerOpen] = useState(false)
   const [editingWorkload, setEditingWorkload] = useState<WorkloadSummary | null>(null)
   const [deletingWorkload, setDeletingWorkload] = useState<WorkloadSummary | null>(null)
@@ -135,7 +142,9 @@ export function WorkloadsPage() {
   const [collapsedNamespaces, setCollapsedNamespaces] = useState<Set<string>>(new Set())
   const [eventWorkloadFilter, setEventWorkloadFilter] = useState<string | null>(null)
 
-  const { isOperator } = useAuthUser()
+  const auth = useAuthUser()
+  const isOperator = auth.isOperator
+  const canExecPods = canUserExecPods(auth)
   const restartMutation = useRestartWorkload()
   const checkImageUpdatesMutation = useCheckImageUpdates()
 
@@ -937,7 +946,7 @@ export function WorkloadsPage() {
                                       className="flex items-center justify-end gap-1 font-sans"
                                       onClick={(e) => e.stopPropagation()}
                                     >
-                                      {/* Direct Pods & Scale Action Buttons */}
+                                      {/* Direct Pods, Exec & Scale Action Buttons */}
                                       {isPodWorkload && (
                                         <Button
                                           variant="outline"
@@ -952,6 +961,23 @@ export function WorkloadsPage() {
                                         >
                                           <Boxes className="h-3 w-3" />
                                           Pods
+                                        </Button>
+                                      )}
+
+                                      {canExecPods && hasRunningWorkloadPods(w) && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setInspectPodsWorkload(w)
+                                            setDrawerInitialTab('terminal')
+                                          }}
+                                          className="h-7 text-xs px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 border-sky-800/40 gap-1"
+                                          title="Exec into running pod"
+                                        >
+                                          <SquareTerminal className="h-3 w-3" />
+                                          Exec
                                         </Button>
                                       )}
 
@@ -1031,6 +1057,17 @@ export function WorkloadsPage() {
                                                 <Activity className="h-3.5 w-3.5 text-emerald-400" />
                                                 <span>View Pods & Revisions</span>
                                               </DropdownMenuItem>
+                                              {canExecPods && hasRunningWorkloadPods(w) && (
+                                                <DropdownMenuItem
+                                                  onClick={() => {
+                                                    setInspectPodsWorkload(w)
+                                                    setDrawerInitialTab('terminal')
+                                                  }}
+                                                >
+                                                  <SquareTerminal className="h-3.5 w-3.5 text-sky-400" />
+                                                  <span>Exec into Pod</span>
+                                                </DropdownMenuItem>
+                                              )}
                                               <DropdownMenuItem
                                                 onClick={() => {
                                                   setInspectPodsWorkload(w)
@@ -1107,6 +1144,7 @@ export function WorkloadsPage() {
                   }}
                   onDelete={(w) => setDeletingWorkload(w)}
                   isOperator={isOperator}
+                  canExecPods={canExecPods}
                 />
               ))}
             </div>

@@ -254,10 +254,13 @@ app.MapGet("/api/v1/auth/config", (Microsoft.Extensions.Options.IOptions<Control
     var opts = oidcOptions.Value;
     var enabled = opts.IsConfigured;
     var authMode = config["AUTH_MODE"] ?? config["VITE_AUTH_MODE"] ?? (enabled ? "oidc" : "api_key");
+    var podExecRequireAdmin = config.GetValue<bool>("ControlPlane:PodExecRequireAdmin", false) ||
+                              config.GetValue<bool>("POD_EXEC_REQUIRE_ADMIN", false);
 
     return Results.Ok(new
     {
         authMode,
+        podExecRequireAdmin,
         oidc = new
         {
             enabled,

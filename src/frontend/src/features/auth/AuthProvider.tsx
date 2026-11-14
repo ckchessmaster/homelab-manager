@@ -9,7 +9,13 @@ import {
   getServerAuthConfig,
 } from './authConfig'
 import type { AuthState, ServerAuthConfig, UserProfile, UserRole } from './AuthTypes'
-import { ROLE_HIERARCHY, parseOidcRoles, hasRequiredRole, getHighestRole } from './roleUtils'
+import {
+  ROLE_HIERARCHY,
+  parseOidcRoles,
+  hasRequiredRole,
+  getHighestRole,
+  canUserExecPods,
+} from './roleUtils'
 import { getApiKey, setApiKey, setAuthTokenProvider } from '../../api/client'
 
 interface AuthProviderProps {
@@ -63,6 +69,7 @@ function ApiKeyAuthProvider({ children }: { children: ReactNode }) {
     isAdmin: true,     // Full Access
     isOperator: true,  // Full Access
     isViewer: true,    // Full Access
+    canExecPods: true,
     setApiKey: handleSaveApiKey,
     switchAuthMode: (mode) => setActiveAuthMode(mode),
   }
@@ -70,7 +77,13 @@ function ApiKeyAuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
 
-function BypassAuthProvider({ children }: { children: ReactNode }) {
+function BypassAuthProvider({
+  children,
+  serverConfig,
+}: {
+  children: ReactNode
+  serverConfig?: ServerAuthConfig | null
+}) {
   const [activeRole, setActiveRoleState] = useState<UserRole>(() => {
     const saved = localStorage.getItem('cp_bypass_role')
     return (saved === 'Admin' || saved === 'Operator' || saved === 'Viewer') ? saved : 'Admin'
@@ -94,6 +107,10 @@ function BypassAuthProvider({ children }: { children: ReactNode }) {
     roles: effectiveRoles,
   }
 
+  const isAdmin = hasRequiredRole(effectiveRoles, 'Admin')
+  const isOperator = hasRequiredRole(effectiveRoles, 'Operator')
+  const isViewer = hasRequiredRole(effectiveRoles, 'Viewer')
+
   const contextValue: AuthState = {
     authMode: 'oidc',
     isAuthenticated: true,
@@ -107,9 +124,10 @@ function BypassAuthProvider({ children }: { children: ReactNode }) {
     login: async () => {},
     logout: async () => {},
     hasRole: (role) => hasRequiredRole(effectiveRoles, role),
-    isAdmin: hasRequiredRole(effectiveRoles, 'Admin'),
-    isOperator: hasRequiredRole(effectiveRoles, 'Operator'),
-    isViewer: hasRequiredRole(effectiveRoles, 'Viewer'),
+    isAdmin,
+    isOperator,
+    isViewer,
+    canExecPods: canUserExecPods({ isAdmin, isOperator }, serverConfig?.podExecRequireAdmin),
     switchAuthMode: (mode) => setActiveAuthMode(mode),
   }
 
@@ -160,6 +178,10 @@ function OidcBridge({
     }
   }, [auth.user, effectiveRoles])
 
+  const isAdmin = hasRequiredRole(effectiveRoles, 'Admin')
+  const isOperator = hasRequiredRole(effectiveRoles, 'Operator')
+  const isViewer = hasRequiredRole(effectiveRoles, 'Viewer')
+
   const contextValue: AuthState = {
     authMode: 'oidc',
     isAuthenticated: auth.isAuthenticated,
@@ -176,9 +198,10 @@ function OidcBridge({
       await auth.signoutRedirect()
     },
     hasRole: (role) => hasRequiredRole(effectiveRoles, role),
-    isAdmin: hasRequiredRole(effectiveRoles, 'Admin'),
-    isOperator: hasRequiredRole(effectiveRoles, 'Operator'),
-    isViewer: hasRequiredRole(effectiveRoles, 'Viewer'),
+    isAdmin,
+    isOperator,
+    isViewer,
+    canExecPods: canUserExecPods({ isAdmin, isOperator }, serverConfig?.podExecRequireAdmin),
     switchAuthMode: (mode) => setActiveAuthMode(mode),
   }
 
@@ -217,7 +240,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   if (config.isBypass) {
-    return <BypassAuthProvider>{children}</BypassAuthProvider>
+    return <BypassAuthProvider serverConfig={serverConfig}>{children}</BypassAuthProvider>
   }
 
   const oidcSettings = createOidcSettings(serverConfig)

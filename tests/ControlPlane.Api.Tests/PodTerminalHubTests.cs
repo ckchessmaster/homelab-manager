@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
@@ -488,13 +489,21 @@ public class PodTerminalHubTests
         var errors = new ConcurrentQueue<string>();
         var outputs = new ConcurrentQueue<string>();
         var errorReceivedTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var crashloopOutputTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         hub.On<string>("Error", err =>
         {
             errors.Enqueue(err);
             errorReceivedTcs.TrySetResult(err);
         });
-        hub.On<string>("Output", text => outputs.Enqueue(text));
+        hub.On<string>("Output", text =>
+        {
+            outputs.Enqueue(text);
+            if (text.Contains("crashloop-pod", StringComparison.Ordinal))
+            {
+                crashloopOutputTcs.TrySetResult(text);
+            }
+        });
 
         await hub.StartAsync();
 
@@ -520,7 +529,9 @@ public class PodTerminalHubTests
 
         var secondError = await errorReceivedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains("not Running", secondError);
-        Assert.Contains(outputs, o => o.Contains("\x1b[31m") && o.Contains("crashloop-pod"));
+        var ansiOutput = await crashloopOutputTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("\x1b[31m", ansiOutput);
+        Assert.Contains("crashloop-pod", ansiOutput);
 
         var audits = factory.Services.GetRequiredService<IPodExecAuditLogger>().GetRecentEntries();
         Assert.Equal(2, audits.Count(a => a.Action == PodExecAuditActions.AttachFailed));
@@ -572,8 +583,19 @@ public class PodTerminalHubTests
             Assert.True(res.Succeeded);
         }
 
+        using (var defaultClient = factory.CreateClient())
+        {
+            var defaultAuthCfg = await defaultClient.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/v1/auth/config");
+            Assert.False(defaultAuthCfg.GetProperty("podExecRequireAdmin").GetBoolean());
+        }
+
         // 5. Strict POD_EXEC_REQUIRE_ADMIN=true mode -> Operator rejected (403), Admin allowed
         using var adminOnlyFactory = new PodTerminalTestAppFactory(new TrackingPodExecService(), podExecRequireAdmin: true);
+        using (var adminOnlyClient = adminOnlyFactory.CreateClient())
+        {
+            var adminOnlyAuthCfg = await adminOnlyClient.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/v1/auth/config");
+            Assert.True(adminOnlyAuthCfg.GetProperty("podExecRequireAdmin").GetBoolean());
+        }
         await using (var operatorDeniedHub = BuildHubConnection(adminOnlyFactory, accessToken: operatorJwt, useWebSockets: false))
         {
             var ex = await Assert.ThrowsAsync<HttpRequestException>(() => operatorDeniedHub.StartAsync());

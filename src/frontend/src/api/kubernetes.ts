@@ -60,6 +60,7 @@ export interface K8sPodSummary {
   restartCount: number
   isReady: boolean
   startTime?: string | null
+  containers?: string[]
 }
 
 export async function fetchKubernetesClusters(): Promise<KubernetesClusterDto[]> {
