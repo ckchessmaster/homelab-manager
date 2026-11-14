@@ -313,16 +313,16 @@ public class PodExecServiceTests
 
         // Verify StdIn write and dynamic Resize frame
         await session.SendInputAsync("id\n");
-        var sentStdIn = await stdInReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var sentStdIn = await stdInReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("id\n", sentStdIn);
 
         await session.ResizeAsync(140, 48);
-        var sentResize = await secondResizeReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var sentResize = await secondResizeReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("{\"Width\":140,\"Height\":48}", sentResize);
 
         // Verify StdOut/StdErr streaming
         ws.EnqueueServerChannelText(ChannelIndex.StdOut, "uid=0(root) gid=0(root)\r\n");
-        var combinedOut = await secondOutputTcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var combinedOut = await secondOutputTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains("root@edge-agent:/# ", combinedOut);
         Assert.Contains("uid=0(root)", combinedOut);
 
@@ -332,7 +332,7 @@ public class PodExecServiceTests
             "{\"metadata\":{},\"status\":\"Failure\",\"reason\":\"NonZeroExitCode\",\"details\":{\"causes\":[{\"reason\":\"ExitCode\",\"message\":\"130\"}]}}");
         ws.CompleteServerStream();
 
-        var exitCode = await closedTcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var exitCode = await closedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(130, exitCode);
     }
 

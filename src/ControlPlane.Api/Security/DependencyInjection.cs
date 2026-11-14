@@ -97,6 +97,9 @@ public static class DependencyInjection
             };
         });
 
+        var podExecRequireAdmin = configuration.GetValue<bool>("ControlPlane:PodExecRequireAdmin", false) ||
+                                  configuration.GetValue<bool>("POD_EXEC_REQUIRE_ADMIN", false);
+
         services.AddAuthorization(options =>
         {
             options.AddPolicy(AuthConstants.RequireAdmin, policy => policy.RequireRole(AuthConstants.RoleAdmin));
@@ -104,6 +107,17 @@ public static class DependencyInjection
             options.AddPolicy(AuthConstants.RequireOperator, policy => policy.RequireRole(AuthConstants.RoleAdmin, AuthConstants.RoleOperator));
             options.AddPolicy(AuthConstants.OperatorPolicy, policy => policy.RequireRole(AuthConstants.RoleAdmin, AuthConstants.RoleOperator));
             options.AddPolicy(AuthConstants.RequireViewer, policy => policy.RequireRole(AuthConstants.RoleAdmin, AuthConstants.RoleOperator, AuthConstants.RoleViewer));
+            options.AddPolicy(AuthConstants.RequirePodExec, policy =>
+            {
+                if (podExecRequireAdmin)
+                {
+                    policy.RequireRole(AuthConstants.RoleAdmin);
+                }
+                else
+                {
+                    policy.RequireRole(AuthConstants.RoleAdmin, AuthConstants.RoleOperator);
+                }
+            });
         });
 
         return services;

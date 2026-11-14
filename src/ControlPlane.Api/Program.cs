@@ -53,6 +53,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddControlPlaneStorage(builder.Configuration);
 builder.Services.AddControlPlaneSecurity(builder.Configuration);
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<IPodExecAuditLogger, PodExecAuditLogger>();
+builder.Services.AddSingleton<PodTerminalSessionRegistry>();
 builder.Services.AddAgentHubServices();
 builder.Services.AddSingleton<ClusterState>();
 builder.Services.AddSingleton<IAgentCommandExecutor, AgentCommandExecutor>();
@@ -318,6 +320,8 @@ app.MapApiTokenEndpoints();
 app.MapSystemEndpoints();
 app.MapDemoEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
+app.MapHub<PodTerminalHub>("/hubs/pod-terminal")
+    .RequireAuthorization(AuthConstants.RequirePodExec);
 app.MapTemporalWorkflowEndpoints();
 app.MapControlPlaneMcp(app.Configuration);
 

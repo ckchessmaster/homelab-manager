@@ -193,9 +193,21 @@ public sealed class KubernetesPodExecService : IPodExecService
                 // Send initial PTY dimensions immediately so the shell initializes COLUMNS/LINES accurately.
                 await session.ResizeAsync(cols, rows, ct);
 
-                var errorChannelTask = Task.Run(() => ReadErrorChannelAsync(errorStream, startupGate), CancellationToken.None);
-                var stdOutTask = Task.Run(() => PumpOutputChannelAsync(stdOut, webSocket, startupGate, onOutput, _logger, notifyGateOnEnd: true), CancellationToken.None);
-                var stdErrTask = Task.Run(() => PumpOutputChannelAsync(stdErr, webSocket, startupGate, onOutput, _logger, notifyGateOnEnd: false), CancellationToken.None);
+                var errorChannelTask = Task.Factory.StartNew(
+                    () => ReadErrorChannelAsync(errorStream, startupGate),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).Unwrap();
+                var stdOutTask = Task.Factory.StartNew(
+                    () => PumpOutputChannelAsync(stdOut, webSocket, startupGate, onOutput, _logger, notifyGateOnEnd: true),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).Unwrap();
+                var stdErrTask = Task.Factory.StartNew(
+                    () => PumpOutputChannelAsync(stdErr, webSocket, startupGate, onOutput, _logger, notifyGateOnEnd: false),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).Unwrap();
 
                 _ = MonitorSessionLifetimeAsync(session, stdOutTask, stdErrTask, errorChannelTask);
 
@@ -495,7 +507,9 @@ public sealed class KubernetesPodExecService : IPodExecService
         {
             while (!gate.IsAborted)
             {
-                var read = await channelStream.ReadAsync(buffer.AsMemory(0, buffer.Length), CancellationToken.None);
+                // k8s MuxedStream only implements synchronous Read() over ByteBuffer Monitor.Wait;
+                // read directly on our LongRunning thread so Stream.ReadAsync does not starve the ThreadPool.
+                var read = channelStream.Read(buffer, 0, buffer.Length);
                 if (read <= 0)
                 {
                     var flushed = decoder.GetChars(Array.Empty<byte>(), 0, 0, charBuffer, 0, flush: true);
@@ -527,21 +541,21 @@ public sealed class KubernetesPodExecService : IPodExecService
         }
     }
 
-    private static async Task<(int ExitCode, bool IsFailure, string? Message)> ReadErrorChannelAsync(
+    private static Task<(int ExitCode, bool IsFailure, string? Message)> ReadErrorChannelAsync(
         Stream errorStream,
         SessionStartupGate gate)
     {
         try
         {
             using var reader = new StreamReader(errorStream, Encoding.UTF8);
-            var payload = await reader.ReadToEndAsync();
+            var payload = reader.ReadToEnd();
             var parsed = ParseKubernetesExecStatus(payload);
             gate.RecordErrorChannelStatus(parsed.ExitCode, parsed.IsFailure, parsed.Message);
-            return parsed;
+            return Task.FromResult(parsed);
         }
         catch (Exception ex)
         {
-            return (0, false, ex.Message);
+            return Task.FromResult<(int ExitCode, bool IsFailure, string? Message)>((0, false, ex.Message));
         }
     }
 

@@ -70,6 +70,12 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
                 providedKey = authStr.Substring("Bearer ".Length).Trim();
             }
         }
+        else if (Request.Path.StartsWithSegments("/hubs") &&
+                 Request.Query.TryGetValue("access_token", out var queryToken) &&
+                 !string.IsNullOrWhiteSpace(queryToken))
+        {
+            providedKey = queryToken.ToString().Trim();
+        }
 
         if (string.IsNullOrEmpty(providedKey))
         {

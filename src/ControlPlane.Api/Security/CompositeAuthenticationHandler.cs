@@ -42,12 +42,15 @@ public class CompositeAuthenticationHandler : AuthenticationHandler<Authenticati
             return await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
         }
 
-        // 2. Check for Bearer token (Header or WebSocket query string)
+        // 2. Check for Bearer token (Header or SignalR /hubs WebSocket query string)
         var authHeader = Request.Headers.Authorization.ToString();
         var hasBearerHeader = !string.IsNullOrWhiteSpace(authHeader) &&
                               authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
-        var hasAccessTokenQuery = Request.Query.ContainsKey("access_token") &&
-                                  Request.Path.StartsWithSegments("/hubs");
+        var accessTokenQuery = Request.Path.StartsWithSegments("/hubs") &&
+                               Request.Query.TryGetValue("access_token", out var rawAccessToken)
+            ? rawAccessToken.ToString().Trim()
+            : string.Empty;
+        var hasAccessTokenQuery = !string.IsNullOrWhiteSpace(accessTokenQuery);
 
         if (hasBearerHeader)
         {
@@ -57,6 +60,11 @@ public class CompositeAuthenticationHandler : AuthenticationHandler<Authenticati
                 _logger.LogDebug("Personal Access Token detected in Bearer header. Delegating to ApiKey scheme.");
                 return await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
             }
+        }
+        else if (hasAccessTokenQuery && accessTokenQuery.StartsWith("cp_pat_", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Personal Access Token detected in hub access_token query. Delegating to ApiKey scheme.");
+            return await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
         }
 
         if (hasBearerHeader || hasAccessTokenQuery)
@@ -68,14 +76,11 @@ public class CompositeAuthenticationHandler : AuthenticationHandler<Authenticati
                 return jwtResult;
             }
 
-            // Fallback to ApiKey scheme in case the Bearer token was a PAT or API key
-            if (hasBearerHeader)
+            // Fallback to ApiKey scheme in case the Bearer header or /hubs access_token query was a PAT or static API key
+            var apiKeyResult = await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
+            if (apiKeyResult.Succeeded)
             {
-                var apiKeyResult = await Context.AuthenticateAsync(AuthConstants.ApiKeyScheme);
-                if (apiKeyResult.Succeeded)
-                {
-                    return apiKeyResult;
-                }
+                return apiKeyResult;
             }
 
             return jwtResult;
