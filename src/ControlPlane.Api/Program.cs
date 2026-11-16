@@ -53,6 +53,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddControlPlaneStorage(builder.Configuration);
 builder.Services.AddControlPlaneSecurity(builder.Configuration);
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<IPodExecAuditLogger, PodExecAuditLogger>();
+builder.Services.AddSingleton<PodTerminalSessionRegistry>();
 builder.Services.AddAgentHubServices();
 builder.Services.AddSingleton<ClusterState>();
 builder.Services.AddSingleton<IAgentCommandExecutor, AgentCommandExecutor>();
@@ -117,6 +119,7 @@ builder.Services.AddScoped<IKubernetesAdapter>(sp =>
     var factory = sp.GetRequiredService<IKubernetesClientFactory>();
     return factory.CreateAdapterAsync().GetAwaiter().GetResult();
 });
+builder.Services.AddScoped<IPodExecService, KubernetesPodExecService>();
 
 builder.Services.AddControlPlaneDemoMode(builder.Configuration);
 
@@ -251,10 +254,13 @@ app.MapGet("/api/v1/auth/config", (Microsoft.Extensions.Options.IOptions<Control
     var opts = oidcOptions.Value;
     var enabled = opts.IsConfigured;
     var authMode = config["AUTH_MODE"] ?? config["VITE_AUTH_MODE"] ?? (enabled ? "oidc" : "api_key");
+    var podExecRequireAdmin = config.GetValue<bool>("ControlPlane:PodExecRequireAdmin", false) ||
+                              config.GetValue<bool>("POD_EXEC_REQUIRE_ADMIN", false);
 
     return Results.Ok(new
     {
         authMode,
+        podExecRequireAdmin,
         oidc = new
         {
             enabled,
@@ -317,6 +323,8 @@ app.MapApiTokenEndpoints();
 app.MapSystemEndpoints();
 app.MapDemoEndpoints();
 app.MapHub<JobLogHub>("/hubs/jobs");
+app.MapHub<PodTerminalHub>("/hubs/pod-terminal")
+    .RequireAuthorization(AuthConstants.RequirePodExec);
 app.MapTemporalWorkflowEndpoints();
 app.MapControlPlaneMcp(app.Configuration);
 

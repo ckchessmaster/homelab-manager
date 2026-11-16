@@ -10,6 +10,7 @@ export interface RoleMappingConfig {
 
 export interface ServerAuthConfig {
   authMode?: AuthMode
+  podExecRequireAdmin?: boolean
   oidc?: {
     enabled?: boolean
     authority?: string
@@ -47,6 +48,7 @@ export interface AuthState {
   isAdmin: boolean
   isOperator: boolean
   isViewer: boolean
+  canExecPods?: boolean
   setActiveRole?: (role: UserRole) => void
   setApiKey?: (key: string) => void
   switchAuthMode?: (mode: AuthMode) => void

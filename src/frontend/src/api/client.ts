@@ -26,6 +26,19 @@ export function setAuthTokenProvider(fn: (() => string | null) | null): void {
   getAuthTokenFn = fn
 }
 
+export function getAuthToken(): string | null {
+  return getAuthTokenFn ? getAuthTokenFn() : null
+}
+
+export function getSignalRAccessToken(explicitToken?: string | null): string {
+  if (explicitToken) return explicitToken
+  const authMode = getActiveAuthMode()
+  if (authMode === 'oidc') {
+    return getAuthToken() || ''
+  }
+  return getApiKey() || ''
+}
+
 export interface ApiErrorResponse {
   message?: string
   errorMessage?: string

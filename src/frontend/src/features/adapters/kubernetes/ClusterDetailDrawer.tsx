@@ -12,10 +12,16 @@ import {
   AlertTriangle,
   Play,
   Cpu,
+  SquareTerminal,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Input } from '../../../components/ui/input'
+import { PodTerminal } from '../../../components/terminal/PodTerminal'
+import { useAuthUser } from '../../auth/useAuthUser'
+import { canUserExecPods } from '../../auth/roleUtils'
 import {
   useClusterNodes,
   useClusterDeployments,
@@ -27,7 +33,7 @@ import {
   useRestartClusterDeployment,
   useScaleClusterDeployment,
 } from './useKubernetes'
-import type { KubernetesClusterDto } from '../../../api/kubernetes'
+import type { KubernetesClusterDto, K8sPodSummary } from '../../../api/kubernetes'
 
 interface ClusterDetailDrawerProps {
   cluster: KubernetesClusterDto | null
@@ -47,6 +53,11 @@ export function ClusterDetailDrawer({
   const [scalingDeployment, setScalingDeployment] = useState<{ namespace: string; name: string; replicas: number } | null>(null)
   const [drainingNode, setDrainingNode] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [execTarget, setExecTarget] = useState<{ clusterId: string; pod: K8sPodSummary } | null>(null)
+  const [isTerminalExpanded, setIsTerminalExpanded] = useState(false)
+
+  const auth = useAuthUser()
+  const canExecPods = canUserExecPods(auth)
 
   const clusterId = open && cluster ? cluster.id : null
 
@@ -62,6 +73,9 @@ export function ClusterDetailDrawer({
   const scaleMutation = useScaleClusterDeployment()
 
   if (!open || !cluster) return null
+
+  const activeExecPod =
+    canExecPods && execTarget && execTarget.clusterId === cluster.id ? execTarget.pod : null
 
   const handleCordon = async (nodeName: string) => {
     setActionMessage(null)
@@ -420,11 +434,11 @@ export function ClusterDetailDrawer({
                 pods.map((pod) => (
                   <div
                     key={`${pod.namespace}/${pod.name}`}
-                    className="p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/80 flex items-center justify-between text-xs font-mono"
+                    className="p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/80 flex items-center justify-between gap-3 text-xs font-mono"
                   >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-zinc-200">{pod.name}</span>
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-zinc-200 truncate">{pod.name}</span>
                         <Badge
                           variant={pod.phase === 'Running' ? 'success' : pod.phase === 'Pending' ? 'warning' : 'destructive'}
                           className="text-[9px] px-1 py-0 font-sans"
@@ -433,12 +447,26 @@ export function ClusterDetailDrawer({
                         </Badge>
                         <span className="text-zinc-500 text-[10px]">ns: {pod.namespace}</span>
                       </div>
-                      <div className="text-[11px] text-zinc-400 flex items-center gap-3">
+                      <div className="text-[11px] text-zinc-400 flex items-center gap-3 flex-wrap">
                         <span>Node: <strong className="text-zinc-300">{pod.nodeName || 'Pending'}</strong></span>
                         <span>IP: <strong className="text-zinc-300">{pod.podIp || 'N/A'}</strong></span>
                         <span>Restarts: <strong className="text-zinc-300">{pod.restartCount}</strong></span>
                       </div>
                     </div>
+
+                    {canExecPods && pod.phase === 'Running' && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setExecTarget({ clusterId: cluster.id, pod })}
+                        className="h-7 px-2.5 text-xs border-sky-800/60 bg-sky-950/30 hover:bg-sky-900/40 text-sky-300 font-sans gap-1 shrink-0"
+                        title={`Exec into ${pod.name}`}
+                      >
+                        <SquareTerminal className="h-3.5 w-3.5 text-sky-400" />
+                        <span>Exec</span>
+                      </Button>
+                    )}
                   </div>
                 ))
               )}
@@ -498,6 +526,80 @@ export function ClusterDetailDrawer({
                   </Button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Interactive Pod Exec Terminal Dialog */}
+        {activeExecPod && (
+          <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in">
+            <div
+              data-testid="cluster-pod-terminal-dialog"
+              className={`bg-zinc-950 border border-zinc-800 rounded-xl flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${
+                isTerminalExpanded
+                  ? 'w-[98vw] sm:w-[96vw] h-[95vh] max-w-none max-h-none'
+                  : 'w-full max-w-5xl h-[82vh] max-h-[820px] min-h-[380px]'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-zinc-800 bg-zinc-900/60 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 shrink-0">
+                    <SquareTerminal className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-semibold font-mono text-zinc-100 truncate">
+                        {activeExecPod.name}
+                      </h3>
+                      <Badge variant="info" className="text-[10px]">
+                        {cluster.name}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 font-mono">
+                      Namespace: <span className="text-amber-300">{activeExecPod.namespace}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsTerminalExpanded((prev) => !prev)}
+                    className="text-zinc-400 hover:text-zinc-100 h-8 w-8 p-0"
+                    title={isTerminalExpanded ? 'Restore terminal size' : 'Maximize terminal'}
+                    aria-label={isTerminalExpanded ? 'Restore terminal size' : 'Maximize terminal'}
+                  >
+                    {isTerminalExpanded ? (
+                      <Minimize2 className="w-4 h-4" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setExecTarget(null)}
+                    className="text-zinc-400 hover:text-zinc-100 h-8 w-8 p-0"
+                    title="Close pod terminal"
+                    aria-label="Close pod terminal"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <PodTerminal
+                clusterId={cluster.id}
+                clusterName={cluster.name}
+                namespace={activeExecPod.namespace}
+                podName={activeExecPod.name}
+                containers={activeExecPod.containers}
+                enabled={Boolean(activeExecPod)}
+                className="flex-1 min-h-0 rounded-none border-0"
+              />
             </div>
           </div>
         )}

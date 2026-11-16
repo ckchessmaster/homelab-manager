@@ -19,6 +19,7 @@ import {
   Layers,
   Activity,
   Sparkles,
+  SquareTerminal,
 } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -27,7 +28,11 @@ import {
   useRecreateWorkloadPods,
   useTriggerCronJob,
 } from './useWorkloads'
-import type { WorkloadSummary } from '../../api/workloads'
+import {
+  hasRunningWorkloadPods,
+  type PodDetailTab,
+  type WorkloadSummary,
+} from '../../api/workloads'
 
 function getResourceIcon(kind?: string) {
   switch (kind) {
@@ -61,10 +66,11 @@ function getResourceIcon(kind?: string) {
 interface WorkloadCardProps {
   workload: WorkloadSummary
   onScale: (workload: WorkloadSummary) => void
-  onOpenPods: (workload: WorkloadSummary, initialTab?: 'pods' | 'logs' | 'revisions' | 'env') => void
+  onOpenPods: (workload: WorkloadSummary, initialTab?: PodDetailTab) => void
   onEdit?: (workload: WorkloadSummary) => void
   onDelete?: (workload: WorkloadSummary) => void
   isOperator: boolean
+  canExecPods?: boolean
 }
 
 export function WorkloadCard({
@@ -74,6 +80,7 @@ export function WorkloadCard({
   onEdit,
   onDelete,
   isOperator,
+  canExecPods,
 }: WorkloadCardProps) {
   const restartMutation = useRestartWorkload()
   const recreateMutation = useRecreateWorkloadPods()
@@ -144,6 +151,7 @@ export function WorkloadCard({
   const isHealthy = workload.status === 'Ready'
   const isScaledDown = workload.status === 'ScaledDown'
   const isDegraded = workload.status === 'Degraded'
+  const canExec = (canExecPods ?? isOperator) && hasRunningWorkloadPods(workload)
 
   const percentReady =
     workload.desiredReplicas > 0
@@ -326,6 +334,18 @@ export function WorkloadCard({
                 <Boxes className="h-3 w-3" />
                 Pods
               </Button>
+              {canExec && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onOpenPods(workload, 'terminal')}
+                  className="h-7 text-xs px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 border-sky-800/40 gap-1"
+                  title="Exec into running pod"
+                >
+                  <SquareTerminal className="h-3 w-3" />
+                  Exec
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"

@@ -38,6 +38,25 @@ export interface WorkloadAggregationResult {
   healthyDeployments: number
 }
 
+export type PodDetailTab = 'pods' | 'logs' | 'terminal' | 'revisions' | 'env'
+
+const POD_BEARING_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet', 'CronJob', 'Job', 'Pod']
+
+export function hasRunningWorkloadPods(workload: WorkloadSummary): boolean {
+  const kind = workload.kind || 'Deployment'
+  if (!POD_BEARING_KINDS.includes(kind)) {
+    return false
+  }
+  if (workload.status === 'ScaledDown') {
+    return false
+  }
+  return (
+    (workload.readyReplicas ?? 0) > 0 ||
+    (workload.availableReplicas ?? 0) > 0 ||
+    (kind === 'Pod' && workload.status === 'Ready')
+  )
+}
+
 export interface PodSummary {
   name: string
   namespace: string

@@ -26,11 +26,15 @@ import {
   Sliders,
   Pencil,
   Plus,
+  SquareTerminal,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
+import { PodTerminal } from '../../components/terminal/PodTerminal'
 import {
   useWorkloadPods,
   usePodLogs,
@@ -39,13 +43,16 @@ import {
   useAppBundle,
 } from './useWorkloads'
 import { useAuthUser } from '../auth/useAuthUser'
-import type { WorkloadSummary, RolloutRevision } from '../../api/workloads'
+import { canUserExecPods } from '../auth/roleUtils'
+import type { WorkloadSummary, RolloutRevision, PodDetailTab } from '../../api/workloads'
 
 interface PodDetailDrawerProps {
   workload: WorkloadSummary | null
   isOpen: boolean
   onClose: () => void
-  initialTab?: 'pods' | 'logs' | 'revisions' | 'env'
+  initialTab?: PodDetailTab
+  initialPodName?: string
+  initialContainer?: string
   onEditWorkload?: (workload: WorkloadSummary) => void
 }
 
@@ -54,15 +61,25 @@ export function PodDetailDrawer({
   isOpen,
   onClose,
   initialTab = 'pods',
+  initialPodName,
+  initialContainer,
   onEditWorkload,
 }: PodDetailDrawerProps) {
-  const [activeTab, setActiveTab] = useState<'pods' | 'logs' | 'revisions' | 'env'>(initialTab)
+  const auth = useAuthUser()
+  const isOperator = auth.isOperator
+  const canExecPods = canUserExecPods(auth)
+
+  const resolvedInitialTab: PodDetailTab =
+    initialTab === 'terminal' && !canExecPods ? 'pods' : initialTab
+
+  const [activeTab, setActiveTab] = useState<PodDetailTab>(resolvedInitialTab)
+  const [isExpanded, setIsExpanded] = useState<boolean>(resolvedInitialTab === 'terminal')
   const [copiedPod, setCopiedPod] = useState<string | null>(null)
   const [copiedLogs, setCopiedLogs] = useState(false)
 
-  // Live Logs state
-  const [selectedPodName, setSelectedPodName] = useState<string>('')
-  const [selectedContainer, setSelectedContainer] = useState<string>('')
+  // Live Logs & Terminal target state
+  const [selectedPodName, setSelectedPodName] = useState<string>(initialPodName ?? '')
+  const [selectedContainer, setSelectedContainer] = useState<string>(initialContainer ?? '')
   const [tailLines, setTailLines] = useState<number>(100)
   const [logSearch, setLogSearch] = useState<string>('')
   const [autoScroll, setAutoScroll] = useState<boolean>(true)
@@ -72,14 +89,28 @@ export function PodDetailDrawer({
   const [confirmRollbackRev, setConfirmRollbackRev] = useState<RolloutRevision | null>(null)
   const [rollbackSuccessMsg, setRollbackSuccessMsg] = useState<string | null>(null)
 
-  const { isOperator } = useAuthUser()
+  const workloadName = workload?.name ?? ''
 
   // Reset tab when workload changes or drawer re-opens
   useEffect(() => {
     if (isOpen) {
-      setActiveTab(initialTab)
+      const nextTab: PodDetailTab =
+        initialTab === 'terminal' && !canExecPods ? 'pods' : initialTab
+      setActiveTab(nextTab)
+      if (nextTab === 'terminal') {
+        setIsExpanded(true)
+      }
+      if (initialPodName) {
+        setSelectedPodName(initialPodName)
+      }
+      if (initialContainer) {
+        setSelectedContainer(initialContainer)
+      }
     }
-  }, [isOpen, initialTab, workload?.name])
+  }, [isOpen, initialTab, initialPodName, initialContainer, workloadName, canExecPods])
+
+  const effectiveTab: PodDetailTab =
+    activeTab === 'terminal' && !canExecPods ? 'pods' : activeTab
 
   // Queries
   const {
@@ -111,6 +142,15 @@ export function PodDetailDrawer({
     return pods?.find((p) => p.name === selectedPodName) || pods?.[0]
   }, [pods, selectedPodName])
 
+  // Running pods eligible for interactive terminal exec
+  const runningPods = useMemo(() => {
+    return (pods ?? []).filter((p) => p.phase === 'Running')
+  }, [pods])
+
+  const terminalPod = useMemo(() => {
+    return runningPods.find((p) => p.name === selectedPodName) ?? runningPods[0] ?? null
+  }, [runningPods, selectedPodName])
+
   // Keep container in sync with selected pod
   useEffect(() => {
     if (currentPod?.containers && currentPod.containers.length > 0) {
@@ -134,7 +174,7 @@ export function PodDetailDrawer({
     selectedPodName,
     selectedContainer || undefined,
     tailLines,
-    isOpen && activeTab === 'logs' && Boolean(selectedPodName)
+    isOpen && effectiveTab === 'logs' && Boolean(selectedPodName)
   )
 
   // Revisions query
@@ -147,7 +187,7 @@ export function PodDetailDrawer({
     workload?.clusterId,
     workload?.namespace,
     workload?.name,
-    isOpen && activeTab === 'revisions'
+    isOpen && effectiveTab === 'revisions'
   )
 
   // App bundle (for inspecting environment variables and container specs)
@@ -237,6 +277,16 @@ export function PodDetailDrawer({
 
   if (!isOpen || !workload) return null
 
+  const openTerminalForPod = (podName: string, container?: string) => {
+    if (!canExecPods) return
+    setSelectedPodName(podName)
+    if (container) {
+      setSelectedContainer(container)
+    }
+    setActiveTab('terminal')
+    setIsExpanded(true)
+  }
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text)
     setCopiedPod(text)
@@ -289,8 +339,15 @@ export function PodDetailDrawer({
         onClick={onClose}
       />
 
-      {/* Slide-over Drawer: InspectorSheet w-[640px] */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-[640px] max-w-[640px] bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 ease-out">
+      {/* Slide-over Drawer: InspectorSheet expandable from 640px to wide terminal layout */}
+      <div
+        data-testid="pod-detail-drawer"
+        className={`fixed inset-y-0 right-0 z-50 w-full bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-250 ease-out transition-[width,max-width] ${
+          isExpanded
+            ? 'sm:w-[960px] lg:w-[1120px] max-w-[95vw]'
+            : 'sm:w-[640px] max-w-[640px]'
+        }`}
+      >
         {/* Header */}
         <div className="p-4 border-b border-zinc-800 bg-zinc-900/60 shrink-0">
           <div className="flex items-center justify-between gap-3">
@@ -325,13 +382,14 @@ export function PodDetailDrawer({
 
             <div className="flex items-center gap-1 shrink-0">
               <Button
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  if (activeTab === 'pods') refetchPods()
-                  else if (activeTab === 'logs') refetchLogs()
-                  else if (activeTab === 'env') refetchBundle()
-                  else if (activeTab === 'revisions') refetchRevisions()
+                  if (effectiveTab === 'pods' || effectiveTab === 'terminal') refetchPods()
+                  else if (effectiveTab === 'logs') refetchLogs()
+                  else if (effectiveTab === 'env') refetchBundle()
+                  else if (effectiveTab === 'revisions') refetchRevisions()
                 }}
                 className="text-zinc-400 hover:text-zinc-100 h-8 w-8 p-0"
                 title="Refresh"
@@ -345,6 +403,19 @@ export function PodDetailDrawer({
                 />
               </Button>
               <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-testid="pod-drawer-width-toggle"
+                onClick={() => setIsExpanded((prev) => !prev)}
+                className="text-zinc-400 hover:text-zinc-100 h-8 w-8 p-0"
+                title={isExpanded ? 'Restore drawer width' : 'Expand drawer width'}
+                aria-label={isExpanded ? 'Restore drawer width' : 'Expand drawer width'}
+              >
+                {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </Button>
+              <Button
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={onClose}
@@ -427,7 +498,7 @@ export function PodDetailDrawer({
               type="button"
               onClick={() => setActiveTab('pods')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'pods'
+                effectiveTab === 'pods'
                   ? 'bg-zinc-800 text-white shadow-xs'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
               }`}
@@ -440,7 +511,7 @@ export function PodDetailDrawer({
               type="button"
               onClick={() => setActiveTab('logs')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'logs'
+                effectiveTab === 'logs'
                   ? 'bg-zinc-800 text-white shadow-xs'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
               }`}
@@ -449,11 +520,29 @@ export function PodDetailDrawer({
               <span>Live Logs</span>
             </button>
 
+            {canExecPods && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('terminal')
+                  setIsExpanded(true)
+                }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                  effectiveTab === 'terminal'
+                    ? 'bg-zinc-800 text-white shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
+                }`}
+              >
+                <SquareTerminal className="h-3.5 w-3.5 text-sky-400" />
+                <span>Terminal</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setActiveTab('env')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'env'
+                effectiveTab === 'env'
                   ? 'bg-zinc-800 text-white shadow-xs'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
               }`}
@@ -466,7 +555,7 @@ export function PodDetailDrawer({
               type="button"
               onClick={() => setActiveTab('revisions')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'revisions'
+                effectiveTab === 'revisions'
                   ? 'bg-zinc-800 text-white shadow-xs'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
               }`}
@@ -486,7 +575,7 @@ export function PodDetailDrawer({
         )}
 
         {/* TAB 1: PODS LIST */}
-        {activeTab === 'pods' && (
+        {effectiveTab === 'pods' && (
           <>
             {/* Quick Stats Bar */}
             <div className="grid grid-cols-3 gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 text-center text-xs">
@@ -573,6 +662,7 @@ export function PodDetailDrawer({
                           </Badge>
 
                           <Button
+                            type="button"
                             variant="ghost"
                             size="sm"
                             onClick={() => {
@@ -585,6 +675,20 @@ export function PodDetailDrawer({
                             <Terminal className="h-3 w-3 text-emerald-400" />
                             <span>Logs</span>
                           </Button>
+
+                          {canExecPods && isRunning && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openTerminalForPod(pod.name, pod.containers?.[0])}
+                              className="h-6 px-2 text-[11px] text-sky-400 hover:text-sky-300 hover:bg-sky-950/40 gap-1"
+                              title={`Open interactive shell in ${pod.name}`}
+                            >
+                              <SquareTerminal className="h-3 w-3 text-sky-400" />
+                              <span>Exec</span>
+                            </Button>
+                          )}
                         </div>
                       </div>
 
@@ -654,7 +758,7 @@ export function PodDetailDrawer({
         )}
 
         {/* TAB 2: LIVE LOGS */}
-        {activeTab === 'logs' && (
+        {effectiveTab === 'logs' && (
           <div className="flex-1 flex flex-col min-h-0 bg-zinc-950">
             {/* Log Toolbar */}
             <div className="p-3 border-b border-zinc-800 bg-zinc-900/50 space-y-2 shrink-0">
@@ -779,8 +883,77 @@ export function PodDetailDrawer({
           </div>
         )}
 
+        {/* TAB 2B: INTERACTIVE POD TERMINAL */}
+        {effectiveTab === 'terminal' && canExecPods && (
+          <div className="flex-1 flex flex-col min-h-0 bg-zinc-950">
+            {isPodsLoading ? (
+              <div className="p-12 text-center text-zinc-400 space-y-2">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-sky-400" />
+                <p className="text-xs">Finding running pods for interactive shell...</p>
+              </div>
+            ) : !terminalPod ? (
+              <div className="p-12 text-center text-zinc-400 space-y-3">
+                <SquareTerminal className="h-10 w-10 text-zinc-700 mx-auto" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-medium text-zinc-200">
+                    No running pods available
+                  </h4>
+                  <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                    Interactive shell execution requires at least one pod in the Running phase.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActiveTab('pods')}
+                  className="text-xs border-zinc-700 text-zinc-300 hover:text-white"
+                >
+                  View Pod Status
+                </Button>
+              </div>
+            ) : (
+              <>
+                {runningPods.length > 1 && (
+                  <div className="px-3 py-2 border-b border-zinc-800 bg-zinc-900/50 flex items-center gap-2 shrink-0">
+                    <span className="text-[11px] font-medium text-zinc-400 shrink-0">
+                      Target Pod:
+                    </span>
+                    <div className="flex-1 max-w-sm">
+                      <Select
+                        aria-label="Target Pod"
+                        value={terminalPod.name}
+                        onChange={(e) => setSelectedPodName(e.target.value)}
+                        className="h-7 text-xs font-mono bg-zinc-950"
+                      >
+                        {runningPods.map((p) => (
+                          <option key={p.name} value={p.name}>
+                            {p.name} ({p.nodeName || 'Running'})
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                <PodTerminal
+                  clusterId={workload.clusterId}
+                  clusterName={workload.clusterName}
+                  namespace={workload.namespace}
+                  podName={terminalPod.name}
+                  containers={terminalPod.containers}
+                  initialContainer={selectedContainer || terminalPod.containers?.[0] || null}
+                  onContainerChange={setSelectedContainer}
+                  enabled={isOpen && effectiveTab === 'terminal'}
+                  className="flex-1 min-h-0 rounded-none border-0"
+                />
+              </>
+            )}
+          </div>
+        )}
+
         {/* TAB 3: ENVIRONMENT VARIABLES & SECRET REFERENCES */}
-        {activeTab === 'env' && (
+        {effectiveTab === 'env' && (
           <div className="flex-1 overflow-y-auto flex flex-col">
             {/* Quick Stats Strip */}
             <div className="grid grid-cols-3 gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 text-center text-xs shrink-0">
@@ -1176,7 +1349,7 @@ export function PodDetailDrawer({
         )}
 
         {/* TAB 4: ROLLOUT REVISIONS & ROLLBACK */}
-        {activeTab === 'revisions' && (
+        {effectiveTab === 'revisions' && (
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-zinc-800 text-xs">
               <span className="text-zinc-400 font-semibold uppercase tracking-wider text-[11px] flex items-center gap-1.5">

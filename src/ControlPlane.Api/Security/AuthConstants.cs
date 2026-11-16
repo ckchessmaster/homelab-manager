@@ -19,6 +19,7 @@ public static class AuthConstants
     public const string RequireAdmin = "RequireAdmin";
     public const string RequireOperator = "RequireOperator";
     public const string RequireViewer = "RequireViewer";
+    public const string RequirePodExec = "RequirePodExec";
 
     // Legacy Policy Aliases
     public const string AdminPolicy = "AdminPolicy";

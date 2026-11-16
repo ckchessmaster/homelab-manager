@@ -1,4 +1,4 @@
-import type { RoleMappingConfig, UserRole } from './AuthTypes'
+import type { AuthState, RoleMappingConfig, UserRole } from './AuthTypes'
 
 export const ROLE_HIERARCHY: Record<UserRole, UserRole[]> = {
   Admin: ['Admin', 'Operator', 'Viewer'],
@@ -69,4 +69,18 @@ export function getHighestRole(roles: UserRole[]): UserRole {
   if (roles.includes('Admin')) return 'Admin'
   if (roles.includes('Operator')) return 'Operator'
   return 'Viewer'
+}
+
+export function canUserExecPods(
+  auth: Pick<AuthState, 'isAdmin' | 'isOperator' | 'canExecPods'>,
+  podExecRequireAdmin?: boolean
+): boolean {
+  if (typeof auth.canExecPods === 'boolean') {
+    return auth.canExecPods
+  }
+  const envRequireAdmin = import.meta.env.VITE_POD_EXEC_REQUIRE_ADMIN === 'true'
+  if (podExecRequireAdmin || envRequireAdmin) {
+    return Boolean(auth.isAdmin)
+  }
+  return Boolean(auth.isOperator)
 }
