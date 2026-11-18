@@ -1407,4 +1407,145 @@ status:
 
         Assert.True(isReady);
     }
+
+    [Fact]
+    public async Task GetStorageOverviewAsync_UsesKubeletFilesystemUsage_AndKeepsLonghornPhysicalSizeSeparate()
+    {
+        const long CapacityBytes = 21474836480L;
+        const long LonghornPhysicalBytes = 30515064832L;
+        const long FilesystemUsedBytes = 5368709120L;
+
+        static HttpResponseMessage Json(string body) => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+
+        var summaryJson = @"{
+            ""node"": { ""nodeName"": ""worker-01"" },
+            ""pods"": [
+                {
+                    ""podRef"": { ""name"": ""app-0"", ""namespace"": ""demo"" },
+                    ""volume"": [
+                        {
+                            ""name"": ""data"",
+                            ""capacityBytes"": __CAPACITY__,
+                            ""availableBytes"": 16106127360,
+                            ""usedBytes"": __USED__,
+                            ""pvcRef"": { ""name"": ""data"", ""namespace"": ""demo"" }
+                        },
+                        { ""name"": ""kube-api-access-abcde"", ""capacityBytes"": 8214876160, ""usedBytes"": 12288 }
+                    ]
+                }
+            ]
+        }"
+            .Replace("__CAPACITY__", CapacityBytes.ToString())
+            .Replace("__USED__", FilesystemUsedBytes.ToString());
+
+        var pvcListJson = @"{
+            ""items"": [
+                {
+                    ""metadata"": { ""name"": ""data"", ""namespace"": ""demo"" },
+                    ""spec"": { ""storageClassName"": ""longhorn"", ""volumeName"": ""pvc-abc"", ""accessModes"": [ ""ReadWriteOnce"" ] },
+                    ""status"": { ""phase"": ""Bound"", ""capacity"": { ""storage"": ""20Gi"" } }
+                }
+            ]
+        }";
+
+        var storageClassListJson = @"{
+            ""items"": [
+                {
+                    ""metadata"": { ""name"": ""longhorn"" },
+                    ""provisioner"": ""driver.longhorn.io"",
+                    ""reclaimPolicy"": ""Delete"",
+                    ""volumeBindingMode"": ""Immediate""
+                }
+            ]
+        }";
+
+        // Longhorn's actualSize is physically stored bytes (snapshot layers + not-yet-reclaimed blocks);
+        // it exceeds the claim, so treating it as usage would paint every resized volume as full.
+        var longhornVolumeListJson = $@"{{
+            ""items"": [
+                {{
+                    ""metadata"": {{ ""name"": ""pvc-abc"" }},
+                    ""spec"": {{ ""size"": ""{CapacityBytes}"", ""numberOfReplicas"": 1 }},
+                    ""status"": {{
+                        ""state"": ""attached"",
+                        ""robustness"": ""healthy"",
+                        ""actualSize"": {LonghornPhysicalBytes},
+                        ""kubernetesStatus"": {{ ""pvName"": ""pvc-abc"", ""pvcName"": ""data"", ""pvcNamespace"": ""demo"" }}
+                    }}
+                }}
+            ]
+        }}";
+
+        var nodeListJson = @"{
+            ""items"": [
+                {
+                    ""metadata"": { ""name"": ""worker-01"" },
+                    ""status"": { ""conditions"": [ { ""type"": ""Ready"", ""status"": ""True"" } ] }
+                }
+            ]
+        }";
+
+        var (client, _) = CreateMockK8s(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (path.Contains("/proxy/stats/summary")) return Json(summaryJson);
+            if (path.Contains("/apis/longhorn.io/v1beta2/volumes")) return Json(longhornVolumeListJson);
+            if (path.EndsWith("/api/v1/nodes")) return Json(nodeListJson);
+            if (path.Contains("/persistentvolumeclaims")) return Json(pvcListJson);
+            if (path.Contains("/storageclasses")) return Json(storageClassListJson);
+            if (path.EndsWith("/api/v1/pods")) return Json(@"{ ""items"": [] }");
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var overview = await adapter.GetStorageOverviewAsync();
+
+        Assert.True(overview.LonghornDetected);
+        var pvc = Assert.Single(overview.Pvcs);
+        Assert.Equal(FilesystemUsedBytes, pvc.UsedBytes);
+        Assert.Equal(LonghornPhysicalBytes, pvc.LonghornPhysicalBytes);
+        Assert.Equal(CapacityBytes, pvc.CapacityBytes);
+        Assert.Equal("Healthy", pvc.ReplicaHealth);
+    }
+
+    [Fact]
+    public async Task GetStorageOverviewAsync_LeavesUsageUnknown_WhenNoFilesystemReportIsAvailable()
+    {
+        static HttpResponseMessage Json(string body) => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+
+        var pvcListJson = @"{
+            ""items"": [
+                {
+                    ""metadata"": { ""name"": ""cold-vol"", ""namespace"": ""archive"" },
+                    ""spec"": { ""storageClassName"": ""longhorn-static"", ""volumeName"": ""pvc-cold"", ""accessModes"": [ ""ReadWriteOnce"" ] },
+                    ""status"": { ""phase"": ""Bound"", ""capacity"": { ""storage"": ""10Gi"" } }
+                }
+            ]
+        }";
+
+        var (client, requests) = CreateMockK8s(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/api/v1/nodes")) return Json(@"{ ""items"": [] }");
+            if (path.Contains("/persistentvolumeclaims")) return Json(pvcListJson);
+            if (path.Contains("/storageclasses")) return Json(@"{ ""items"": [] }");
+            if (path.EndsWith("/api/v1/pods")) return Json(@"{ ""items"": [] }");
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var adapter = new KubernetesAdapter(client, NullLogger<KubernetesAdapter>.Instance);
+        var overview = await adapter.GetStorageOverviewAsync();
+
+        var pvc = Assert.Single(overview.Pvcs);
+        Assert.Null(pvc.UsedBytes);
+        Assert.Null(pvc.LonghornPhysicalBytes);
+        Assert.Equal(10737418240L, pvc.CapacityBytes);
+        Assert.DoesNotContain(requests, r => r.RequestUri!.AbsolutePath.Contains("/proxy/stats/summary"));
+    }
 }

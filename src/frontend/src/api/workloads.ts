@@ -186,6 +186,9 @@ export interface PvcSummary {
   usedBytes?: number | null
   capacityBytes?: number | null
   replicaHealth?: 'Healthy' | 'Degraded' | 'Faulted' | string | null
+  /** Bytes the CSI driver physically stores for this volume (Longhorn actualSize). Includes
+   *  snapshot layers and blocks the guest filesystem already freed, so it is not usage. */
+  longhornPhysicalBytes?: number | null
 }
 
 export interface StorageClassSummary {

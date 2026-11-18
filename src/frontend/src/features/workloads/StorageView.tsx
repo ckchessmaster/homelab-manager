@@ -214,7 +214,12 @@ export function StorageView({
                   <th className="p-3">Status</th>
                   <th className="p-3">Replica Health</th>
                   <th className="p-3">Capacity</th>
-                  <th className="p-3">Usage</th>
+                  <th
+                    className="p-3"
+                    title="Live filesystem usage of each claim, read from the kubelet. CSI on-disk size (which also covers snapshot layers and blocks freed inside the filesystem) is listed under it."
+                  >
+                    Usage
+                  </th>
                   <th className="p-3">Storage Class</th>
                   <th className="p-3">Access Mode</th>
                   <th className="p-3">Mounting Workload / Pod</th>
@@ -227,6 +232,11 @@ export function StorageView({
                     ? Math.min(100, Math.round((pvc.usedBytes! / pvc.capacityBytes) * 100))
                     : 0
                   const replicaHealth = pvc.replicaHealth || (pvc.status === 'Bound' ? 'Healthy' : undefined)
+                  const physicalBytes = pvc.longhornPhysicalBytes ?? null
+                  // Longhorn retains blocks until snapshots are purged, so on-disk size can outrun both
+                  // the filesystem and the claim. Flag it, but never let it act as usage.
+                  const physicalInflation = Boolean(hasUsage && physicalBytes !== null && pvc.usedBytes !== undefined && pvc.usedBytes !== null
+                    && physicalBytes > pvc.usedBytes + Math.max(256 * 1024 * 1024, (pvc.capacityBytes ?? 0) * 0.05))
 
                   return (
                     <tr key={`${pvc.namespace}-${pvc.name}`} className="hover:bg-zinc-800/40 transition-colors">
@@ -273,12 +283,12 @@ export function StorageView({
                       <td className="p-3 text-zinc-200 font-bold">{pvc.capacity || 'Unknown'}</td>
                       <td className="p-3">
                         {hasUsage && pvc.capacityBytes ? (
-                          <div className="space-y-1 w-28">
+                          <div className="space-y-1 w-32">
                             <div className="flex items-center justify-between text-[10px] font-mono">
-                              <span className="text-zinc-300 font-semibold">
+                              <span className="text-zinc-300 font-semibold" title="Filesystem usage reported by the kubelet">
                                 {formatBytes(pvc.usedBytes!)}
                               </span>
-                              <span className="text-zinc-500">
+                              <span className="text-zinc-500" title="Filesystem usage reported by the kubelet">
                                 {usagePercent}%
                               </span>
                             </div>
@@ -296,6 +306,26 @@ export function StorageView({
                                 }}
                               />
                             </div>
+                            {physicalBytes !== null && (
+                              <div
+                                className={`text-[10px] font-mono ${physicalInflation ? 'text-amber-300' : 'text-zinc-500'}`}
+                                title={
+                                  physicalInflation
+                                    ? `Longhorn stores ${formatBytes(physicalBytes)} on storage nodes for this volume. That covers snapshot layers (volume expansions snapshot the previous head) and blocks the workspace deleted but Longhorn has not reclaimed yet, so it can exceed the ${pvc.capacity || 'provisioned'} claim while the filesystem itself stays mostly empty.`
+                                    : `Longhorn on-disk size: ${formatBytes(physicalBytes)}`
+                                }
+                              >
+                                on disk {formatBytes(physicalBytes)}
+                                {physicalInflation ? ' *' : ''}
+                              </div>
+                            )}
+                          </div>
+                        ) : physicalBytes !== null ? (
+                          <div
+                            className="w-32 text-[10px] font-mono text-zinc-500"
+                            title="No running pod mounts this claim, so the kubelet has no filesystem usage. Shown instead is the size Longhorn physically stores, which includes snapshot layers and unreclaimed blocks."
+                          >
+                            {formatBytes(physicalBytes)} on disk
                           </div>
                         ) : (
                           <span className="text-zinc-600 font-mono text-[11px]">-</span>
@@ -327,6 +357,12 @@ export function StorageView({
                 })}
               </tbody>
             </table>
+            <p className="px-3 py-2 text-[10px] leading-relaxed text-zinc-500 border-t border-zinc-800/60">
+              Usage is live filesystem data read from the kubelet.{' '}
+              <span className="text-amber-300 font-mono">on disk *</span> is what the storage layer physically keeps for the volume, which
+              also covers snapshot layers (expanding a volume snapshots its previous head) and blocks the guest deleted but the storage
+              layer has not reclaimed. It can exceed the claim while the filesystem itself is nearly empty.
+            </p>
           </div>
         )}
       </div>

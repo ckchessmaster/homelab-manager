@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v1.10.2
+
+### Fixed
+* **PVC Inventory Usage Reporting (Workloads -> Storage)**:
+  * The PVC inventory derived `usedBytes` from the Longhorn volume `status.actualSize`, which is the
+    physical size the storage layer retains for a volume: live data plus snapshot layers plus blocks the
+    guest filesystem already freed. Because Longhorn snapshots the current head whenever a volume is
+    expanded, every resized claim instantly reported a full bar (for example a 20Gi workspace holding
+    159 MB of files showed 28.4 GiB and 100%) even though its filesystem sat at 1% usage.
+  * `KubernetesAdapter.GetStorageOverviewAsync` now reads live filesystem usage per claim from the kubelet
+    stats summary (`/api/v1/nodes/<node>/proxy/stats/summary`, matched through `pvcRef`), so the bar and
+    percentage reflect the mounted filesystem. Longhorn's physical size is returned separately as
+    `longhornPhysicalBytes` and rendered as a labelled `on disk` value with an explanatory tooltip and
+    legend, never as filesystem usage.
+  * Removed a fallback that invented usage as 38% of capacity for bound claims without a Longhorn record.
+    Unknown usage is now reported as unknown. Claims with no running pod show on-disk size only, since the
+    kubelet has no filesystem for them.
+  * Requires the cluster credential to permit `nodes/proxy` `get`. Where it is not granted, the inventory
+    degrades to on-disk size instead of a percentage rather than guessing.
+
+---
+
 ## v1.10.1
 
 ### Fixed
