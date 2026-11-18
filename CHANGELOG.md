@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## v1.10.2
 
+### Changed
+* **ControlPlane API Memory Limit**: Raised the default `api.resources.limits.memory` in
+  `charts/controlplane` from `512Mi` to `1Gi`. The API routinely sits above 350 MiB in production and
+  now fans out to the kubelet stats summary for PVC inventory usage, so the previous limit left almost
+  no headroom on the second replica.
+
 ### Fixed
 * **PVC Inventory Usage Reporting (Workloads -> Storage)**:
   * The PVC inventory derived `usedBytes` from the Longhorn volume `status.actualSize`, which is the
