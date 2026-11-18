@@ -310,7 +310,8 @@ public record K8sPvcSummaryDto(
     DateTime? CreationTimestamp,
     long? UsedBytes = null,
     long? CapacityBytes = null,
-    string? ReplicaHealth = null
+    string? ReplicaHealth = null,
+    long? LonghornPhysicalBytes = null
 );
 
 public record K8sStorageClassDto(

@@ -2987,6 +2987,119 @@ public class KubernetesAdapter : IKubernetesAdapter
         return result;
     }
 
+    /// <summary>
+    /// Reads live filesystem usage for every mounted PVC from the kubelet stats summary API.
+    /// CSI volume sizes (e.g. Longhorn status.actualSize) describe bytes held on storage nodes and
+    /// include snapshot layers plus blocks the guest filesystem already freed, so they cannot be
+    /// presented as "used space" against a PVC capacity. Best effort: a node that cannot be reached
+    /// simply contributes no usage entry for the claims mounted on it.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, long>> GetKubeletVolumeUsageAsync(CancellationToken ct)
+    {
+        var usage = new System.Collections.Concurrent.ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        var httpClient = (_client as k8s.Kubernetes)?.HttpClient;
+        var baseUri = _client.BaseUri ?? httpClient?.BaseAddress;
+        if (httpClient is null || baseUri is null)
+        {
+            _logger.LogWarning("Kubernetes client exposes no raw HTTP client or base URI; skipping kubelet volume usage");
+            return usage;
+        }
+
+        var nodeNames = new List<string>();
+        try
+        {
+            var nodes = await _client.CoreV1.ListNodeAsync(cancellationToken: ct);
+            foreach (var node in nodes?.Items ?? new List<V1Node>())
+            {
+                var nodeName = node.Metadata?.Name;
+                if (string.IsNullOrWhiteSpace(nodeName)) continue;
+
+                var ready = node.Status?.Conditions
+                    ?.Any(c => string.Equals(c.Type, "Ready", StringComparison.OrdinalIgnoreCase) && c.Status == "True") ?? false;
+                if (ready) nodeNames.Add(nodeName);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to list nodes while collecting PVC filesystem usage");
+            return usage;
+        }
+
+        if (nodeNames.Count == 0) return usage;
+
+        using var gate = new SemaphoreSlim(4);
+        var collectors = nodeNames.Select(async nodeName =>
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    new Uri(baseUri, $"/api/v1/nodes/{Uri.EscapeDataString(nodeName)}/proxy/stats/summary"));
+                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("Node {Node} answered stats/summary with {Status}", nodeName, response.StatusCode);
+                    return;
+                }
+
+                await using var stream = await response.Content.ReadAsStreamAsync(ct);
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+                if (!document.RootElement.TryGetProperty("pods", out var pods) || pods.ValueKind != JsonValueKind.Array) return;
+
+                foreach (var pod in pods.EnumerateArray())
+                {
+                    if (!pod.TryGetProperty("volume", out var volumes) || volumes.ValueKind != JsonValueKind.Array) continue;
+
+                    foreach (var volumeStats in volumes.EnumerateArray())
+                    {
+                        if (!volumeStats.TryGetProperty("pvcRef", out var pvcRef) || pvcRef.ValueKind != JsonValueKind.Object) continue;
+
+                        var claimName = pvcRef.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
+                        var claimNamespace = pvcRef.TryGetProperty("namespace", out var nsProp) ? nsProp.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(claimName) || string.IsNullOrWhiteSpace(claimNamespace)) continue;
+
+                        if (volumeStats.TryGetProperty("usedBytes", out var usedProp) && usedProp.TryGetInt64(out var usedBytes))
+                        {
+                            usage[$"{claimNamespace}/{claimName}"] = usedBytes;
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to read PVC filesystem usage from node {Node}", nodeName);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+
+        try
+        {
+            await Task.WhenAll(collectors);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+
+        _logger.LogDebug("Collected kubelet filesystem usage for {Entries} of {Nodes} nodes", usage.Count, nodeNames.Count);
+        return usage;
+    }
+
     public async Task<K8sStorageOverviewDto> GetStorageOverviewAsync(string? namespaceName = null, CancellationToken ct = default)
     {
         try
@@ -3046,7 +3159,10 @@ public class KubernetesAdapter : IKubernetesAdapter
                 }
             }
 
-            var longhornVolumeMap = new Dictionary<string, (long usedBytes, string robustness)>(StringComparer.OrdinalIgnoreCase);
+            // Longhorn reports status.actualSize = bytes physically held on the replica disks for this
+            // volume, which includes snapshot layers and blocks the guest already deleted. It is not
+            // filesystem usage, so it is carried separately from UsedBytes.
+            var longhornVolumeMap = new Dictionary<string, (long physicalBytes, string robustness)>(StringComparer.OrdinalIgnoreCase);
             if (longhornDetected)
             {
                 try
@@ -3089,6 +3205,8 @@ public class KubernetesAdapter : IKubernetesAdapter
                 }
             }
 
+            var volumeUsage = await GetKubeletVolumeUsageAsync(ct);
+
             var pvcDtos = new List<K8sPvcSummaryDto>();
             long totalCapacityBytes = 0;
             int boundCount = 0;
@@ -3115,16 +3233,21 @@ public class KubernetesAdapter : IKubernetesAdapter
                     var mountingPods = pvcToPods.TryGetValue(key, out var plist) ? plist : new List<string>();
 
                     long? usedBytes = null;
+                    long? longhornPhysicalBytes = null;
                     string replicaHealth = status == "Bound" ? "Healthy" : "Degraded";
 
                     if (!string.IsNullOrWhiteSpace(pvc.Spec?.VolumeName) && longhornVolumeMap.TryGetValue(pvc.Spec.VolumeName, out var lhInfo))
                     {
-                        usedBytes = lhInfo.usedBytes;
+                        longhornPhysicalBytes = lhInfo.physicalBytes > 0 ? lhInfo.physicalBytes : null;
                         replicaHealth = lhInfo.robustness;
                     }
-                    else if (capBytes.HasValue && status == "Bound")
+
+                    // Usage is the mounted filesystem's own number. When a claim is not attached to a
+                    // running pod the kubelet has nothing to report, so usage stays unknown instead of
+                    // being guessed from the CSI physical size (or, as before, from a fixed percentage).
+                    if (volumeUsage.TryGetValue(key, out var filesystemUsedBytes))
                     {
-                        usedBytes = (long)(capBytes.Value * 0.38);
+                        usedBytes = filesystemUsedBytes;
                     }
 
                     pvcDtos.Add(new K8sPvcSummaryDto(
@@ -3139,7 +3262,8 @@ public class KubernetesAdapter : IKubernetesAdapter
                         CreationTimestamp: pvc.Metadata?.CreationTimestamp,
                         UsedBytes: usedBytes,
                         CapacityBytes: capBytes,
-                        ReplicaHealth: replicaHealth
+                        ReplicaHealth: replicaHealth,
+                        LonghornPhysicalBytes: longhornPhysicalBytes
                     ));
                 }
             }
